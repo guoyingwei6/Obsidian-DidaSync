@@ -1,5 +1,7 @@
 import { App, Setting } from "obsidian";
 import DidaSyncPlugin from "../../main";
+import { DEFAULT_SETTINGS } from "../../types";
+import { normalizePomodoroPresetMinutes } from "../../utils";
 import { AbstractSettingsView } from "./abstract-settings-view";
 
 export class UISettingsView extends AbstractSettingsView {
@@ -31,5 +33,60 @@ export class UISettingsView extends AbstractSettingsView {
                 this.plugin.refreshTaskView();
             });
         });
+
+        const pomodoroHeading = containerEl.createDiv({ cls: "setting-item-heading" });
+        pomodoroHeading.createDiv({ text: "番茄钟休息设置" });
+        pomodoroHeading.createDiv({
+            cls: "setting-item-description",
+            text: "设置短休息和长休息的默认时长。修改后会应用到后续休息阶段；若当前停留在未开始的休息阶段，也会同步更新显示。"
+        });
+
+        new Setting(containerEl).setName("短休息时长").setDesc("每个专注番茄结束后的短休息时长（分钟）").addSlider(t =>
+            t.setLimits(1, 15, 1)
+                .setValue(this.plugin.settings.pomodoroSettings?.shortBreakMinutes || 5)
+                .setDynamicTooltip()
+                .onChange(async value => {
+                    const current = this.plugin.settings.pomodoroSettings || { ...DEFAULT_SETTINGS.pomodoroSettings };
+                    this.plugin.settings.pomodoroSettings = { ...current, shortBreakMinutes: value };
+                    await this.plugin.saveSettings();
+                    this.app.workspace.getLeavesOfType("dida-task-view").forEach((leaf) => {
+                        const view: any = leaf.view;
+                        if (view?.pomodoroState && view.pomodoroState.phase === "shortBreak" && !view.pomodoroState.isRunning) {
+                            view.resetPomodoroPhase("shortBreak");
+                            view.renderPomodoroPanel();
+                            view.updatePomodoroUI();
+                        }
+                    });
+                })
+        );
+
+        new Setting(containerEl).setName("长休息时长").setDesc("每 4 个专注番茄结束后的长休息时长（分钟）").addSlider(t =>
+            t.setLimits(15, 30, 1)
+                .setValue(this.plugin.settings.pomodoroSettings?.longBreakMinutes || 15)
+                .setDynamicTooltip()
+                .onChange(async value => {
+                    const current = this.plugin.settings.pomodoroSettings || { ...DEFAULT_SETTINGS.pomodoroSettings };
+                    const presets = normalizePomodoroPresetMinutes(
+                        [...(current.longBreakPresetMinutes || []), value],
+                        15,
+                        30,
+                        DEFAULT_SETTINGS.pomodoroSettings.longBreakPresetMinutes
+                    );
+                    this.plugin.settings.pomodoroSettings = {
+                        ...current,
+                        longBreakMinutes: value,
+                        longBreakPresetMinutes: presets
+                    };
+                    await this.plugin.saveSettings();
+                    this.app.workspace.getLeavesOfType("dida-task-view").forEach((leaf) => {
+                        const view: any = leaf.view;
+                        if (view?.pomodoroState && view.pomodoroState.phase === "longBreak" && !view.pomodoroState.isRunning) {
+                            view.resetPomodoroPhase("longBreak");
+                            view.renderPomodoroPanel();
+                            view.updatePomodoroUI();
+                        }
+                    });
+                })
+        );
     }
 }

@@ -440,6 +440,95 @@
     flex-grow: 1;
 }
 
+.dida-project-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+.dida-project-icon svg {
+    width: 16px;
+    height: 16px;
+    stroke: #ff6565;
+    margin-left: 2px;
+}
+
+.dida-project-archived-icon {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 5px;
+    vertical-align: middle;
+}
+
+.dida-icon-picker-modal {
+    min-width: 520px;
+}
+
+.dida-icon-search-container {
+    margin-bottom: 12px;
+}
+
+.dida-icon-search-input {
+    width: 100%;
+}
+
+.dida-icon-grid-container {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    max-height: 360px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+}
+
+.dida-icon-grid-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    cursor: pointer;
+    transition:
+        background-color 0.2s ease,
+        border-color 0.2s ease;
+}
+
+.dida-icon-grid-item:hover,
+.dida-icon-grid-item.is-focused {
+    background: var(--background-modifier-hover);
+    border-color: var(--interactive-accent);
+}
+
+.dida-icon-preview {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+}
+
+.dida-icon-name {
+    font-size: 12px;
+    text-align: center;
+    word-break: break-word;
+}
+
+.dida-icon-no-results {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 24px 0;
+}
+
+.dida-icon-button-container {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
 .dida-project-title:hover {
     color: var(--text-normal);
     cursor: pointer;
@@ -1772,6 +1861,400 @@ label+.dida-project-select {
 
 .dida-timeline-btn:hover svg {
     color: var(--text-normal);
+}
+
+.dida-pomodoro-toggle-btn.is-active {
+    background: var(--background-modifier-hover);
+}
+
+.dida-pomodoro-toggle-btn.is-active svg {
+    color: var(--text-accent);
+}
+
+.dida-pomodoro-toggle-btn.is-locked,
+.dida-pomodoro-toggle-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.dida-pomodoro-toggle-btn:disabled:hover {
+    transform: none;
+    background: transparent;
+}
+
+.dida-pomodoro-toggle-btn:disabled:hover svg {
+    color: var(--text-muted);
+}
+
+.dida-pomodoro-host {
+    margin: 10px 0 12px;
+}
+
+.dida-pomodoro-only-view {
+    display: none;
+}
+
+.dida-pomodoro-panel {
+    padding: 14px 12px 12px;
+}
+
+.dida-pomodoro-summary {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+}
+
+.dida-pomodoro-ring-card {
+    display: flex;
+    justify-content: center;
+    min-height: 220px;
+    align-items: center;
+}
+
+.dida-pomodoro-ring-button {
+    width: 180px;
+    height: 180px;
+    border: none;
+    background: transparent !important;
+    box-shadow: none !important;
+    position: relative;
+    padding: 0;
+    cursor: pointer;
+}
+
+.dida-pomodoro-ring {
+    width: 180px;
+    height: 180px;
+    transform: rotate(-90deg);
+}
+
+.dida-pomodoro-ring-track,
+.dida-pomodoro-ring-progress {
+    fill: none;
+    stroke-width: 3;
+}
+
+.dida-pomodoro-ring-track {
+    stroke: color-mix(in srgb,
+            var(--background-modifier-border) 76%,
+            transparent);
+}
+
+.dida-pomodoro-ring-progress {
+    stroke: #f97316;
+    stroke-linecap: round;
+    transition:
+        stroke-dashoffset 0.25s linear,
+        stroke 0.2s ease;
+}
+
+.dida-pomodoro-panel[data-phase="shortBreak"] .dida-pomodoro-ring-progress {
+    stroke: #22c55e;
+}
+
+.dida-pomodoro-panel[data-phase="longBreak"] .dida-pomodoro-ring-progress {
+    stroke: #3b82f6;
+}
+
+.dida-pomodoro-ring-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.dida-pomodoro-phase {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.dida-pomodoro-time {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-normal);
+    cursor: pointer;
+    border-radius: 10px;
+    padding: 0 4px;
+    transition:
+        background-color 0.15s ease,
+        color 0.15s ease;
+}
+
+.dida-pomodoro-time:hover,
+.dida-pomodoro-time:focus-visible {
+    color: var(--text-accent);
+    outline: none;
+}
+
+.dida-pomodoro-hint {
+    font-size: 11px;
+    color: var(--text-faint);
+}
+
+.dida-pomodoro-picker {
+    width: 100%;
+    max-width: 200px;
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--background-primary) 94%, white 6%);
+    padding: 18px 16px 16px;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--background-modifier-border) 78%, transparent);
+}
+
+.dida-pomodoro-picker-header {
+    position: relative;
+    margin-bottom: 14px;
+}
+
+.dida-pomodoro-picker-title {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-normal);
+}
+
+.dida-pomodoro-picker-close-btn {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background-color: transparent !important;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0;
+    box-shadow: none !important;
+}
+
+.dida-pomodoro-picker-close-btn:hover {
+    background: var(--background-modifier-hover) !important;
+    color: var(--text-normal);
+}
+
+.dida-pomodoro-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.dida-pomodoro-picker-option {
+    position: relative;
+    min-height: 35px;
+    border: none;
+    border-radius: 16px;
+    background: var(--background-modifier-hover) !important;
+    font-size: 16px;
+    cursor: pointer;
+    transition:
+        transform 0.15s ease,
+        box-shadow 0.15s ease;
+    box-shadow: none !important;
+}
+
+.dida-pomodoro-picker-option:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+.dida-pomodoro-picker-remove-btn {
+    position: absolute;
+    top: 0px;
+    right: 0px;
+    width: 18px;
+    height: 18px;
+    border: none;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.08) !important;
+    color: var(--text-muted);
+    font-size: 16px;
+    line-height: 1;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+        opacity 0.15s ease,
+        background 0.15s ease,
+        color 0.15s ease;
+    box-shadow: none !important;
+}
+
+.dida-pomodoro-picker-option.is-removable:hover .dida-pomodoro-picker-remove-btn {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.dida-pomodoro-picker-remove-btn:hover {
+    background: rgba(220, 38, 38, 0.12) !important;
+    color: #dc2626;
+}
+
+.dida-pomodoro-picker-custom-toggle {
+    font-size: 18px;
+}
+
+.dida-pomodoro-picker-custom-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.dida-pomodoro-picker-custom-input {
+    flex: 1;
+    text-align: center;
+    border-radius: 12px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+}
+
+.dida-pomodoro-picker-apply-btn {
+    border-radius: 12px;
+    border: none;
+    padding: 0 12px;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.dida-pomodoro-controls {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.dida-pomodoro-control-btn {
+    border: none;
+    border-radius: 999px;
+    padding: 6px 12px;
+    background: var(--background-modifier-hover) !important;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease;
+}
+
+.dida-pomodoro-control-btn:hover {
+    transform: translateY(-1px);
+}
+
+.dida-pomodoro-control-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+.dida-pomodoro-single-start-btn {
+    padding: 6px 24px;
+    font-weight: 600;
+}
+
+.dida-pomodoro-controls.is-break-ready .dida-pomodoro-single-start-btn {
+    background: var(--interactive-accent) !important;
+    color: var(--text-on-accent);
+}
+
+.dida-pomodoro-trend-section {
+    margin-top: 16px;
+}
+
+.dida-pomodoro-trend-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.dida-pomodoro-trend-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.dida-pomodoro-trend-tabs {
+    display: flex;
+    gap: 4px;
+}
+
+.dida-pomodoro-trend-tab {
+    border: none;
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    background: var(--background-modifier-hover) !important;
+    color: var(--text-muted);
+}
+
+.dida-pomodoro-trend-tab.is-active {
+    background: var(--interactive-accent) !important;
+    color: var(--text-on-accent);
+}
+
+.dida-pomodoro-trend-chart {
+    overflow-x: auto;
+    padding-bottom: 6px;
+}
+
+.dida-pomodoro-trend-plot {
+    position: relative;
+}
+
+.dida-pomodoro-trend-svg {
+    width: 100%;
+    height: 150px;
+}
+
+.dida-pomodoro-trend-area {
+    fill: url(#dida-pomodoro-trend-gradient);
+}
+
+.dida-pomodoro-trend-line {
+    fill: none;
+    stroke: #5c6ff7;
+    stroke-width: 1.8;
+}
+
+.dida-pomodoro-trend-dot {
+    fill: #5c6ff7;
+}
+
+.dida-pomodoro-trend-axis {
+    position: relative;
+    height: 18px;
+}
+
+.dida-pomodoro-trend-axis-item {
+    position: absolute;
+    transform: translateX(-50%);
+    top: 0;
+}
+
+.dida-pomodoro-trend-label {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.dida-pomodoro-trend-tooltip {
+    position: absolute;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: var(--background-secondary);
+    font-size: 10px;
+    color: var(--text-normal);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.dida-pomodoro-trend-tooltip.is-visible {
+    opacity: 1;
 }
 
 /* 时间线模态框样式 */
