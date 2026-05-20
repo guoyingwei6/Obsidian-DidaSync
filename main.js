@@ -37,7 +37,7 @@ __export(main_exports, {
   default: () => DidaSyncPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian13 = require("obsidian");
+var import_obsidian17 = require("obsidian");
 
 // src/api/DidaApiClient.ts
 var import_electron = require("electron");
@@ -92,6 +92,8 @@ var DEFAULT_SETTINGS = {
   refreshToken: "",
   tasks: [],
   projects: [],
+  projectCatalog: [],
+  projectIcons: {},
   autoSync: true,
   syncInterval: 5,
   serverPort: 8080,
@@ -105,6 +107,17 @@ var DEFAULT_SETTINGS = {
   defaultViewMode: "task",
   timeBlockHourHeight: 80,
   timeBlockStartHour: 0,
+  pomodoroSettings: {
+    focusMinutes: 25,
+    shortBreakMinutes: 5,
+    longBreakMinutes: 15,
+    focusPresetMinutes: [15, 25, 40, 60],
+    longBreakPresetMinutes: [15, 20, 25, 30],
+    completionHistory: {},
+    selectedSound: "none",
+    totalFocusSessions: 0,
+    totalFocusMinutes: 0
+  },
   reverseCompletionMeta: {},
   syncConsistencyMeta: {}
 };
@@ -1814,6 +1827,28 @@ function debounce(func, wait) {
     }, wait);
   };
 }
+function normalizePomodoroPresetMinutes(presets, min, max, defaults) {
+  let normalized = (Array.isArray(presets) ? presets : defaults).map((value) => parseInt(String(value), 10)).filter((value) => Number.isFinite(value) && value >= min && value <= max);
+  normalized = Array.from(new Set(normalized)).sort((a, b) => a - b);
+  return normalized.length > 0 ? normalized : defaults.slice();
+}
+function normalizePomodoroCompletionHistory(history) {
+  if (!history || typeof history !== "object")
+    return {};
+  const normalized = {};
+  Object.entries(history).forEach(([key, value]) => {
+    var _a, _b;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key))
+      return;
+    const sessions = parseInt(String((_a = value == null ? void 0 : value.sessions) != null ? _a : 0), 10);
+    const minutes = parseInt(String((_b = value == null ? void 0 : value.minutes) != null ? _b : 0), 10);
+    normalized[key] = {
+      sessions: Number.isFinite(sessions) && sessions > 0 ? sessions : 0,
+      minutes: Number.isFinite(minutes) && minutes > 0 ? minutes : 0
+    };
+  });
+  return normalized;
+}
 function translateRepeatFlag(repeatFlag) {
   if (!repeatFlag || "" === repeatFlag)
     return "";
@@ -1871,13 +1906,26 @@ var TaskView = class extends import_obsidian4.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.lastOpenTaskItem = null;
+    this.pomodoroToggleBtn = null;
+    this.pomodoroHostEl = null;
     this.plugin = plugin;
     this.searchQuery = "";
     this.isComposing = false;
     this.viewMode = "task";
+    this.isPomodoroVisible = false;
+    this.pomodoroInterval = null;
+    this.pomodoroTargetEndAt = null;
+    this.pomodoroAudioContext = null;
+    this.pomodoroAudioNodes = [];
+    this.pomodoroElements = {};
+    this.isPomodoroDurationPickerVisible = false;
+    this.isPomodoroCustomInputVisible = false;
+    this.pomodoroCustomMinutes = "";
+    this.pomodoroTrendPeriod = "week";
     this.dateFilter = null;
     this.eventCleanupHandlers = [];
     this.selectedDate = null;
+    this.initializePomodoroState();
     this.debouncedSearch = debounce((query) => {
       if (this.searchQuery !== query) {
         this.searchQuery = query;
@@ -1886,6 +1934,933 @@ var TaskView = class extends import_obsidian4.ItemView {
         });
       }
     }, 300);
+  }
+  initializePomodoroState() {
+    const settings = this.getPomodoroSettings();
+    this.pomodoroState = {
+      phase: "focus",
+      isRunning: false,
+      remainingSeconds: 60 * settings.focusMinutes,
+      durationSeconds: 60 * settings.focusMinutes,
+      cycleFocusCount: 0
+    };
+  }
+  getPomodoroSettings() {
+    const settings = this.plugin.settings.pomodoroSettings || {};
+    const merged = { ...DEFAULT_SETTINGS.pomodoroSettings, ...settings };
+    merged.completionHistory = normalizePomodoroCompletionHistory(merged.completionHistory);
+    return merged;
+  }
+  async updatePomodoroSettings(update) {
+    const next = { ...this.getPomodoroSettings(), ...update };
+    next.completionHistory = normalizePomodoroCompletionHistory(next.completionHistory);
+    this.plugin.settings.pomodoroSettings = next;
+    await this.plugin.saveSettings();
+  }
+  getPomodoroDateKey(date = new Date()) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+  getPomodoroCompletionHistory() {
+    const history = this.getPomodoroSettings().completionHistory;
+    return history && typeof history === "object" ? history : {};
+  }
+  getTodayPomodoroStats() {
+    const key = this.getPomodoroDateKey();
+    return this.getPomodoroCompletionHistory()[key] || { sessions: 0, minutes: 0 };
+  }
+  async recordPomodoroCompletion(minutes) {
+    const settings = this.getPomodoroSettings();
+    const history = { ...this.getPomodoroCompletionHistory() };
+    const key = this.getPomodoroDateKey();
+    const stats = history[key] || { sessions: 0, minutes: 0 };
+    history[key] = {
+      sessions: (stats.sessions || 0) + 1,
+      minutes: (stats.minutes || 0) + minutes
+    };
+    await this.updatePomodoroSettings({
+      completionHistory: history,
+      totalFocusSessions: (settings.totalFocusSessions || 0) + 1,
+      totalFocusMinutes: (settings.totalFocusMinutes || 0) + minutes
+    });
+  }
+  getPomodoroTrendData(period = this.pomodoroTrendPeriod) {
+    const history = this.getPomodoroCompletionHistory();
+    const now = new Date();
+    const data = [];
+    if (period === "year") {
+      for (let i = 0; i < 12; i++) {
+        const minutes = Object.entries(history).reduce((sum, [key, value]) => {
+          const date = new Date(`${key}T00:00:00`);
+          return date.getFullYear() === now.getFullYear() && date.getMonth() === i ? sum + (value.minutes || 0) : sum;
+        }, 0);
+        data.push({ label: `${i + 1}\u6708`, minutes });
+      }
+    } else if (period === "month") {
+      const year = now.getFullYear();
+      const month = now.getMonth();
+      const days = new Date(year, month + 1, 0).getDate();
+      for (let i = 1; i <= days; i++) {
+        const date = new Date(year, month, i);
+        const stats = history[this.getPomodoroDateKey(date)] || { minutes: 0 };
+        data.push({ label: String(i), minutes: stats.minutes || 0 });
+      }
+    } else {
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date(now);
+        date.setHours(0, 0, 0, 0);
+        date.setDate(now.getDate() - i);
+        const key = this.getPomodoroDateKey(date);
+        const stats = history[key] || { minutes: 0 };
+        data.push({
+          label: ["\u65E5", "\u4E00", "\u4E8C", "\u4E09", "\u56DB", "\u4E94", "\u516D"][date.getDay()],
+          minutes: stats.minutes || 0
+        });
+      }
+    }
+    return data;
+  }
+  getPomodoroTrendSectionTitle() {
+    return "\u4E13\u6CE8\u8D8B\u52BF";
+  }
+  getPomodoroTrendRangeLabel(period = this.pomodoroTrendPeriod) {
+    return period === "month" ? "\u93C8\uE101\u6E40" : period === "year" ? "\u93C8\uE100\u52FE" : "\u93C8\uE100\u61C6";
+  }
+  getPomodoroTrendAxisLabel(item, index, length, period = this.pomodoroTrendPeriod) {
+    if (period === "year")
+      return index % 2 === 0 || index === length - 1 ? item.label : "";
+    if (period !== "month")
+      return item.label;
+    const label = parseInt(item.label, 10);
+    return label === 1 || label === length || label % 5 === 0 ? item.label : "";
+  }
+  buildPomodoroSmoothPath(points) {
+    if (!points || points.length === 0)
+      return "";
+    if (points.length === 1)
+      return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+    const xs = points.map((p) => p.x);
+    const ys = points.map((p) => p.y);
+    const slopes = [];
+    const tangents = new Array(points.length).fill(0);
+    for (let i = 0; i < points.length - 1; i++) {
+      const dx = xs[i + 1] - xs[i];
+      const dy = ys[i + 1] - ys[i];
+      slopes.push(dx === 0 ? 0 : dy / dx);
+    }
+    tangents[0] = slopes[0];
+    tangents[points.length - 1] = slopes[slopes.length - 1];
+    for (let i = 1; i < points.length - 1; i++) {
+      const prev = slopes[i - 1];
+      const next = slopes[i];
+      tangents[i] = prev === 0 || next === 0 || prev > 0 !== next > 0 ? 0 : (prev + next) / 2;
+    }
+    for (let i = 0; i < slopes.length; i++) {
+      if (slopes[i] === 0) {
+        tangents[i] = 0;
+        tangents[i + 1] = 0;
+      } else {
+        const a = tangents[i] / slopes[i];
+        const b = tangents[i + 1] / slopes[i];
+        const h = Math.hypot(a, b);
+        if (h > 3) {
+          const scale = 3 / h;
+          tangents[i] = scale * a * slopes[i];
+          tangents[i + 1] = scale * b * slopes[i];
+        }
+      }
+    }
+    let path = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i];
+      const p1 = points[i + 1];
+      const dx = p1.x - p0.x;
+      const prevSlope = i > 0 ? slopes[i - 1] : slopes[i];
+      const nextSlope = i < slopes.length - 1 ? slopes[i + 1] : slopes[i];
+      const hasPrevSwitch = i > 0 && slopes[i - 1] !== 0 && slopes[i] !== 0 && slopes[i - 1] > 0 !== slopes[i] > 0;
+      const hasNextSwitch = i < slopes.length - 1 && slopes[i] !== 0 && slopes[i + 1] !== 0 && slopes[i] > 0 !== slopes[i + 1] > 0;
+      let c1 = dx / 3;
+      let c2 = dx / 3;
+      if (p0.y !== p1.y) {
+        c1 = hasPrevSwitch ? 0.44 * dx : prevSlope !== 0 && slopes[i] !== 0 ? 0.36 * dx : c1;
+        c2 = hasNextSwitch ? 0.44 * dx : nextSlope !== 0 && slopes[i] !== 0 ? 0.36 * dx : c2;
+      }
+      const x1 = p0.x + c1;
+      const y1 = p0.y + tangents[i] * c1;
+      const x2 = p1.x - c2;
+      const y2 = p1.y - tangents[i + 1] * c2;
+      path += ` C ${x1.toFixed(2)} ${y1.toFixed(2)} ${x2.toFixed(2)} ${y2.toFixed(2)} ${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`;
+    }
+    return path;
+  }
+  buildPomodoroTrendSvg(data, period = this.pomodoroTrendPeriod) {
+    const width = Math.max(period === "month" ? 220 : 320, data.length * (period === "month" ? 11 : 22));
+    const availableWidth = width - 28;
+    const step = data.length > 1 ? availableWidth / (data.length - 1) : availableWidth;
+    const maxMinutes = Math.max(1, ...data.map((item) => item.minutes || 0));
+    const points = data.map((item, index) => ({
+      x: 14 + step * index,
+      y: 118 - 76 * ((item.minutes || 0) / maxMinutes),
+      minutes: item.minutes || 0,
+      label: item.label
+    }));
+    const line = this.buildPomodoroSmoothPath(points);
+    const area = `${line} L ${points[points.length - 1].x.toFixed(2)} 118 L ${points[0].x.toFixed(2)} 118 Z`;
+    const dots = points.map((point) => `
+
+            <circle
+
+                cx="${point.x.toFixed(2)}"
+
+                cy="${point.y.toFixed(2)}"
+
+                r="2.5"
+
+                class="dida-pomodoro-trend-dot"
+
+                data-label="${point.label}"
+
+                data-minutes="${point.minutes}"
+
+            />
+
+        `).join("");
+    return {
+      chartWidth: width,
+      points,
+      svg: `
+
+            <svg class="dida-pomodoro-trend-svg" viewBox="0 0 ${width} 150" preserveAspectRatio="none" aria-hidden="true">
+
+                <defs>
+
+                    <linearGradient id="dida-pomodoro-trend-gradient" x1="0" x2="0" y1="0" y2="1">
+
+                        <stop offset="0%" stop-color="rgba(92, 111, 247, 0.55)"></stop>
+
+                        <stop offset="100%" stop-color="rgba(92, 111, 247, 0.02)"></stop>
+
+                    </linearGradient>
+
+                </defs>
+
+                <path d="${area}" class="dida-pomodoro-trend-area"></path>
+
+                <path d="${line}" class="dida-pomodoro-trend-line"></path>
+
+                ${dots}
+
+            </svg>
+
+        `
+    };
+  }
+  bindPomodoroTrendTooltip(container) {
+    const tooltip = container.querySelector(".dida-pomodoro-trend-tooltip");
+    const dots = container.querySelectorAll(".dida-pomodoro-trend-dot");
+    if (!tooltip || dots.length === 0)
+      return;
+    const handleEnter = (event) => {
+      const target = event.currentTarget;
+      const minutes = target.getAttribute("data-minutes") || "0";
+      tooltip.textContent = `${minutes} \u5206\u949F`;
+      tooltip.classList.add("is-visible");
+      const bounds = container.getBoundingClientRect();
+      const left = event.clientX - bounds.left;
+      const top = event.clientY - bounds.top;
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${Math.max(6, top - 16)}px`;
+    };
+    const handleLeave = () => {
+      tooltip.classList.remove("is-visible");
+    };
+    dots.forEach((dot) => {
+      dot.addEventListener("mouseenter", handleEnter);
+      dot.addEventListener("mousemove", handleEnter);
+      dot.addEventListener("mouseleave", handleLeave);
+    });
+  }
+  getPomodoroSoundOptions() {
+    return [
+      {
+        value: "none",
+        label: "\u65E0\u97F3\u4E50",
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-music"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>'
+      },
+      {
+        value: "rain",
+        label: "\u96E8\u58F0",
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cloud-hail"><path d="M16 16h2a4 4 0 0 0 .53-7.965A6 6 0 0 0 6 9a4 4 0 0 0 .746 7.93"/><path d="M8 16v1"/><path d="M8 20h.01"/><path d="M12 18v1"/><path d="M12 22h.01"/><path d="M16 16v1"/><path d="M16 20h.01"/></svg>'
+      },
+      {
+        value: "stream",
+        label: "\u5A67\uE045\u7966",
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-waves-horizontal"><path d="M2 6c1.5 1.5 3 2 4.5 2S9.5 7.5 11 6s3-2 4.5-2S18.5 4.5 20 6"/><path d="M2 12c1.5 1.5 3 2 4.5 2s3-.5 4.5-2 3-2 4.5-2 3 .5 4.5 2"/><path d="M2 18c1.5 1.5 3 2 4.5 2s3-.5 4.5-2 3-2 4.5-2 3 .5 4.5 2"/></svg>'
+      },
+      {
+        value: "forest",
+        label: "\u59AB\uE1BD\u7044",
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trees-icon lucide-trees"><path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"/><path d="M7 16v6"/><path d="M13 19v3"/><path d="M12 19h8.3a1 1 0 0 0 .7-1.7L18 14h.3a1 1 0 0 0 .7-1.7L16 9h.2a1 1 0 0 0 .8-1.7L13 3l-1.4 1.5"/></svg>'
+      },
+      {
+        value: "white",
+        label: "\u9427\u85C9\u6AD4",
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-audio-lines"><path d="M2 10v4"/><path d="M6 6v12"/><path d="M10 3v18"/><path d="M14 8v8"/><path d="M18 5v14"/><path d="M22 10v4"/></svg>'
+      }
+    ];
+  }
+  getPomodoroPhaseLabel(phase = this.pomodoroState.phase) {
+    return phase === "shortBreak" ? "\u77ED\u4F11\u606F" : phase === "longBreak" ? "\u957F\u4F11\u606F" : "\u4E13\u6CE8\u4E2D";
+  }
+  getPomodoroPhaseDurationSeconds(phase = this.pomodoroState.phase) {
+    const settings = this.getPomodoroSettings();
+    if (phase === "shortBreak")
+      return 60 * Math.max(1, settings.shortBreakMinutes || 5);
+    if (phase === "longBreak")
+      return 60 * Math.max(15, Math.min(30, settings.longBreakMinutes || 15));
+    return 60 * Math.max(1, Math.min(90, settings.focusMinutes || 25));
+  }
+  getPomodoroHintText(phase = this.pomodoroState.phase) {
+    const settings = this.getPomodoroSettings();
+    return phase === "focus" || phase === "longBreak" ? "\u70B9\u51FB\u6570\u5B57\u8C03\u6574\u65F6\u957F" : `\u942D\uE15D\u7D24\u93AD?${Math.max(1, Math.min(15, settings.shortBreakMinutes || 5))} \u5206\u949F`;
+  }
+  resetPomodoroPhase(phase = this.pomodoroState.phase) {
+    const durationSeconds = this.getPomodoroPhaseDurationSeconds(phase);
+    this.pomodoroState.phase = phase;
+    this.pomodoroState.durationSeconds = durationSeconds;
+    this.pomodoroState.remainingSeconds = durationSeconds;
+    this.pomodoroState.isRunning = false;
+    this.pomodoroTargetEndAt = null;
+    this.isPomodoroDurationPickerVisible = false;
+    this.isPomodoroCustomInputVisible = false;
+    this.pomodoroCustomMinutes = "";
+  }
+  formatPomodoroTime(seconds) {
+    const safeSeconds = Math.max(0, seconds);
+    const minutes = Math.floor(safeSeconds / 60);
+    const rest = safeSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+  }
+  isPomodoroReadyToStart() {
+    return !this.pomodoroState.isRunning && this.pomodoroState.remainingSeconds === this.pomodoroState.durationSeconds;
+  }
+  async togglePomodoroPanel() {
+    if (!this.isPomodoroVisible) {
+      this.isPomodoroVisible = true;
+      if (this.pomodoroToggleBtn)
+        this.pomodoroToggleBtn.classList.toggle("is-active", this.isPomodoroVisible);
+      await this.renderTaskList();
+    }
+  }
+  async exitPomodoroPanel() {
+    this.isPomodoroVisible = false;
+    if (this.pomodoroToggleBtn)
+      this.pomodoroToggleBtn.classList.remove("is-active");
+    await this.renderTaskList();
+  }
+  async openPomodoroPanelAndRevealLeaf() {
+    var _a;
+    this.isPomodoroVisible = true;
+    await this.renderTaskList();
+    try {
+      if (((_a = this.app) == null ? void 0 : _a.workspace) && this.leaf)
+        this.app.workspace.revealLeaf(this.leaf);
+    } catch (e) {
+    }
+  }
+  async startPomodoro() {
+    if (this.pomodoroState.isRunning)
+      return;
+    if (this.pomodoroState.remainingSeconds <= 0)
+      this.resetPomodoroPhase(this.pomodoroState.phase);
+    this.pomodoroState.isRunning = true;
+    this.isPomodoroDurationPickerVisible = false;
+    this.isPomodoroCustomInputVisible = false;
+    this.pomodoroTargetEndAt = Date.now() + this.pomodoroState.remainingSeconds * 1e3;
+    this.clearPomodoroInterval();
+    this.pomodoroInterval = window.setInterval(() => this.handlePomodoroTick(), 250);
+    await this.startPomodoroBackgroundSound();
+    this.renderPomodoroPanel();
+    this.updatePomodoroUI();
+  }
+  pausePomodoro() {
+    if (!this.pomodoroState.isRunning)
+      return;
+    const remaining = Math.max(0, Math.ceil((this.pomodoroTargetEndAt - Date.now()) / 1e3));
+    this.pomodoroState.remainingSeconds = remaining;
+    this.pomodoroState.isRunning = false;
+    this.pomodoroTargetEndAt = null;
+    this.clearPomodoroInterval();
+    this.stopPomodoroBackgroundSound();
+    this.updatePomodoroUI();
+  }
+  stopPomodoro() {
+    this.pausePomodoro();
+    this.resetPomodoroPhase("focus");
+    this.renderPomodoroPanel();
+    this.updatePomodoroUI();
+  }
+  clearPomodoroInterval() {
+    if (this.pomodoroInterval) {
+      window.clearInterval(this.pomodoroInterval);
+      this.pomodoroInterval = null;
+    }
+  }
+  handlePomodoroTick() {
+    if (!this.pomodoroState.isRunning || !this.pomodoroTargetEndAt)
+      return;
+    const remaining = Math.max(0, Math.ceil((this.pomodoroTargetEndAt - Date.now()) / 1e3));
+    if (remaining !== this.pomodoroState.remainingSeconds) {
+      this.pomodoroState.remainingSeconds = remaining;
+      this.updatePomodoroUI();
+    }
+    if (remaining <= 0)
+      this.completePomodoroPhase();
+  }
+  async completePomodoroPhase() {
+    const phase = this.pomodoroState.phase;
+    const minutes = Math.round(this.pomodoroState.durationSeconds / 60);
+    this.clearPomodoroInterval();
+    this.stopPomodoroBackgroundSound();
+    this.pomodoroState.isRunning = false;
+    this.pomodoroTargetEndAt = null;
+    this.pomodoroState.remainingSeconds = 0;
+    if (phase === "focus") {
+      const count = this.pomodoroState.cycleFocusCount + 1;
+      const isLongBreak = count >= 4;
+      this.pomodoroState.cycleFocusCount = isLongBreak ? 0 : count;
+      await this.recordPomodoroCompletion(minutes);
+      this.resetPomodoroPhase(isLongBreak ? "longBreak" : "shortBreak");
+      new import_obsidian4.Notice(isLongBreak ? "\u5BB8\u63D2\u756C\u93B4?4 \u6D93\uE046\u6698\u947C\u52EF\u6313\u951B\u5C7D\u7D11\u6FEE\u5B2E\u66B1\u6D7C\u621E\u4F05" : "\u9423\uE047\u5BD7\u95BD\u71B7\u756C\u93B4\u6136\u7D1D\u5BEE\u20AC\u6FEE\u5B2C\u716D\u6D7C\u621E\u4F05");
+    } else {
+      this.resetPomodoroPhase("focus");
+      new import_obsidian4.Notice("\u4F11\u606F\u7ED3\u675F\uFF0C\u5F00\u59CB\u65B0\u7684\u4E13\u6CE8");
+    }
+    await this.openPomodoroPanelAndRevealLeaf();
+    this.updatePomodoroUI();
+  }
+  async cyclePomodoroSound() {
+    const options = this.getPomodoroSoundOptions();
+    const settings = this.getPomodoroSettings();
+    const currentIndex = options.findIndex((item) => item.value === settings.selectedSound);
+    const next = options[(currentIndex + 1 + options.length) % options.length];
+    await this.updatePomodoroSettings({ selectedSound: next.value });
+    if (this.pomodoroState.isRunning)
+      await this.startPomodoroBackgroundSound();
+    else
+      this.stopPomodoroBackgroundSound();
+    this.updatePomodoroUI();
+  }
+  async editPomodoroDuration() {
+    const phase = this.pomodoroState.phase;
+    if (phase === "focus" || phase === "longBreak") {
+      this.isPomodoroDurationPickerVisible = !this.isPomodoroDurationPickerVisible;
+      if (!this.isPomodoroDurationPickerVisible) {
+        this.isPomodoroCustomInputVisible = false;
+        this.pomodoroCustomMinutes = "";
+      }
+      this.renderPomodoroPanel();
+    } else {
+      new import_obsidian4.Notice("\u9366\u3126\u5F43\u6D60\u60F0\uE195\u7F03\uE1BB\u8151\u748B\u51A9\u66A3\u93C3\u5815\u66B1");
+    }
+  }
+  getPomodoroDurationPickerConfig() {
+    if (this.pomodoroState.phase === "longBreak") {
+      const settings2 = this.getPomodoroSettings();
+      return {
+        title: "\u4ECE\u5E38\u7528\u957F\u4F11\u606F\u65F6\u95F4\u5F00\u59CB",
+        minMinutes: 15,
+        maxMinutes: 30,
+        defaults: DEFAULT_SETTINGS.pomodoroSettings.longBreakPresetMinutes,
+        presets: normalizePomodoroPresetMinutes(
+          settings2.longBreakPresetMinutes,
+          15,
+          30,
+          DEFAULT_SETTINGS.pomodoroSettings.longBreakPresetMinutes
+        )
+      };
+    }
+    const settings = this.getPomodoroSettings();
+    return {
+      title: "\u4ECE\u5E38\u7528\u756A\u8304\u65F6\u95F4\u5F00\u59CB",
+      minMinutes: 1,
+      maxMinutes: 90,
+      defaults: DEFAULT_SETTINGS.pomodoroSettings.focusPresetMinutes,
+      presets: normalizePomodoroPresetMinutes(
+        settings.focusPresetMinutes,
+        1,
+        90,
+        DEFAULT_SETTINGS.pomodoroSettings.focusPresetMinutes
+      )
+    };
+  }
+  async removePomodoroPresetMinutes(value) {
+    const config = this.getPomodoroDurationPickerConfig();
+    if (config.defaults.includes(value))
+      return;
+    const settings = this.getPomodoroSettings();
+    if (this.pomodoroState.phase === "longBreak") {
+      const next = normalizePomodoroPresetMinutes(
+        (settings.longBreakPresetMinutes || []).filter((item) => item !== value),
+        config.minMinutes,
+        config.maxMinutes,
+        config.defaults
+      );
+      await this.updatePomodoroSettings({ longBreakPresetMinutes: next });
+    } else {
+      const next = normalizePomodoroPresetMinutes(
+        (settings.focusPresetMinutes || []).filter((item) => item !== value),
+        config.minMinutes,
+        config.maxMinutes,
+        config.defaults
+      );
+      await this.updatePomodoroSettings({ focusPresetMinutes: next });
+    }
+    this.renderPomodoroPanel();
+    this.updatePomodoroUI();
+  }
+  async applyPomodoroDurationSelection(value) {
+    const config = this.getPomodoroDurationPickerConfig();
+    if (!Number.isFinite(value) || value < config.minMinutes || value > config.maxMinutes) {
+      new import_obsidian4.Notice(`\u8BF7\u8F93\u5165 ${config.minMinutes}-${config.maxMinutes} \u5206\u949F`);
+      return;
+    }
+    if (this.pomodoroState.phase === "longBreak") {
+      const settings = this.getPomodoroSettings();
+      const presets = normalizePomodoroPresetMinutes(
+        [...settings.longBreakPresetMinutes || [], value],
+        config.minMinutes,
+        config.maxMinutes,
+        DEFAULT_SETTINGS.pomodoroSettings.longBreakPresetMinutes
+      );
+      await this.updatePomodoroSettings({ longBreakMinutes: value, longBreakPresetMinutes: presets });
+      this.pausePomodoro();
+      this.resetPomodoroPhase("longBreak");
+    } else {
+      const settings = this.getPomodoroSettings();
+      const presets = normalizePomodoroPresetMinutes(
+        [...settings.focusPresetMinutes || [], value],
+        config.minMinutes,
+        config.maxMinutes,
+        DEFAULT_SETTINGS.pomodoroSettings.focusPresetMinutes
+      );
+      await this.updatePomodoroSettings({ focusMinutes: value, focusPresetMinutes: presets });
+      this.pausePomodoro();
+      this.resetPomodoroPhase("focus");
+    }
+    this.isPomodoroDurationPickerVisible = false;
+    this.isPomodoroCustomInputVisible = false;
+    this.pomodoroCustomMinutes = "";
+    this.renderPomodoroPanel();
+    this.updatePomodoroUI();
+  }
+  async submitPomodoroCustomDuration() {
+    const value = parseInt(this.pomodoroCustomMinutes, 10);
+    await this.applyPomodoroDurationSelection(value);
+  }
+  closePomodoroDurationPicker() {
+    this.isPomodoroDurationPickerVisible = false;
+    this.isPomodoroCustomInputVisible = false;
+    this.pomodoroCustomMinutes = "";
+    this.renderPomodoroPanel();
+  }
+  async startPomodoroBackgroundSound() {
+    this.stopPomodoroBackgroundSound();
+    const settings = this.getPomodoroSettings();
+    if (!this.pomodoroState.isRunning || settings.selectedSound === "none")
+      return;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor)
+      return;
+    if (!this.pomodoroAudioContext)
+      this.pomodoroAudioContext = new AudioContextCtor();
+    if (this.pomodoroAudioContext.state === "suspended") {
+      try {
+        await this.pomodoroAudioContext.resume();
+      } catch (e) {
+        return;
+      }
+    }
+    if (settings.selectedSound === "forest") {
+      this.pomodoroAudioNodes = this.createPomodoroForestNodes(this.pomodoroAudioContext);
+      return;
+    }
+    const source = this.pomodoroAudioContext.createBufferSource();
+    source.buffer = this.createPomodoroNoiseBuffer(
+      this.pomodoroAudioContext,
+      settings.selectedSound === "stream" ? "brown" : "white"
+    );
+    source.loop = true;
+    const filter = this.pomodoroAudioContext.createBiquadFilter();
+    const gain = this.pomodoroAudioContext.createGain();
+    if (settings.selectedSound === "rain") {
+      filter.type = "highpass";
+      filter.frequency.value = 900;
+      gain.gain.value = 0.015;
+    } else if (settings.selectedSound === "stream") {
+      filter.type = "lowpass";
+      filter.frequency.value = 500;
+      gain.gain.value = 0.03;
+    } else {
+      filter.type = "bandpass";
+      filter.frequency.value = 1200;
+      gain.gain.value = 0.018;
+    }
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.pomodoroAudioContext.destination);
+    source.start();
+    this.pomodoroAudioNodes = [source, filter, gain];
+  }
+  stopPomodoroBackgroundSound() {
+    if (!this.pomodoroAudioNodes || this.pomodoroAudioNodes.length === 0)
+      return;
+    this.pomodoroAudioNodes.forEach((node) => {
+      try {
+        if (typeof node.stop === "function")
+          node.stop();
+      } catch (e) {
+      }
+      try {
+        if (typeof node.disconnect === "function")
+          node.disconnect();
+      } catch (e) {
+      }
+    });
+    this.pomodoroAudioNodes = [];
+  }
+  createPomodoroNoiseBuffer(context, type = "white") {
+    const length = 4 * context.sampleRate;
+    const buffer = context.createBuffer(1, length, context.sampleRate);
+    const data = buffer.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < length; i++) {
+      const value = 2 * Math.random() - 1;
+      if (type === "brown") {
+        last = (last + 0.02 * value) / 1.02;
+        data[i] = 3.5 * last;
+      } else {
+        data[i] = value;
+      }
+    }
+    return buffer;
+  }
+  createPomodoroForestNodes(context) {
+    const nodes = [];
+    const noise = context.createBufferSource();
+    noise.buffer = this.createPomodoroNoiseBuffer(context, "brown");
+    noise.loop = true;
+    const filter = context.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.value = 900;
+    filter.Q.value = 0.35;
+    const gain = context.createGain();
+    gain.gain.value = 0.016;
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(context.destination);
+    noise.start();
+    nodes.push(noise, filter, gain);
+    const bird = context.createBufferSource();
+    bird.buffer = this.createPomodoroBirdBuffer(context);
+    bird.loop = true;
+    const birdFilter = context.createBiquadFilter();
+    birdFilter.type = "highpass";
+    birdFilter.frequency.value = 1400;
+    const birdGain = context.createGain();
+    birdGain.gain.value = 0.03;
+    bird.connect(birdFilter);
+    birdFilter.connect(birdGain);
+    birdGain.connect(context.destination);
+    bird.start();
+    nodes.push(bird, birdFilter, birdGain);
+    return nodes;
+  }
+  createPomodoroBirdBuffer(context) {
+    const length = 6 * context.sampleRate;
+    const buffer = context.createBuffer(1, length, context.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i++)
+      data[i] = 4e-3 * (2 * Math.random() - 1);
+    [
+      { start: 0.45, duration: 0.16, from: 2400, to: 3200 },
+      { start: 0.78, duration: 0.1, from: 3100, to: 2700 },
+      { start: 2.1, duration: 0.18, from: 2200, to: 3600 },
+      { start: 3.35, duration: 0.12, from: 2800, to: 3400 },
+      { start: 4.62, duration: 0.14, from: 2500, to: 3e3 }
+    ].forEach((segment) => {
+      const start = Math.floor(segment.start * context.sampleRate);
+      const duration = Math.floor(segment.duration * context.sampleRate);
+      for (let i = 0; i < duration && start + i < length; i++) {
+        const progress = i / duration;
+        const freq = segment.from + (segment.to - segment.from) * progress;
+        const amp = Math.sin(Math.PI * progress);
+        const phase = 2 * Math.PI * freq * (i / context.sampleRate);
+        data[start + i] += Math.sin(phase) * amp * 0.08;
+      }
+    });
+    return buffer;
+  }
+  renderPomodoroPanel() {
+    if (!this.pomodoroHostEl)
+      return;
+    this.pomodoroHostEl.empty();
+    this.pomodoroElements = {};
+    if (!this.isPomodoroVisible)
+      return;
+    this.getPomodoroSettings();
+    const stats = this.getTodayPomodoroStats();
+    const panel = this.pomodoroHostEl.createDiv("dida-pomodoro-panel");
+    const summary = panel.createDiv("dida-pomodoro-summary");
+    summary.textContent = `\u6D60\u5A43\u68E9\u6D93\u64B4\u655E\u951B?${stats.sessions || 0} \u6D93\uE046\u6698\u947C?\u8DEF ${stats.minutes || 0} \u5206\u949F`;
+    const ringCard = panel.createDiv("dida-pomodoro-ring-card");
+    let progressCircle = null;
+    let phaseEl = null;
+    let timeEl = null;
+    let hintEl = null;
+    if (!this.isPomodoroDurationPickerVisible || this.pomodoroState.phase !== "focus" && this.pomodoroState.phase !== "longBreak") {
+      const ringButton = ringCard.createDiv("dida-pomodoro-ring-button");
+      ringButton.innerHTML = `
+
+                <svg class="dida-pomodoro-ring" viewBox="0 0 120 120" aria-hidden="true">
+
+                    <circle class="dida-pomodoro-ring-track" cx="60" cy="60" r="52"></circle>
+
+                    <circle class="dida-pomodoro-ring-progress" cx="60" cy="60" r="52"></circle>
+
+                </svg>
+
+                <span class="dida-pomodoro-ring-center">
+
+                    <span class="dida-pomodoro-phase"></span>
+
+                    <span class="dida-pomodoro-time"></span>
+
+                    <span class="dida-pomodoro-hint"></span>
+
+                </span>
+
+            `;
+      progressCircle = ringButton.querySelector(".dida-pomodoro-ring-progress");
+      phaseEl = ringButton.querySelector(".dida-pomodoro-phase");
+      timeEl = ringButton.querySelector(".dida-pomodoro-time");
+      hintEl = ringButton.querySelector(".dida-pomodoro-hint");
+      if (timeEl) {
+        timeEl.title = this.getPomodoroHintText(this.pomodoroState.phase);
+        timeEl.setAttribute("role", "button");
+        timeEl.setAttribute("tabindex", "0");
+        timeEl.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          await this.editPomodoroDuration();
+        });
+        timeEl.addEventListener("keydown", async (event) => {
+          if (event.key !== "Enter" && event.key !== " ")
+            return;
+          event.preventDefault();
+          await this.editPomodoroDuration();
+        });
+      }
+    } else {
+      const config = this.getPomodoroDurationPickerConfig();
+      const picker = ringCard.createDiv("dida-pomodoro-picker");
+      const header = picker.createDiv("dida-pomodoro-picker-header");
+      header.createDiv({ cls: "dida-pomodoro-picker-title", text: config.title });
+      const closeBtn = header.createEl("button", { cls: "dida-pomodoro-picker-close-btn", text: "\u8133" });
+      closeBtn.type = "button";
+      closeBtn.title = "\u934F\u62BD\u68F4";
+      closeBtn.addEventListener("click", () => this.closePomodoroDurationPicker());
+      const grid = picker.createDiv("dida-pomodoro-picker-grid");
+      config.presets.forEach((value) => {
+        const option = grid.createEl("button", { cls: "dida-pomodoro-picker-option", text: `${value}:00` });
+        option.type = "button";
+        option.addEventListener("click", async () => this.applyPomodoroDurationSelection(value));
+        if (!config.defaults.includes(value)) {
+          option.classList.add("is-removable");
+          const removeBtn = option.createEl("button", { cls: "dida-pomodoro-picker-remove-btn", text: "\u2212" });
+          removeBtn.type = "button";
+          removeBtn.title = "\u9352\u72BB\u6ACE\u95AB\u5910\u300D";
+          removeBtn.setAttribute("aria-label", `\u79FB\u9664 ${value} \u5206\u949F\u9009\u9879`);
+          removeBtn.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            await this.removePomodoroPresetMinutes(value);
+          });
+        }
+      });
+      const customToggle = grid.createEl("button", {
+        cls: "dida-pomodoro-picker-option dida-pomodoro-picker-custom-toggle",
+        text: "+"
+      });
+      customToggle.type = "button";
+      customToggle.title = "\u81EA\u5B9A\u4E49\u65F6\u957F";
+      customToggle.addEventListener("click", () => {
+        this.isPomodoroCustomInputVisible = !this.isPomodoroCustomInputVisible;
+        if (!this.isPomodoroCustomInputVisible)
+          this.pomodoroCustomMinutes = "";
+        this.renderPomodoroPanel();
+      });
+      if (this.isPomodoroCustomInputVisible) {
+        const row = picker.createDiv("dida-pomodoro-picker-custom-row");
+        const input = row.createEl("input", {
+          type: "number",
+          cls: "dida-pomodoro-picker-custom-input",
+          placeholder: `${config.minMinutes}-${config.maxMinutes} \u5206\u949F`
+        });
+        input.min = String(config.minMinutes);
+        input.max = String(config.maxMinutes);
+        input.step = "1";
+        input.value = this.pomodoroCustomMinutes;
+        input.addEventListener("input", (event) => {
+          this.pomodoroCustomMinutes = event.target.value;
+        });
+        input.addEventListener("keydown", async (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            await this.submitPomodoroCustomDuration();
+          }
+        });
+        const applyBtn = row.createEl("button", { cls: "dida-pomodoro-picker-apply-btn", text: "\u7EAD\uE1BC\u757E" });
+        applyBtn.type = "button";
+        applyBtn.addEventListener("click", async () => this.submitPomodoroCustomDuration());
+      }
+    }
+    const controls = panel.createDiv("dida-pomodoro-controls");
+    const readyToStart = this.isPomodoroReadyToStart();
+    const isBreakPhase = this.pomodoroState.phase === "shortBreak" || this.pomodoroState.phase === "longBreak";
+    if (readyToStart && isBreakPhase)
+      controls.classList.add("is-break-ready");
+    if (readyToStart) {
+      const startBtn = controls.createEl("button", {
+        cls: "dida-pomodoro-control-btn dida-pomodoro-primary-btn dida-pomodoro-single-start-btn"
+      });
+      startBtn.type = "button";
+      startBtn.title = "\u5F00\u59CB";
+      startBtn.textContent = "\u5F00\u59CB";
+      startBtn.addEventListener("click", async () => this.startPomodoro());
+      if (isBreakPhase) {
+        const stopBreak = controls.createEl("button", { cls: "dida-pomodoro-control-btn" });
+        stopBreak.type = "button";
+        stopBreak.title = "\u505C\u6B62\u4F11\u606F\u5E76\u8FDB\u5165\u4E0B\u4E00\u4E2A\u4E13\u6CE8";
+        stopBreak.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square"><rect width="14" height="14" x="5" y="5" rx="2"/></svg>';
+        stopBreak.addEventListener("click", () => this.stopPomodoro());
+      }
+    } else {
+      const toggleBtn = controls.createEl("button", {
+        cls: "dida-pomodoro-control-btn dida-pomodoro-primary-btn"
+      });
+      toggleBtn.type = "button";
+      toggleBtn.addEventListener("click", async () => {
+        if (this.pomodoroState.isRunning)
+          this.pausePomodoro();
+        else
+          await this.startPomodoro();
+      });
+      const stopBtn = controls.createEl("button", { cls: "dida-pomodoro-control-btn" });
+      stopBtn.type = "button";
+      stopBtn.title = "\u934B\u6EC4\uE11B";
+      stopBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square"><rect width="14" height="14" x="5" y="5" rx="2"/></svg>';
+      stopBtn.addEventListener("click", () => this.stopPomodoro());
+      const soundBtn = controls.createEl("button", { cls: "dida-pomodoro-control-btn" });
+      soundBtn.type = "button";
+      soundBtn.title = "\u5207\u6362\u80CC\u666F\u97F3";
+      soundBtn.addEventListener("click", async () => this.cyclePomodoroSound());
+      this.pomodoroElements = {
+        wrapper: panel,
+        toggleBtn,
+        soundBtn,
+        progressCircle,
+        phaseEl,
+        timeEl,
+        hintEl,
+        summaryEl: summary
+      };
+    }
+    if (readyToStart) {
+      this.pomodoroElements = {
+        wrapper: panel,
+        toggleBtn: null,
+        soundBtn: null,
+        progressCircle,
+        phaseEl,
+        timeEl,
+        hintEl,
+        summaryEl: summary
+      };
+    }
+    const trendSection = panel.createDiv("dida-pomodoro-trend-section");
+    const trendHeader = trendSection.createDiv("dida-pomodoro-trend-header");
+    trendHeader.createDiv({ cls: "dida-pomodoro-trend-title", text: this.getPomodoroTrendSectionTitle() });
+    const tabs = trendHeader.createDiv("dida-pomodoro-trend-tabs");
+    [
+      { key: "week", label: "\u5468" },
+      { key: "month", label: "\u6708" },
+      { key: "year", label: "\u5E74" }
+    ].forEach((item) => {
+      const tab = tabs.createEl("button", {
+        cls: `dida-pomodoro-trend-tab${this.pomodoroTrendPeriod === item.key ? " is-active" : ""}`,
+        text: item.label
+      });
+      tab.type = "button";
+      tab.addEventListener("click", () => {
+        this.pomodoroTrendPeriod = item.key;
+        this.renderPomodoroPanel();
+      });
+    });
+    const trendData = this.getPomodoroTrendData();
+    const chart = trendSection.createDiv("dida-pomodoro-trend-chart");
+    const plot = chart.createDiv("dida-pomodoro-trend-plot");
+    const svgData = this.buildPomodoroTrendSvg(trendData, this.pomodoroTrendPeriod);
+    plot.style.width = `${svgData.chartWidth}px`;
+    plot.style.minWidth = `${svgData.chartWidth}px`;
+    plot.innerHTML = svgData.svg;
+    trendSection.createDiv("dida-pomodoro-trend-tooltip");
+    const axis = chart.createDiv("dida-pomodoro-trend-axis");
+    axis.style.width = `${svgData.chartWidth}px`;
+    axis.style.minWidth = `${svgData.chartWidth}px`;
+    svgData.points.forEach((point, index) => {
+      const item = trendData[index];
+      const label = axis.createDiv("dida-pomodoro-trend-axis-item");
+      label.style.left = `${point.x}px`;
+      label.createDiv("dida-pomodoro-trend-label").textContent = this.getPomodoroTrendAxisLabel(item, index, trendData.length);
+    });
+    this.bindPomodoroTrendTooltip(trendSection);
+    this.updatePomodoroUI();
+  }
+  updatePomodoroUI() {
+    var _a;
+    if (!this.pomodoroElements || !this.pomodoroElements.wrapper)
+      return;
+    const settings = this.getPomodoroSettings();
+    const stats = this.getTodayPomodoroStats();
+    const duration = Math.max(1, this.pomodoroState.durationSeconds);
+    const remaining = Math.max(0, this.pomodoroState.remainingSeconds);
+    const progress = Math.min(1, Math.max(0, (duration - remaining) / duration));
+    const circumference = 2 * Math.PI * 52;
+    if (this.pomodoroElements.progressCircle) {
+      this.pomodoroElements.progressCircle.style.strokeDasharray = `${circumference}`;
+      this.pomodoroElements.progressCircle.style.strokeDashoffset = `${circumference * (1 - progress)}`;
+    }
+    (_a = this.pomodoroElements.wrapper) == null ? void 0 : _a.setAttribute("data-phase", this.pomodoroState.phase);
+    if (this.pomodoroElements.phaseEl)
+      this.pomodoroElements.phaseEl.textContent = this.getPomodoroPhaseLabel();
+    if (this.pomodoroElements.timeEl)
+      this.pomodoroElements.timeEl.textContent = this.formatPomodoroTime(remaining);
+    if (this.pomodoroElements.hintEl)
+      this.pomodoroElements.hintEl.textContent = this.getPomodoroHintText(this.pomodoroState.phase);
+    if (this.pomodoroElements.timeEl)
+      this.pomodoroElements.timeEl.title = this.getPomodoroHintText(this.pomodoroState.phase);
+    const sound = this.getPomodoroSoundOptions().find((item) => item.value === settings.selectedSound);
+    if (this.pomodoroElements.summaryEl) {
+      this.pomodoroElements.summaryEl.textContent = `\u6D60\u5A43\u68E9\u6D93\u64B4\u655E\u951B?${stats.sessions || 0} \u6D93\uE046\u6698\u947C?\u8DEF ${stats.minutes || 0} \u5206\u949F`;
+    }
+    if (this.pomodoroElements.toggleBtn) {
+      this.pomodoroElements.toggleBtn.title = this.pomodoroState.isRunning ? "\u93C6\u509A\u4EE0" : "\u7F01\u0445\u753B";
+      this.pomodoroElements.toggleBtn.innerHTML = this.pomodoroState.isRunning ? '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-pause"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play"><polygon points="6 3 20 12 6 21 6 3"/></svg>';
+    }
+    if (this.pomodoroElements.soundBtn) {
+      this.pomodoroElements.soundBtn.title = sound ? sound.label : "\u65E0\u97F3\u4E50";
+      this.pomodoroElements.soundBtn.innerHTML = sound ? sound.icon : "";
+    }
   }
   async checkPluginStatusAndNotify() {
     return this.plugin.checkPluginStatusAndNotify();
@@ -1945,9 +2920,22 @@ var TaskView = class extends import_obsidian4.ItemView {
     this.viewMode = this.plugin.settings.defaultViewMode || "task";
     this.renderTaskList();
   }
+  async onClose() {
+    this.clearPomodoroInterval();
+    this.stopPomodoroBackgroundSound();
+    this.pomodoroState.isRunning = false;
+    this.pomodoroTargetEndAt = null;
+    if (this.eventCleanupHandlers) {
+      this.eventCleanupHandlers.forEach((cleanup) => cleanup());
+      this.eventCleanupHandlers = [];
+    }
+  }
   async renderTaskList(options = {}) {
     const container = this.containerEl.children[1];
     let taskListContainer;
+    if (this.isPomodoroVisible && options && options.preserveSearch) {
+      options = {};
+    }
     if (options && options.preserveSearch) {
       const existingList = container.querySelector(".dida-task-list");
       if (existingList && existingList.parentElement === container) {
@@ -1971,15 +2959,37 @@ var TaskView = class extends import_obsidian4.ItemView {
         viewToggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-align-start-vertical-icon lucide-align-start-vertical"><rect width="9" height="6" x="6" y="14" rx="2"/><rect width="16" height="6" x="6" y="4" rx="2"/><path d="M2 2v20"/></svg>';
         viewToggleBtn.title = "\u5207\u6362\u5230\u65F6\u95F4\u6BB5\u89C6\u56FE";
       }
-      viewToggleBtn.onclick = () => {
-        this.toggleViewMode();
+      viewToggleBtn.onclick = async () => {
+        if (this.isPomodoroVisible) {
+          await this.exitPomodoroPanel();
+        } else {
+          this.toggleViewMode();
+        }
       };
+      const pomodoroToggleBtn = header.createEl("button", {
+        cls: "dida-timeline-btn dida-pomodoro-toggle-btn"
+      });
+      pomodoroToggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-star"><circle cx="12" cy="12" r="10"/><path d="M12 8.75 13.236 11.255 16 11.657 14 13.606 14.472 16.36 12 15.06 9.528 16.36 10 13.606 8 11.657 10.764 11.255z"/></svg>';
+      pomodoroToggleBtn.title = this.isPomodoroVisible ? "\u756A\u8304\u949F\u6A21\u5F0F\u4E2D\uFF0C\u8BF7\u70B9\u65F6\u95F4\u7EBF\u6309\u94AE\u8FD4\u56DE\u4EFB\u52A1\u5217\u8868" : "\u663E\u793A\u756A\u8304\u949F";
+      pomodoroToggleBtn.disabled = this.isPomodoroVisible;
+      if (this.isPomodoroVisible) {
+        pomodoroToggleBtn.classList.add("is-locked");
+      } else {
+        pomodoroToggleBtn.addEventListener("click", async () => {
+          await this.togglePomodoroPanel();
+        });
+      }
+      this.pomodoroToggleBtn = pomodoroToggleBtn;
       const timelineBtn = header.createEl("button", {
         cls: "dida-timeline-btn"
       });
       timelineBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-check-icon lucide-calendar-check"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/></svg>';
-      timelineBtn.onclick = () => {
-        this.plugin.showTimelineView();
+      timelineBtn.onclick = async () => {
+        if (this.isPomodoroVisible) {
+          await this.exitPomodoroPanel();
+        } else {
+          this.plugin.showTimelineView();
+        }
       };
       const syncBtn = header.createEl("button", {
         cls: "dida-sync-btn"
@@ -1992,13 +3002,22 @@ var TaskView = class extends import_obsidian4.ItemView {
           await this.checkPluginStatusAndNotify();
         }
       };
+      this.pomodoroHostEl = container.createDiv("dida-pomodoro-host");
+      this.renderPomodoroPanel();
+      if (this.pomodoroToggleBtn) {
+        this.pomodoroToggleBtn.classList.toggle("is-active", this.isPomodoroVisible);
+      }
+      if (this.isPomodoroVisible) {
+        taskListContainer = container.createDiv("dida-task-list dida-pomodoro-only-view");
+        return;
+      }
       if (this.viewMode === "task") {
         const searchContainer = header.createDiv("dida-search-container");
         searchContainer.style.position = "relative";
         const searchInput = searchContainer.createEl("input", {
           type: "text",
           cls: "dida-search-input",
-          placeholder: "\u641C\u7D22\u4EFB\u52A1..."
+          placeholder: "\u93BC\u6EC5\u50A8\u6D60\u8BF2\u59DF..."
         });
         searchInput.value = this.searchQuery;
         const clearBtn = searchContainer.createEl("button", {
@@ -2013,31 +3032,47 @@ var TaskView = class extends import_obsidian4.ItemView {
         dateFilterClearBtn.style.display = this.dateFilter ? "flex" : "none";
         const dateFilterDropdown = searchContainer.createDiv("dida-date-filter-dropdown");
         dateFilterDropdown.style.cssText = `
+
                     position: absolute;
+
                     top: 100%;
+
                     left: 0;
+
                     width: 100px;
+
                     background: var(--background-primary);
+
                     border: 1px solid var(--background-modifier-border);
+
                     border-radius: 4px;
+
                     margin-top: 4px;
+
                     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+
                     z-index: 1000;
+
                     display: none;
+
                 `;
         const filterOptions = [
-          { label: "\u5DF2\u903E\u671F", value: "overdue" },
-          { label: "\u4ECA\u5929", value: "today" },
-          { label: "\u8FD13\u5929", value: "next3days" },
-          { label: "\u8FD17\u5929", value: "next7days" }
+          { label: "\u5BB8\u67E5\u20AC\u70AC\u6E61", value: "overdue" },
+          { label: "\u6D60\u5A42\u3049", value: "today" },
+          { label: "\u8FD1 3 \u5929", value: "next3days" },
+          { label: "\u8FD1 7 \u5929", value: "next7days" }
         ];
         filterOptions.forEach((opt) => {
           const option = dateFilterDropdown.createDiv("dida-date-filter-option");
           option.textContent = opt.label;
           option.style.cssText = `
+
                         padding: 8px 12px;
+
                         cursor: pointer;
+
                         transition: background 0.2s;
+
                     `;
           option.addEventListener("mouseenter", () => {
             option.style.background = "var(--background-modifier-hover)";
@@ -2047,7 +3082,7 @@ var TaskView = class extends import_obsidian4.ItemView {
           });
           option.addEventListener("click", () => {
             this.dateFilter = opt.value;
-            searchInput.placeholder = "\u7B5B\u9009\uFF1A" + opt.label;
+            searchInput.placeholder = "\u7EDB\u6DA2\u20AC\u591B\u7D30" + opt.label;
             dateFilterDropdown.style.display = "none";
             dateFilterClearBtn.style.display = "flex";
             this.renderTaskList({ preserveSearch: true });
@@ -2056,10 +3091,15 @@ var TaskView = class extends import_obsidian4.ItemView {
         const clearOption = dateFilterDropdown.createDiv("dida-date-filter-option");
         clearOption.textContent = "\u6E05\u9664\u7B5B\u9009";
         clearOption.style.cssText = `
+
                     padding: 8px 12px;
+
                     cursor: pointer;
+
                     border-top: 1px solid var(--background-modifier-border);
+
                     color: var(--text-muted);
+
                 `;
         clearOption.addEventListener("mouseenter", () => {
           clearOption.style.background = "var(--background-modifier-hover)";
@@ -2069,7 +3109,7 @@ var TaskView = class extends import_obsidian4.ItemView {
         });
         clearOption.addEventListener("click", () => {
           this.dateFilter = null;
-          searchInput.placeholder = "\u641C\u7D22\u4EFB\u52A1...";
+          searchInput.placeholder = "\u93BC\u6EC5\u50A8\u6D60\u8BF2\u59DF...";
           dateFilterDropdown.style.display = "none";
           dateFilterClearBtn.style.display = "none";
           this.renderTaskList({ preserveSearch: true });
@@ -2115,7 +3155,7 @@ var TaskView = class extends import_obsidian4.ItemView {
         });
         dateFilterClearBtn.addEventListener("click", () => {
           this.dateFilter = null;
-          searchInput.placeholder = "\u641C\u7D22\u4EFB\u52A1...";
+          searchInput.placeholder = "\u93BC\u6EC5\u50A8\u6D60\u8BF2\u59DF...";
           dateFilterDropdown.style.display = "none";
           dateFilterClearBtn.style.display = "none";
           this.renderTaskList({ preserveSearch: true });
@@ -2130,7 +3170,7 @@ var TaskView = class extends import_obsidian4.ItemView {
         if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
           taskListContainer.empty();
           taskListContainer.createEl("p", {
-            text: "\u79BB\u7EBF\u4E2D\uFF1ADida sync\u4E0D\u53EF\u7528",
+            text: "\u79BB\u7EBF\u4E2D\uFF1ADida sync \u4E0D\u53EF\u7528",
             cls: "dida-empty-state"
           });
           return;
@@ -2138,7 +3178,7 @@ var TaskView = class extends import_obsidian4.ItemView {
       } catch (e) {
       }
       const tasks = this.plugin.settings.tasks || [];
-      if (tasks.length === 0) {
+      if (tasks.length === 0 && this.plugin.getProjectCatalog().length === 0) {
         taskListContainer.createEl("p", {
           text: "\u6682\u65E0\u4EFB\u52A1\uFF0C\u8BF7\u5148\u6DFB\u52A0\u4E00\u4E9B\u4EFB\u52A1",
           cls: "dida-empty-state"
@@ -2147,10 +3187,32 @@ var TaskView = class extends import_obsidian4.ItemView {
         const projectMap = /* @__PURE__ */ new Map();
         const projectInfoMap = /* @__PURE__ */ new Map();
         const projectOrder = this.plugin.settings.projectOrder || [];
+        if (!this.dateFilter) {
+          this.plugin.getAvailableProjectConfigs().forEach((project) => {
+            if (!project || !project.name)
+              return;
+            if (!this.plugin.settings.showArchivedProjects && project.isArchived)
+              return;
+            if (this.searchQuery && this.searchQuery.trim()) {
+              const query = this.searchQuery.toLowerCase().trim();
+              if (!project.name.toLowerCase().includes(query))
+                return;
+            }
+            if (!projectMap.has(project.name)) {
+              projectMap.set(project.name, []);
+              projectInfoMap.set(project.name, {
+                name: project.name,
+                id: project.id,
+                isArchived: project.isArchived === true,
+                isLocalOnly: project.isLocalOnly === true
+              });
+            }
+          });
+        }
         tasks.forEach((task, index) => {
           if (!task.parentId && task.status !== 2) {
             task.content = typeof task.content === "string" ? task.content : task.content || "";
-            let projectName = "\u672C\u5730\u4EFB\u52A1";
+            let projectName = "\u93C8\uE100\u6E74\u6D60\u8BF2\u59DF";
             let projectId = "local";
             if (task.projectName && task.projectId) {
               projectName = task.projectName;
@@ -2205,7 +3267,8 @@ var TaskView = class extends import_obsidian4.ItemView {
                 projectInfoMap.set(projectName, {
                   name: projectName,
                   id: projectId,
-                  isArchived
+                  isArchived,
+                  isLocalOnly: !projectId || projectId === "local"
                 });
               }
               projectMap.get(projectName).push({
@@ -2215,6 +3278,13 @@ var TaskView = class extends import_obsidian4.ItemView {
             }
           }
         });
+        if (projectMap.size === 0) {
+          taskListContainer.createEl("p", {
+            text: "\u6682\u65E0\u4EFB\u52A1\uFF0C\u8BF7\u5148\u6DFB\u52A0\u4E00\u4E9B\u4EFB\u52A1",
+            cls: "dida-empty-state"
+          });
+          return;
+        }
         const sortedProjects = Array.from(projectMap.entries()).sort(([nameA], [nameB]) => {
           const indexA = projectOrder.indexOf(nameA);
           const indexB = projectOrder.indexOf(nameB);
@@ -2235,12 +3305,6 @@ var TaskView = class extends import_obsidian4.ItemView {
         for (const [projectName, projectTasks] of sortedProjects) {
           const projectInfo = projectInfoMap.get(projectName) || { name: projectName, id: "inbox" };
           const projectHeader = taskListContainer.createDiv("dida-project-header");
-          let icon;
-          if (projectName === "\u6536\u96C6\u7BB1") {
-            icon = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#da1b1b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-inbox-icon lucide-inbox"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>';
-          } else {
-            icon = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#da1b1b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-list-checks-icon lucide-list-checks"><path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/></svg>';
-          }
           const titleEl = projectHeader.createEl("h4", {
             cls: projectInfo.isArchived ? "dida-project-title archived" : "dida-project-title"
           });
@@ -2248,7 +3312,7 @@ var TaskView = class extends import_obsidian4.ItemView {
           const tasksInProject = this.plugin.settings.tasks.filter((t) => {
             if (t.parentId)
               return false;
-            let pName = "\u672C\u5730\u4EFB\u52A1";
+            let pName = "\u93C8\uE100\u6E74\u6D60\u8BF2\u59DF";
             if (t.projectName && t.projectId) {
               pName = t.projectName;
             } else if (t.projectId) {
@@ -2260,8 +3324,19 @@ var TaskView = class extends import_obsidian4.ItemView {
           });
           const subtaskCount = this.plugin.settings.tasks.filter((t) => t.parentId && tasksInProject.some((p) => p.didaId === t.parentId)).length;
           const countText = subtaskCount > 0 ? `${projectName} (${projectTasks.length}+${subtaskCount})` : `${projectName} (${projectTasks.length})`;
-          titleEl.innerHTML = `${icon} <span>${countText}</span>${archiveIcon}`;
+          const iconEl = titleEl.createSpan({ cls: "dida-project-icon" });
+          this.plugin.renderProjectIcon(iconEl, projectInfo.id, projectName);
+          titleEl.createEl("span", { text: countText });
+          if (projectInfo.isArchived) {
+            const archived = titleEl.createSpan({ cls: "dida-project-archived-icon" });
+            archived.innerHTML = archiveIcon;
+          }
           titleEl.onclick = () => this.toggleProjectCollapse(projectHeader, tasksContainer, projectName);
+          titleEl.addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            this.plugin.openProjectContextMenu(projectInfo, event);
+          });
           titleEl.setAttribute("draggable", "true");
           titleEl.setAttribute("data-project-name", projectName);
           titleEl.addEventListener("dragstart", (e) => {
@@ -2348,7 +3423,7 @@ var TaskView = class extends import_obsidian4.ItemView {
             let reminderInfo = "";
             try {
               if (task.isAllDay) {
-                reminderInfo = "\u5168\u5929";
+                reminderInfo = "\u934F\u3125\u3049";
               } else {
                 const hasStartDate = !!task.startDate;
                 const hasDueDate = !!task.dueDate;
@@ -2364,7 +3439,7 @@ var TaskView = class extends import_obsidian4.ItemView {
                     dueStr = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
                   }
                   if (startStr && dueStr)
-                    reminderInfo = startStr + "\uFF5E" + dueStr;
+                    reminderInfo = startStr + " - " + dueStr;
                   else if (startStr)
                     reminderInfo = startStr;
                   else if (dueStr)
@@ -2599,10 +3674,10 @@ var TaskView = class extends import_obsidian4.ItemView {
     if (allDayTasks.length > 0) {
       this.renderAllDayBlocks(blockContainer, allDayTasks);
     }
-    this.renderTimeGrid(blockContainer, timeTasks);
     if (tasks.length === 0) {
       blockContainer.createDiv("dida-timeline-empty-state").innerHTML = "<p>\u4ECA\u5929\u6CA1\u6709\u4EFB\u52A1</p>";
     }
+    this.renderTimeGrid(blockContainer, timeTasks);
   }
   renderAllDayBlocks(container, tasks) {
     const section = container.createDiv("dida-time-block-all-day-section");
@@ -2713,7 +3788,7 @@ var TaskView = class extends import_obsidian4.ItemView {
         dateSpan.classList.add("no-date");
       }
       dateSpan.style.cursor = "pointer";
-      dateSpan.title = "\u70B9\u51FB\u8BBE\u7F6E\u65F6\u95F4";
+      dateSpan.title = "\u9410\u7470\u56AE\u7481\u5267\u7586\u93C3\u5815\u68FF";
       dateSpan.onclick = (e) => {
         e.stopPropagation();
         const idx = this.plugin.settings.tasks.findIndex((t) => task.didaId ? t.didaId === task.didaId : t.id === task.id);
@@ -2734,7 +3809,7 @@ var TaskView = class extends import_obsidian4.ItemView {
       deleteBtn.onclick = async (e) => {
         e.stopPropagation();
         e.preventDefault();
-        if (confirm(`\u786E\u5B9A\u8981\u5220\u9664\u4EFB\u52A1"${task.title}"\u5417\uFF1F`)) {
+        if (confirm(`\u786E\u5B9A\u8981\u5220\u9664\u4EFB\u52A1\u201C${task.title}\u201D\u5417\uFF1F`)) {
           const idx = this.plugin.settings.tasks.findIndex((t) => task.didaId ? t.didaId === task.didaId : t.id === task.id);
           if (idx !== -1)
             await this.plugin.deleteTask(idx);
@@ -3135,7 +4210,7 @@ var TaskView = class extends import_obsidian4.ItemView {
       deleteBtn.onclick = async (e) => {
         e.stopPropagation();
         e.preventDefault();
-        if (confirm(`\u786E\u5B9A\u8981\u5220\u9664\u4EFB\u52A1"${task.title}"\u5417\uFF1F`)) {
+        if (confirm(`\u786E\u5B9A\u8981\u5220\u9664\u4EFB\u52A1\u201C${task.title}\u201D\u5417\uFF1F`)) {
           const idx = this.plugin.settings.tasks.findIndex((t) => task.didaId ? t.didaId === task.didaId : t.id === task.id);
           if (idx !== -1)
             await this.plugin.deleteTask(idx);
@@ -3163,7 +4238,7 @@ var TaskView = class extends import_obsidian4.ItemView {
           if (!tooltip) {
             const el = document.createElement("div");
             el.className = "dida-time-block-tooltip";
-            el.textContent = `${startLabel} - ${endLabel}  \xB7  ${task.title || ""}`;
+            el.textContent = `${startLabel} - ${endLabel}  \u8DEF  ${task.title || ""}`;
             document.body.appendChild(el);
             tooltip = el;
             tooltipKeyHandler = (evt) => {
@@ -3408,7 +4483,7 @@ var TaskView = class extends import_obsidian4.ItemView {
     const projectMap = /* @__PURE__ */ new Map();
     this.plugin.settings.tasks.forEach((task) => {
       if (!task.parentId && task.status !== 2) {
-        let pName = "\u672C\u5730\u4EFB\u52A1";
+        let pName = "\u93C8\uE100\u6E74\u6D60\u8BF2\u59DF";
         if (task.projectName && task.projectId) {
           pName = task.projectName;
         } else if (task.projectId) {
@@ -3454,12 +4529,19 @@ var TaskView = class extends import_obsidian4.ItemView {
       const popup = document.createElement("div");
       popup.className = "dida-add-task-popup";
       popup.innerHTML = `
-            <h4>\u6DFB\u52A0\u4EFB\u52A1\u5230 ${projectName}</h4>
-            <input type="text" placeholder="\u8F93\u5165\u4EFB\u52A1\u6807\u9898..." class="task-title-input" />
+
+            <h4>\u5A23\u8BF2\u59DE\u6D60\u8BF2\u59DF\u9352?${projectName}</h4>
+
+            <input type="text" placeholder="\u6748\u64B3\u53C6\u6D60\u8BF2\u59DF\u93CD\u56EC\uE57D..." class="task-title-input" />
+
             <div class="button-container">
-                <button class="cancel-btn">\u53D6\u6D88</button>
-                <button class="submit-btn">\u6DFB\u52A0</button>
+
+                <button class="cancel-btn">\u9359\u6828\u79F7</button>
+
+                <button class="submit-btn">\u5A23\u8BF2\u59DE</button>
+
             </div>
+
         `;
       document.body.appendChild(popup);
       const rect = button.getBoundingClientRect();
@@ -3562,7 +4644,7 @@ var TaskView = class extends import_obsidian4.ItemView {
         contentRow.createEl("strong", { text: "\u5185\u5BB9\uFF1A" });
       }
       const contentTextarea = contentRow.createEl("textarea", { cls: "dida-task-content-textarea" });
-      contentTextarea.placeholder = "\u5185\u5BB9...";
+      contentTextarea.placeholder = "\u9350\u546D\uE190...";
       contentTextarea.value = contentValue;
       const checkTab = contentArea.createDiv(tab === "check-items-tab" ? "dida-tab-content active" : "dida-tab-content");
       checkTab.id = "check-items-tab";
@@ -3577,7 +4659,7 @@ var TaskView = class extends import_obsidian4.ItemView {
               type: "text",
               value: item.title,
               cls: item.status === 1 ? "dida-task-completed" : "dida-task-title-input",
-              placeholder: "\u68C0\u67E5\u9879\u6807\u9898"
+              placeholder: "\u59AB\u20AC\u93CC\u30E9\u300D\u93CD\u56EC\uE57D"
             });
             cb.onchange = () => {
               item.status = cb.checked ? 1 : 0;
@@ -3614,7 +4696,7 @@ var TaskView = class extends import_obsidian4.ItemView {
       addCheckItemBtn.style.position = "absolute";
       addCheckItemBtn.style.top = "0";
       addCheckItemBtn.style.right = "0";
-      addCheckItemBtn.title = "\u6DFB\u52A0\u68C0\u67E5\u9879";
+      addCheckItemBtn.title = "\u5A23\u8BF2\u59DE\u59AB\u20AC\u93CC\u30E9\u300D";
       addCheckItemBtn.onclick = () => {
         if (!currentTask.items)
           currentTask.items = [];
@@ -3683,7 +4765,7 @@ var TaskView = class extends import_obsidian4.ItemView {
         addSubBtn.onclick = async () => {
           const newSub = {
             id: Date.now().toString(),
-            title: "\u65B0\u5B50\u4EFB\u52A1",
+            title: "\u93C2\u677F\u74D9\u6D60\u8BF2\u59DF",
             content: "",
             desc: "",
             completed: false,
@@ -3729,7 +4811,7 @@ var TaskView = class extends import_obsidian4.ItemView {
       checkTabBtn.onclick = () => switchTab("check-items-tab");
       subtaskTabBtn.onclick = () => switchTab("subtasks-tab");
       const btnContainer = details.createDiv("dida-task-button-container");
-      const saveBtn = btnContainer.createEl("button", { text: "\u4FDD\u5B58", cls: "dida-task-save-btn mod-cta" });
+      const saveBtn = btnContainer.createEl("button", { text: "\u6DC7\u6FC6\u74E8", cls: "dida-task-save-btn mod-cta" });
       if (currentTask.didaId) {
         this.plugin.findFilesWithDidaId(currentTask.didaId).then((files) => {
           if (files.length > 0) {
@@ -3738,7 +4820,7 @@ var TaskView = class extends import_obsidian4.ItemView {
             jumpBtn.onclick = async () => {
               await this.plugin.jumpToDidaIdInFile(currentTask.didaId, jumpBtn);
             };
-            const unlinkBtn = btnContainer.createEl("button", { cls: "dida-task-delete-link-btn", title: "\u5220\u9664markdown\u6587\u6863\u4E2D\u7684\u4EFB\u52A1\u94FE\u63A5" });
+            const unlinkBtn = btnContainer.createEl("button", { cls: "dida-task-delete-link-btn", title: "\u9352\u72BB\u6ACEmarkdown\u93C2\u56E8\u3002\u6D93\uE160\u6B91\u6D60\u8BF2\u59DF\u95BE\u70AC\u5E34" });
             unlinkBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
             unlinkBtn.onclick = async (e) => {
               e.stopPropagation();
@@ -3902,7 +4984,7 @@ var TaskView = class extends import_obsidian4.ItemView {
           await this.updateNativeTaskTitle(task, oldTitle, trimmed);
         }
       } else {
-        new import_obsidian4.Notice("\u4EFB\u52A1\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+        new import_obsidian4.Notice("\u6D60\u8BF2\u59DF\u93CD\u56EC\uE57D\u6D93\u5D88\u5158\u6D93\u8679\u2516");
       }
     }
   }
@@ -3915,17 +4997,17 @@ var TaskView = class extends import_obsidian4.ItemView {
           let updated = false;
           for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
-            if (line.includes(`[\u{1F517}Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
+            if (line.includes(`[\u9983\u6546Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
               const formatted = this.convertDidaDateToNativeFormat(newDueDate || null);
               if (formatted) {
-                const has = line.match(/📅\s*(\d{4}-\d{2}-\d{2})/);
+                const has = line.match(/馃搮\s*(\d{4}-\d{2}-\d{2})/);
                 if (has)
-                  lines[i] = line.replace(/📅\s*\d{4}-\d{2}-\d{2}/, `\u{1F4C5} ${formatted} `);
+                  lines[i] = line.replace(/馃搮\s*\d{4}-\d{2}-\d{2}/, `\u9983\u642E ${formatted} `);
                 else
-                  lines[i] = line + ` \u{1F4C5} ${formatted} `;
+                  lines[i] = line + ` \u9983\u642E ${formatted} `;
                 updated = true;
-              } else if (newDueDate == null && line.match(/📅\s*(\d{4}-\d{2}-\d{2})/)) {
-                lines[i] = line.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
+              } else if (newDueDate == null && line.match(/馃搮\s*(\d{4}-\d{2}-\d{2})/)) {
+                lines[i] = line.replace(/\s*馃搮\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
                 updated = true;
               }
             }
@@ -3960,15 +5042,15 @@ var TaskView = class extends import_obsidian4.ItemView {
           let updated = false;
           for (let i = 0; i < lines.length; i++) {
             let line = lines[i];
-            if (line.includes(`[\u{1F517}Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
+            if (line.includes(`[\u9983\u6546Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
               const prefixMatch = line.match(/^(\s*-\s*\[[ x]\]\s*)/);
-              const linkMatch = line.match(/\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)/);
-              const dateMatch = line.match(/📅\s*\d{4}-\d{2}-\d{2}/);
+              const linkMatch = line.match(/\[馃敆Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)/);
+              const dateMatch = line.match(/馃搮\s*\d{4}-\d{2}-\d{2}/);
               if (prefixMatch) {
                 const prefix = prefixMatch[1];
                 const linkPart = linkMatch ? " " + linkMatch[0] : "";
                 const datePart = dateMatch ? " " + dateMatch[0] : "";
-                const textOnly = line.replace(/^\s*-\s*\[[ x]\]\s*/, "").replace(/\s*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)\s*/g, "").replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
+                const textOnly = line.replace(/^\s*-\s*\[[ x]\]\s*/, "").replace(/\s*\[馃敆Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)\s*/g, "").replace(/\s*馃搮\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
                 if (textOnly === oldTitle.trim()) {
                   lines[i] = `${prefix}${newTitle}${linkPart}${datePart}`;
                   updated = true;
@@ -3996,7 +5078,7 @@ var TaskView = class extends import_obsidian4.ItemView {
           let updated = false;
           for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
-            if (line.includes(`[\u{1F517}Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
+            if (line.includes(`[\u9983\u6546Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
               const indentMatch = line.match(/^(\s*)/);
               const taskMatch = line.match(/^(\s*)-\s*\[[ x]\]\s*(.*)/);
               if (taskMatch) {
@@ -4084,8 +5166,11 @@ var TaskView = class extends import_obsidian4.ItemView {
       const span = existing || document.createElement("span");
       span.className = "dida-subtask-count";
       const icon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" id="item-text" fill="#4c4f69">
+
   <path d="M30.06666612625122,7.625000095367431Q30.06666612625122,7.221142095367432,30.35223712625122,6.935571095367432Q30.637808126251223,6.650000095367432,31.041666126251222,6.650000095367432L40.95836612625122,6.650000095367432Q41.362166126251225,6.650000095367432,41.64776612625122,6.935571095367432Q41.93336612625122,7.221140095367431,41.93336612625122,7.625000095367431Q41.93336612625122,8.028860095367431,41.64776612625122,8.314430095367431Q41.362166126251225,8.600000095367431,40.95836612625122,8.600000095367431L31.041666126251222,8.600000095367431Q30.637808126251223,8.600000095367431,30.35223712625122,8.314430095367431Q30.06666612625122,8.028860095367431,30.06666612625122,7.625000095367431ZM32.98332612625122,12.000000095367431Q32.98332612625122,11.596140095367431,33.26889612625122,11.310570095367432Q33.554476126251224,11.025000095367432,33.95832612625122,11.025000095367432L40.95836612625122,11.025000095367432Q41.362166126251225,11.025000095367432,41.64776612625122,11.310570095367432Q41.93336612625122,11.596140095367431,41.93336612625122,12.000000095367431Q41.93336612625122,12.403860095367431,41.64776612625122,12.689430095367431Q41.362166126251225,12.975000095367431,40.95836612625122,12.975000095367431L37.45832612625122,12.975000095367431L33.95832612625122,12.975000095367431Q33.554476126251224,12.975000095367431,33.26889612625122,12.689430095367431Q32.98332612625122,12.403860095367431,32.98332612625122,12.000000095367431ZM32.98332612625122,16.375000095367433Q32.98332612625122,15.971140095367431,33.26889612625122,15.685570095367432Q33.55446612625122,15.400000095367432,33.95832612625122,15.400000095367432L40.95836612625122,15.400000095367432Q41.362166126251225,15.400000095367432,41.64776612625122,15.685570095367432Q41.93336612625122,15.971140095367431,41.93336612625122,16.375000095367433Q41.93336612625122,16.778900095367433,41.64776612625122,17.064400095367432Q41.362166126251225,17.35000009536743,40.95836612625122,17.35000009536743L33.95832612625122,17.35000009536743Q33.55446612625122,17.35000009536743,33.26889612625122,17.064400095367432Q32.98332612625122,16.778900095367433,32.98332612625122,16.375000095367433Z" fill-rule="evenodd"></path>
+
   <path d="M46.5,18.5L46.5,5.5Q46.5,3.84314,45.3284,2.671573Q44.1569,1.5,42.5,1.5L29.5,1.5Q27.84315,1.5,26.671573,2.671573Q25.5,3.84315,25.5,5.5L25.5,18.5Q25.5,20.1569,26.671573,21.3284Q27.84314,22.5,29.5,22.5L42.5,22.5Q44.1569,22.5,45.3284,21.3284Q46.5,20.1569,46.5,18.5ZM44.5,5.5L44.5,18.5Q44.5,19.3284,43.9142,19.9142Q43.3284,20.5,42.5,20.5L29.5,20.5Q28.67157,20.5,28.08579,19.9142Q27.5,19.3284,27.5,18.5L27.5,5.5Q27.5,4.67157,28.08579,4.08579Q28.67157,3.5,29.5,3.5L42.5,3.5Q43.3284,3.5,43.9142,4.08579Q44.5,4.67157,44.5,5.5Z" fill-rule="evenodd" transform="matrix(-1 0 0 1 48 0)"></path>
+
 </svg>`;
       span.innerHTML = `${icon}${completedItems}/${task.items.length}`;
       span.style.fontSize = "0.8em";
@@ -4095,7 +5180,7 @@ var TaskView = class extends import_obsidian4.ItemView {
       span.style.alignItems = "center";
       span.style.gap = "2px";
       span.style.cursor = "pointer";
-      span.title = "\u70B9\u51FB\u67E5\u770B\u68C0\u67E5\u9879";
+      span.title = "\u9410\u7470\u56AE\u93CC\u30E7\u6E45\u59AB\u20AC\u93CC\u30E9\u300D";
       span.onclick = () => this.toggleTaskDetails(taskItem, task, "check-items-tab");
       if (!existing)
         (_a = taskItem.querySelector(".dida-task-left-content")) == null ? void 0 : _a.appendChild(span);
@@ -4112,7 +5197,9 @@ var TaskView = class extends import_obsidian4.ItemView {
       const span = existing || document.createElement("span");
       span.className = "dida-child-task-count";
       const icon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 12 12" id="descendant-task-small" fill="#4c4f69">
+
   <path d="M1.2500016689300537,1.491542L1.2500016689300537,8.31342C1.2500016689300537,9.3755,2.1029426689300537,10.25,3.1650316689300535,10.25L6.995881668930053,10.25C7.272021668930054,10.25,7.500001668930054,10.02614,7.500001668930054,9.75C7.500001668930054,9.47386,7.2761416689300535,9.25,7.000001668930054,9.25L3.204551668930054,9.25C2.677361668930054,9.25,2.2500016689300537,8.82264,2.2500016689300537,8.295449999999999L2.2500016689300537,4.75L7.000001668930054,4.75C7.2761416689300535,4.75,7.500001668930054,4.52614,7.500001668930054,4.25C7.500001668930054,3.97386,7.2761416689300535,3.75,7.000001668930054,3.75L2.2500016689300537,3.75L2.2500016689300537,1.5C2.2500016689300537,1.223858,2.026143668930054,1,1.7500016689300537,1C1.4738596689300536,1,1.2500016689300537,1.2154,1.2500016689300537,1.491542ZM10.750001668930054,4.25Q10.750001668930054,4.34849,10.730781668930053,4.44509Q10.711571668930054,4.54169,10.673881668930054,4.632680000000001Q10.636191668930053,4.72368,10.581471668930053,4.8055699999999995Q10.526751668930054,4.88746,10.457111668930054,4.95711Q10.387461668930055,5.02675,10.305571668930053,5.08147Q10.223681668930054,5.13619,10.132681668930054,5.17388Q10.041691668930053,5.21157,9.945091668930054,5.23078Q9.848491668930054,5.25,9.750001668930054,5.25Q9.651511668930054,5.25,9.554911668930053,5.23078Q9.458311668930055,5.21157,9.367321668930053,5.17388Q9.276321668930054,5.13619,9.194431668930054,5.08147Q9.112541668930053,5.02675,9.042891668930054,4.95711Q8.973251668930054,4.88746,8.918531668930054,4.8055699999999995Q8.863811668930055,4.72368,8.826121668930053,4.632680000000001Q8.788431668930054,4.54169,8.769211668930055,4.44509Q8.750001668930054,4.34849,8.750001668930054,4.25Q8.750001668930054,4.15151,8.769211668930055,4.05491Q8.788431668930054,3.95831,8.826121668930053,3.86732Q8.863811668930055,3.77632,8.918531668930054,3.69443Q8.973251668930054,3.61254,9.042891668930054,3.54289Q9.112541668930053,3.47325,9.194431668930054,3.41853Q9.276321668930054,3.36381,9.367321668930053,3.32612Q9.458311668930055,3.28843,9.554911668930053,3.26922Q9.651511668930054,3.25,9.750001668930054,3.25Q9.848491668930054,3.25,9.945091668930054,3.26922Q10.041691668930053,3.28843,10.132681668930054,3.32612Q10.223681668930054,3.36381,10.305571668930053,3.41853Q10.387461668930055,3.47325,10.457111668930054,3.54289Q10.526751668930054,3.61254,10.581471668930053,3.69443Q10.636191668930053,3.77632,10.673881668930054,3.86732Q10.711571668930054,3.95831,10.730781668930053,4.05491Q10.750001668930054,4.15151,10.750001668930054,4.25Z" fill-rule="evenodd"></path>
+
 </svg>`;
       span.innerHTML = `${icon}${completedChilds}/${childTasks.length}`;
       span.style.fontSize = "0.8em";
@@ -4219,7 +5306,7 @@ var TaskView = class extends import_obsidian4.ItemView {
     const checkbox = task.status === 2 ? "[x]" : "[ ]";
     const title = (task.title || "").replace(/\r?\n/g, " ").trim() || "\u65E0\u6807\u9898\u4EFB\u52A1";
     const dateStr = this._formatDidaTaskDueDateForDrag(task);
-    return `${indent}- ${checkbox} ${title} [\u{1F517}Dida](obsidian://dida-task?didaId=${task.didaId})${dateStr}`;
+    return `${indent}- ${checkbox} ${title} [\u9983\u6546Dida](obsidian://dida-task?didaId=${task.didaId})${dateStr}`;
   }
   _formatDidaTaskDueDateForDrag(task) {
     const dateValue = task && (task.dueDate || task.startDate) || null;
@@ -4232,7 +5319,7 @@ var TaskView = class extends import_obsidian4.ItemView {
       const y = date.getFullYear();
       const m = String(date.getMonth() + 1).padStart(2, "0");
       const d = String(date.getDate()).padStart(2, "0");
-      return ` \u{1F4C5} ${y}-${m}-${d}`;
+      return ` \u9983\u642E ${y}-${m}-${d}`;
     } catch (e) {
       return "";
     }
@@ -4386,6 +5473,9 @@ var SyncManager = class {
                 permission: "write",
                 kind: "TASK"
               });
+            }
+            if (this.plugin.mergeRemoteProjectsIntoCatalog(projectMap)) {
+              await this.plugin.saveSettings();
             }
             for (const project of list) {
               for (const url of [
@@ -5558,31 +6648,269 @@ var AddTaskToProjectModal = class extends import_obsidian6.Modal {
     this.contentEl.empty();
   }
   getAvailableProjects() {
-    const projects = [];
-    projects.push({ id: "inbox", name: "\u6536\u96C6\u7BB1" });
-    const tasks = this.plugin.settings.tasks || [];
-    const projectMap = /* @__PURE__ */ new Map();
-    tasks.forEach((t) => {
-      if (t.projectName && t.projectId) {
-        const key = t.projectId + "-" + t.projectName;
-        if (!projectMap.has(key)) {
-          projectMap.set(key, { id: t.projectId, name: t.projectName });
+    const configs = this.plugin.getAvailableProjectConfigs();
+    return configs.map((entry) => ({ id: entry.id, name: entry.name }));
+  }
+};
+
+// src/modals/ProjectCreateModal.ts
+var import_obsidian7 = require("obsidian");
+var ProjectCreateModal = class extends import_obsidian7.Modal {
+  constructor(app, onSubmit) {
+    super(app);
+    this.inputEl = null;
+    this.submitted = false;
+    this.onSubmit = onSubmit;
+  }
+  onOpen() {
+    const content = this.contentEl;
+    content.empty();
+    content.createEl("h3", { text: "\u65B0\u589E\u9879\u76EE\u6807\u9898" });
+    content.createEl("p", {
+      text: "\u8F93\u5165\u65B0\u7684\u9879\u76EE\u6807\u9898\u3002\u521B\u5EFA\u540E\u4F1A\u7ACB\u5373\u663E\u793A\u5728\u5217\u8868\u4E2D\uFF0C\u5E76\u5728\u540E\u53F0\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\u3002"
+    });
+    this.inputEl = content.createEl("input", {
+      type: "text",
+      placeholder: "\u8F93\u5165\u9879\u76EE\u6807\u9898"
+    });
+    this.inputEl.style.width = "100%";
+    this.inputEl.style.marginBottom = "12px";
+    const footer = content.createDiv();
+    footer.style.display = "flex";
+    footer.style.justifyContent = "flex-end";
+    footer.style.gap = "8px";
+    footer.createEl("button", { text: "\u53D6\u6D88" }).addEventListener("click", () => this.close());
+    const confirm2 = footer.createEl("button", { text: "\u786E\u5B9A" });
+    confirm2.addClass("mod-cta");
+    confirm2.addEventListener("click", () => this.submit());
+    this.inputEl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.submit();
+      }
+    });
+    window.setTimeout(() => {
+      var _a, _b;
+      (_a = this.inputEl) == null ? void 0 : _a.focus();
+      (_b = this.inputEl) == null ? void 0 : _b.select();
+    }, 0);
+  }
+  submit() {
+    var _a, _b, _c;
+    const value = (((_a = this.inputEl) == null ? void 0 : _a.value) || "").trim();
+    if (!value) {
+      new import_obsidian7.Notice("\u9879\u76EE\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+      (_b = this.inputEl) == null ? void 0 : _b.focus();
+      (_c = this.inputEl) == null ? void 0 : _c.select();
+      return;
+    }
+    this.submitted = true;
+    this.onSubmit(value);
+    this.close();
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+
+// src/modals/ProjectDeleteConfirmModal.ts
+var import_obsidian8 = require("obsidian");
+var ProjectDeleteConfirmModal = class extends import_obsidian8.Modal {
+  constructor(app, project, onConfirm) {
+    super(app);
+    this.project = project;
+    this.onConfirm = onConfirm;
+  }
+  onOpen() {
+    const content = this.contentEl;
+    content.empty();
+    content.createEl("h3", { text: `\u5220\u9664\u9879\u76EE\u6807\u9898\uFF1A${this.project.name}` });
+    content.createEl("p", {
+      text: "\u8BE5\u9879\u76EE\u5F53\u524D\u6CA1\u6709\u4EFB\u52A1\u3002\u786E\u8BA4\u540E\u4F1A\u5220\u9664\u672C\u5730\u9879\u76EE\u6807\u9898\uFF0C\u5E76\u540C\u6B65\u5220\u9664\u6EF4\u7B54\u6E05\u5355\u4E2D\u7684\u5BF9\u5E94\u9879\u76EE\u3002"
+    });
+    const footer = content.createDiv();
+    footer.style.display = "flex";
+    footer.style.justifyContent = "flex-end";
+    footer.style.gap = "8px";
+    footer.createEl("button", { text: "\u53D6\u6D88" }).addEventListener("click", () => this.close());
+    const confirm2 = footer.createEl("button", { text: "\u5220\u9664" });
+    confirm2.addClass("mod-warning");
+    confirm2.addEventListener("click", () => {
+      this.onConfirm();
+      this.close();
+    });
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+
+// src/modals/ProjectIconPickerModal.ts
+var import_obsidian9 = require("obsidian");
+var ProjectIconPickerModal = class extends import_obsidian9.Modal {
+  constructor(app, plugin, project, onSelect) {
+    super(app);
+    this.plugin = plugin;
+    this.project = project;
+    this.onSelect = onSelect;
+    this.filteredIcons = [];
+    this.iconItems = [];
+    this.focusedIndex = 0;
+  }
+  onOpen() {
+    const content = this.contentEl;
+    content.empty();
+    content.addClass("dida-icon-picker-modal");
+    content.createEl("h3", { text: `\u8BBE\u7F6E\u9879\u76EE\u56FE\u6807\uFF1A${this.project.name}` });
+    const searchInput = content.createDiv("dida-icon-search-container").createEl("input", {
+      type: "text",
+      placeholder: "\u8F93\u5165 Lucide \u540D\u79F0\u641C\u7D22\uFF0C\u4F8B\u5982 folder\u3001briefcase\u3001book-open"
+    });
+    searchInput.addClass("dida-icon-search-input");
+    const grid = content.createDiv("dida-icon-grid-container");
+    const buttonRow = content.createDiv("dida-icon-button-container");
+    buttonRow.createEl("button", { text: "\u6062\u590D\u9ED8\u8BA4" }).addEventListener("click", async () => {
+      await this.onSelect("");
+      this.close();
+    });
+    buttonRow.createEl("button", { text: "\u53D6\u6D88" }).addEventListener("click", () => this.close());
+    const renderIcons = (keyword = "") => {
+      grid.empty();
+      this.iconItems = [];
+      const query = keyword.trim().toLowerCase();
+      const icons = this.plugin.getLucideIconNames();
+      this.filteredIcons = icons.filter((name) => !query || name.toLowerCase().includes(query)).slice(0, 200);
+      if (this.filteredIcons.length === 0) {
+        grid.createDiv({ text: "\u6CA1\u6709\u627E\u5230\u5339\u914D\u56FE\u6807", cls: "dida-icon-no-results" });
+        return;
+      }
+      this.filteredIcons.forEach((name, index) => {
+        const item = grid.createDiv("dida-icon-grid-item");
+        const preview = item.createDiv("dida-icon-preview");
+        try {
+          (0, import_obsidian9.setIcon)(preview, `lucide-${name}`);
+        } catch (e) {
+          preview.setText(name);
+        }
+        item.createDiv({ text: name, cls: "dida-icon-name" });
+        item.addEventListener("click", async () => {
+          await this.onSelect(name);
+          this.close();
+        });
+        this.iconItems.push(item);
+        if (index === this.focusedIndex)
+          item.addClass("is-focused");
+      });
+    };
+    const updateFocus = () => {
+      this.iconItems.forEach((item, index) => {
+        item.classList.toggle("is-focused", index === this.focusedIndex);
+      });
+      const active = this.iconItems[this.focusedIndex];
+      if (active && typeof active.scrollIntoView === "function") {
+        active.scrollIntoView({ block: "nearest" });
+      }
+    };
+    searchInput.addEventListener("input", (event) => {
+      this.focusedIndex = 0;
+      renderIcons(event.target.value || "");
+    });
+    searchInput.addEventListener("keydown", async (event) => {
+      if (!this.iconItems.length)
+        return;
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        this.focusedIndex = Math.min(this.focusedIndex + 1, this.iconItems.length - 1);
+        updateFocus();
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        this.focusedIndex = Math.max(this.focusedIndex - 1, 0);
+        updateFocus();
+      } else if (event.key === "ArrowDown") {
+        event.preventDefault();
+        this.focusedIndex = Math.min(this.focusedIndex + 4, this.iconItems.length - 1);
+        updateFocus();
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        this.focusedIndex = Math.max(this.focusedIndex - 4, 0);
+        updateFocus();
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        const selected = this.filteredIcons[this.focusedIndex];
+        if (selected) {
+          await this.onSelect(selected);
+          this.close();
         }
       }
     });
-    projectMap.forEach((p) => {
-      if (p.id !== "inbox" && p.name !== "\u6536\u96C6\u7BB1") {
-        projects.push(p);
+    renderIcons();
+    window.setTimeout(() => {
+      searchInput.focus();
+    }, 0);
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+
+// src/modals/ProjectRenameModal.ts
+var import_obsidian10 = require("obsidian");
+var ProjectRenameModal = class extends import_obsidian10.Modal {
+  constructor(app, project, onSubmit) {
+    super(app);
+    this.inputEl = null;
+    this.submitted = false;
+    this.project = project;
+    this.onSubmit = onSubmit;
+  }
+  onOpen() {
+    const content = this.contentEl;
+    content.empty();
+    content.createEl("h3", { text: `\u4FEE\u6539\u9879\u76EE\u6807\u9898\uFF1A${this.project.name}` });
+    content.createEl("p", {
+      text: "\u8F93\u5165\u65B0\u7684\u9879\u76EE\u6807\u9898\u3002\u82E5\u8BE5\u9879\u76EE\u6765\u81EA\u6EF4\u7B54\u6E05\u5355\uFF0C\u5C06\u540C\u6B65\u4FEE\u6539\u4E91\u7AEF\u9879\u76EE\u540D\u79F0\u3002"
+    });
+    this.inputEl = content.createEl("input", {
+      type: "text",
+      value: this.project.name
+    });
+    this.inputEl.style.width = "100%";
+    this.inputEl.style.marginBottom = "12px";
+    const footer = content.createDiv();
+    footer.style.display = "flex";
+    footer.style.justifyContent = "flex-end";
+    footer.style.gap = "8px";
+    footer.createEl("button", { text: "\u53D6\u6D88" }).addEventListener("click", () => this.close());
+    const confirm2 = footer.createEl("button", { text: "\u786E\u5B9A" });
+    confirm2.addClass("mod-cta");
+    confirm2.addEventListener("click", () => this.submit());
+    this.inputEl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.submit();
       }
     });
-    projects.sort((a, b) => {
-      if (a.name === "\u6536\u96C6\u7BB1")
-        return -1;
-      if (b.name === "\u6536\u96C6\u7BB1")
-        return 1;
-      return a.name.localeCompare(b.name);
-    });
-    return projects;
+    window.setTimeout(() => {
+      var _a, _b;
+      (_a = this.inputEl) == null ? void 0 : _a.focus();
+      (_b = this.inputEl) == null ? void 0 : _b.select();
+    }, 0);
+  }
+  submit() {
+    var _a, _b, _c;
+    const value = (((_a = this.inputEl) == null ? void 0 : _a.value) || "").trim();
+    if (!value) {
+      new import_obsidian10.Notice("\u9879\u76EE\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+      (_b = this.inputEl) == null ? void 0 : _b.focus();
+      (_c = this.inputEl) == null ? void 0 : _c.select();
+      return;
+    }
+    this.submitted = true;
+    this.onSubmit(value);
+    this.close();
+  }
+  onClose() {
+    this.contentEl.empty();
   }
 };
 
@@ -5844,8 +7172,8 @@ var TaskSuggestionPopup = class {
 };
 
 // src/modals/AddTaskModal.ts
-var import_obsidian7 = require("obsidian");
-var AddTaskModal = class extends import_obsidian7.Modal {
+var import_obsidian11 = require("obsidian");
+var AddTaskModal = class extends import_obsidian11.Modal {
   constructor(app, onSubmit, projectName = "\u6536\u96C6\u7BB1") {
     super(app);
     this.onSubmit = onSubmit;
@@ -6795,10 +8123,10 @@ var TimelineViewModal = class {
 };
 
 // src/settings/DidaSyncSettingTab.ts
-var import_obsidian12 = require("obsidian");
+var import_obsidian16 = require("obsidian");
 
 // src/settings/views/oauth-settings-view.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian12 = require("obsidian");
 
 // src/settings/views/abstract-settings-view.ts
 var AbstractSettingsView = class {
@@ -6824,7 +8152,7 @@ var OAuthSettingsView = class extends AbstractSettingsView {
     linkDiv.createEl("code", { text: "https://developer.dida365.com/manage" });
     linkDiv.createEl("button", { text: "\u590D\u5236", cls: "mod-small" }).onclick = () => {
       navigator.clipboard.writeText("https://developer.dida365.com/manage");
-      new import_obsidian8.Notice("\u5F00\u53D1\u8005\u540E\u53F0\u94FE\u63A5\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
+      new import_obsidian12.Notice("\u5F00\u53D1\u8005\u540E\u53F0\u94FE\u63A5\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
     };
     const step2Div = oauthContainer.createDiv();
     step2Div.style.cssText = "margin: 10px 0;";
@@ -6838,17 +8166,17 @@ var OAuthSettingsView = class extends AbstractSettingsView {
     uriDiv.createEl("code", { text: `http://localhost:${this.plugin.settings.serverPort}/callback` });
     uriDiv.createEl("button", { text: "\u590D\u5236", cls: "mod-small" }).onclick = () => {
       navigator.clipboard.writeText(`http://localhost:${this.plugin.settings.serverPort}/callback`);
-      new import_obsidian8.Notice("\u91CD\u5B9A\u5411URI\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
+      new import_obsidian12.Notice("\u91CD\u5B9A\u5411URI\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
     };
-    new import_obsidian8.Setting(containerEl).setName("Client ID").setDesc("\u6EF4\u7B54\u6E05\u5355\u5E94\u7528\u7684Client ID").addText((t) => t.setPlaceholder("\u8F93\u5165Client ID").setValue(this.plugin.settings.clientId).onChange(async (t2) => {
+    new import_obsidian12.Setting(containerEl).setName("Client ID").setDesc("\u6EF4\u7B54\u6E05\u5355\u5E94\u7528\u7684Client ID").addText((t) => t.setPlaceholder("\u8F93\u5165Client ID").setValue(this.plugin.settings.clientId).onChange(async (t2) => {
       this.plugin.settings.clientId = t2;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian8.Setting(containerEl).setName("Client Secret").setDesc("\u6EF4\u7B54\u6E05\u5355\u5E94\u7528\u7684Client Secret").addText((t) => t.setPlaceholder("\u8F93\u5165Client Secret").setValue(this.plugin.settings.clientSecret).onChange(async (t2) => {
+    new import_obsidian12.Setting(containerEl).setName("Client Secret").setDesc("\u6EF4\u7B54\u6E05\u5355\u5E94\u7528\u7684Client Secret").addText((t) => t.setPlaceholder("\u8F93\u5165Client Secret").setValue(this.plugin.settings.clientSecret).onChange(async (t2) => {
       this.plugin.settings.clientSecret = t2;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian8.Setting(containerEl).setName("\u670D\u52A1\u5668\u7AEF\u53E3").setDesc("OAuth\u56DE\u8C03\u670D\u52A1\u5668\u7AEF\u53E3\uFF08\u4FEE\u6539\u540E\u9700\u8981\u66F4\u65B0\u91CD\u5B9A\u5411URI\u914D\u7F6E\uFF09").addText((t) => {
+    new import_obsidian12.Setting(containerEl).setName("\u670D\u52A1\u5668\u7AEF\u53E3").setDesc("OAuth\u56DE\u8C03\u670D\u52A1\u5668\u7AEF\u53E3\uFF08\u4FEE\u6539\u540E\u9700\u8981\u66F4\u65B0\u91CD\u5B9A\u5411URI\u914D\u7F6E\uFF09").addText((t) => {
       const debouncedSave = debounce(async (val) => {
         const port = parseInt(val) || 8080;
         this.plugin.settings.serverPort = port;
@@ -6857,7 +8185,7 @@ var OAuthSettingsView = class extends AbstractSettingsView {
       }, 300);
       t.setPlaceholder("8080").setValue(this.plugin.settings.serverPort.toString()).onChange(debouncedSave);
     });
-    new import_obsidian8.Setting(containerEl).setName("OAuth\u8BA4\u8BC1").setDesc("\u70B9\u51FB\u5F00\u59CBOAuth\u8BA4\u8BC1\u6D41\u7A0B").addButton((t) => t.setButtonText("\u5F00\u59CB\u8BA4\u8BC1").onClick(() => {
+    new import_obsidian12.Setting(containerEl).setName("OAuth\u8BA4\u8BC1").setDesc("\u70B9\u51FB\u5F00\u59CBOAuth\u8BA4\u8BC1\u6D41\u7A0B").addButton((t) => t.setButtonText("\u5F00\u59CB\u8BA4\u8BC1").onClick(() => {
       this.plugin.apiClient.startOAuthFlow();
     }));
     const statusDiv = containerEl.createDiv();
@@ -6884,7 +8212,7 @@ var OAuthSettingsView = class extends AbstractSettingsView {
         if (parent && ((_b = (_a = parent.querySelector("code")) == null ? void 0 : _a.textContent) == null ? void 0 : _b.includes("/callback"))) {
           btn.onclick = () => {
             navigator.clipboard.writeText(`http://localhost:${port}/callback`);
-            new import_obsidian8.Notice("\u91CD\u5B9A\u5411URI\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
+            new import_obsidian12.Notice("\u91CD\u5B9A\u5411URI\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
           };
         }
       }
@@ -6893,36 +8221,36 @@ var OAuthSettingsView = class extends AbstractSettingsView {
 };
 
 // src/settings/views/sync-settings-view.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 var SyncSettingsView = class extends AbstractSettingsView {
   constructor(app, plugin) {
     super(app, plugin);
   }
   render(containerEl) {
     containerEl.createEl("h3", { text: "\u540C\u6B65\u8BBE\u7F6E" });
-    new import_obsidian9.Setting(containerEl).setName("\u81EA\u52A8\u540C\u6B65").setDesc("\u542F\u7528\u540E\u4F1A\u5B9A\u671F\u4ECE\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u4EFB\u52A1").addToggle((t) => t.setValue(this.plugin.settings.autoSync).onChange(async (t2) => {
+    new import_obsidian13.Setting(containerEl).setName("\u81EA\u52A8\u540C\u6B65").setDesc("\u542F\u7528\u540E\u4F1A\u5B9A\u671F\u4ECE\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u4EFB\u52A1").addToggle((t) => t.setValue(this.plugin.settings.autoSync).onChange(async (t2) => {
       this.plugin.settings.autoSync = t2;
       await this.plugin.saveSettings();
       this.plugin.syncManager.setupAutoSync();
     }));
-    new import_obsidian9.Setting(containerEl).setName("\u663E\u793A\u5F52\u6863\u9879\u76EE").setDesc("\u9009\u62E9\u662F\u5426\u5728\u4EFB\u52A1\u6E05\u5355\u4E2D\u663E\u793A\u5DF2\u5F52\u6863\u7684\u9879\u76EE").addDropdown((t) => t.addOption("false", "\u9690\u85CF\u5F52\u6863\u9879\u76EE").addOption("true", "\u663E\u793A\u5F52\u6863\u9879\u76EE").setValue(this.plugin.settings.showArchivedProjects.toString()).onChange(async (t2) => {
+    new import_obsidian13.Setting(containerEl).setName("\u663E\u793A\u5F52\u6863\u9879\u76EE").setDesc("\u9009\u62E9\u662F\u5426\u5728\u4EFB\u52A1\u6E05\u5355\u4E2D\u663E\u793A\u5DF2\u5F52\u6863\u7684\u9879\u76EE").addDropdown((t) => t.addOption("false", "\u9690\u85CF\u5F52\u6863\u9879\u76EE").addOption("true", "\u663E\u793A\u5F52\u6863\u9879\u76EE").setValue(this.plugin.settings.showArchivedProjects.toString()).onChange(async (t2) => {
       this.plugin.settings.showArchivedProjects = "true" === t2;
       await this.plugin.saveSettings();
       this.plugin.refreshTaskView();
     }));
-    new import_obsidian9.Setting(containerEl).setName("\u540C\u6B65\u95F4\u9694").setDesc("\u81EA\u52A8\u4ECE\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u7684\u95F4\u9694\u65F6\u95F4\uFF08\u5206\u949F\uFF09").addSlider((t) => t.setLimits(5, 120, 5).setValue(this.plugin.settings.syncInterval).setDynamicTooltip().onChange(async (t2) => {
+    new import_obsidian13.Setting(containerEl).setName("\u540C\u6B65\u95F4\u9694").setDesc("\u81EA\u52A8\u4ECE\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u7684\u95F4\u9694\u65F6\u95F4\uFF08\u5206\u949F\uFF09").addSlider((t) => t.setLimits(5, 120, 5).setValue(this.plugin.settings.syncInterval).setDynamicTooltip().onChange(async (t2) => {
       this.plugin.settings.syncInterval = t2;
       await this.plugin.saveSettings();
       this.plugin.syncManager.setupAutoSync();
     }));
-    new import_obsidian9.Setting(containerEl).setName("\u624B\u52A8\u540C\u6B65").setDesc("\u7ACB\u5373\u6267\u884C\u53CC\u5411\u540C\u6B65").addButton((t) => t.setButtonText("\u5F00\u59CB\u540C\u6B65").onClick(async () => {
+    new import_obsidian13.Setting(containerEl).setName("\u624B\u52A8\u540C\u6B65").setDesc("\u7ACB\u5373\u6267\u884C\u53CC\u5411\u540C\u6B65").addButton((t) => t.setButtonText("\u5F00\u59CB\u540C\u6B65").onClick(async () => {
       await this.plugin.manualSync();
     }));
     containerEl.createEl("h3", { text: "\u539F\u751F\u4EFB\u52A1\u540C\u6B65\u8BBE\u7F6E" });
     const nativeInfo = containerEl.createDiv();
     nativeInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #0066cc;";
     nativeInfo.innerHTML = '<strong>\u8BF4\u660E\uFF1A</strong>\u539F\u751F\u4EFB\u52A1\u540C\u6B65\u529F\u80FD\u652F\u6301\u624B\u52A8\u540C\u6B65Obsidian\u4E2D\u7684\u539F\u751F\u4EFB\u52A1\u683C\u5F0F\uFF08- [ ] \uFF09\u5230\u6EF4\u7B54\u6E05\u5355\u3002\u542F\u7528\u540E\uFF0C\u8F93\u5165"- [ ] "\u65F6\u4F1A\u5F39\u51FA\u64CD\u4F5C\u83DC\u5355\uFF0C\u53EF\u9009\u62E9\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\u6216\u6DFB\u52A0\u5230\u671F\u65E5\u671F\u3002\u540C\u6B65\u540E\u4F1A\u5728\u4EFB\u52A1\u540E\u6DFB\u52A0\u94FE\u63A5\uFF0C\u65B9\u4FBF\u8DF3\u8F6C\u5230\u6EF4\u7B54\u6E05\u5355\u67E5\u770B\u8BE6\u60C5\u3002';
-    new import_obsidian9.Setting(containerEl).setName("\u542F\u7528\u539F\u751F\u4EFB\u52A1\u540C\u6B65").setDesc('\u542F\u7528\u540E\u53EF\u4EE5\u624B\u52A8\u540C\u6B65Obsidian\u539F\u751F\u4EFB\u52A1\u683C\u5F0F\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u8F93\u5165"- [ ] "\u65F6\u663E\u793A\u64CD\u4F5C\u83DC\u5355').addToggle((t) => t.setValue(this.plugin.settings.enableNativeTaskSync).onChange(async (t2) => {
+    new import_obsidian13.Setting(containerEl).setName("\u542F\u7528\u539F\u751F\u4EFB\u52A1\u540C\u6B65").setDesc('\u542F\u7528\u540E\u53EF\u4EE5\u624B\u52A8\u540C\u6B65Obsidian\u539F\u751F\u4EFB\u52A1\u683C\u5F0F\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u8F93\u5165"- [ ] "\u65F6\u663E\u793A\u64CD\u4F5C\u83DC\u5355').addToggle((t) => t.setValue(this.plugin.settings.enableNativeTaskSync).onChange(async (t2) => {
       this.plugin.settings.enableNativeTaskSync = t2;
       await this.plugin.saveSettings();
     }));
@@ -6930,7 +8258,7 @@ var SyncSettingsView = class extends AbstractSettingsView {
     const dailyInfo = containerEl.createDiv();
     dailyInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #0066cc;";
     dailyInfo.innerHTML = "<strong>\u8BF4\u660E\uFF1A</strong>\u65E5\u8BB0\u540C\u6B65\u529F\u80FD\u5141\u8BB8\u4F60\u901A\u8FC7\u547D\u4EE4\u5C06\u4ECA\u5929\u7684\u5F85\u529E\u4EFB\u52A1\u540C\u6B65\u5230\u65E5\u8BB0\u4E2D\u3002";
-    new import_obsidian9.Setting(containerEl).setName("\u76EE\u6807\u8BED\u6CD5\u5757\u6807\u8BC6").setDesc("\u5728\u6B64\u8BBE\u7F6E\u8981\u66F4\u65B0\u7684\u65E5\u8BB0\u5F85\u529E\u4E8B\u9879\u5757\u7684\u6807\u9898(\u5305\u62ECMarkdown\u524D\u7F00)").addText((text) => text.setPlaceholder("\u8F93\u5165\u76EE\u6807\u533A\u5757\u6807\u8BC6").setValue(this.plugin.settings.dailySyncTargetBlockHeader).onChange(async (value) => {
+    new import_obsidian13.Setting(containerEl).setName("\u76EE\u6807\u8BED\u6CD5\u5757\u6807\u8BC6").setDesc("\u5728\u6B64\u8BBE\u7F6E\u8981\u66F4\u65B0\u7684\u65E5\u8BB0\u5F85\u529E\u4E8B\u9879\u5757\u7684\u6807\u9898(\u5305\u62ECMarkdown\u524D\u7F00)").addText((text) => text.setPlaceholder("\u8F93\u5165\u76EE\u6807\u533A\u5757\u6807\u8BC6").setValue(this.plugin.settings.dailySyncTargetBlockHeader).onChange(async (value) => {
       this.plugin.settings.dailySyncTargetBlockHeader = value;
       await this.plugin.saveSettings();
     }));
@@ -6938,23 +8266,23 @@ var SyncSettingsView = class extends AbstractSettingsView {
 };
 
 // src/settings/views/ui-settings-view.ts
-var import_obsidian10 = require("obsidian");
+var import_obsidian14 = require("obsidian");
 var UISettingsView = class extends AbstractSettingsView {
   constructor(app, plugin) {
     super(app, plugin);
   }
   render(containerEl) {
     containerEl.createEl("h3", { text: "\u4E3B\u4EFB\u52A1\u89C6\u56FE\u8BBE\u7F6E" });
-    new import_obsidian10.Setting(containerEl).setName("\u9ED8\u8BA4\u89C6\u56FE\u6A21\u5F0F").setDesc("\u53F3\u4FA7\u8FB9\u680F\u6253\u5F00\u4EFB\u52A1\u6E05\u5355\u65F6\u9ED8\u8BA4\u663E\u793A\u7684\u89C6\u56FE\u7C7B\u578B").addDropdown((t) => t.addOption("task", "\u4EFB\u52A1\u5217\u8868").addOption("timeblock", "\u65F6\u95F4\u6BB5\u89C6\u56FE").setValue(this.plugin.settings.defaultViewMode || "task").onChange(async (t2) => {
+    new import_obsidian14.Setting(containerEl).setName("\u9ED8\u8BA4\u89C6\u56FE\u6A21\u5F0F").setDesc("\u53F3\u4FA7\u8FB9\u680F\u6253\u5F00\u4EFB\u52A1\u6E05\u5355\u65F6\u9ED8\u8BA4\u663E\u793A\u7684\u89C6\u56FE\u7C7B\u578B").addDropdown((t) => t.addOption("task", "\u4EFB\u52A1\u5217\u8868").addOption("timeblock", "\u65F6\u95F4\u6BB5\u89C6\u56FE").setValue(this.plugin.settings.defaultViewMode || "task").onChange(async (t2) => {
       this.plugin.settings.defaultViewMode = t2;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian10.Setting(containerEl).setName("\u65F6\u95F4\u5757\u6BCF\u5C0F\u65F6\u9AD8\u5EA6").setDesc("\u65F6\u95F4\u6BB5\u89C6\u56FE\u4E2D\u6BCF\u5C0F\u65F6\u7684\u9AD8\u5EA6\uFF08\u50CF\u7D20\uFF09\uFF0C\u8C03\u6574\u540E\u9700\u8981\u5207\u6362\u89C6\u56FE\u624D\u80FD\u751F\u6548").addSlider((t) => t.setLimits(50, 100, 5).setValue(this.plugin.settings.timeBlockHourHeight || 80).setDynamicTooltip().onChange(async (t2) => {
+    new import_obsidian14.Setting(containerEl).setName("\u65F6\u95F4\u5757\u6BCF\u5C0F\u65F6\u9AD8\u5EA6").setDesc("\u65F6\u95F4\u6BB5\u89C6\u56FE\u4E2D\u6BCF\u5C0F\u65F6\u7684\u9AD8\u5EA6\uFF08\u50CF\u7D20\uFF09\uFF0C\u8C03\u6574\u540E\u9700\u8981\u5207\u6362\u89C6\u56FE\u624D\u80FD\u751F\u6548").addSlider((t) => t.setLimits(50, 100, 5).setValue(this.plugin.settings.timeBlockHourHeight || 80).setDynamicTooltip().onChange(async (t2) => {
       this.plugin.settings.timeBlockHourHeight = t2;
       await this.plugin.saveSettings();
       document.documentElement.style.setProperty("--dida-hour-height", t2 + "px");
     }));
-    new import_obsidian10.Setting(containerEl).setName("\u65F6\u95F4\u6BB5\u89C6\u56FE\u8D77\u59CB\u65F6\u95F4").setDesc("\u81EA\u5B9A\u4E49\u8BBE\u7F6E\u65F6\u95F4\u6BB5\u89C6\u56FE\u7684\u8D77\u59CB\u65F6\u95F4\uFF08\u4FDD\u630124\u5C0F\u65F6\u523B\u5EA6\uFF09").addDropdown((e) => {
+    new import_obsidian14.Setting(containerEl).setName("\u65F6\u95F4\u6BB5\u89C6\u56FE\u8D77\u59CB\u65F6\u95F4").setDesc("\u81EA\u5B9A\u4E49\u8BBE\u7F6E\u65F6\u95F4\u6BB5\u89C6\u56FE\u7684\u8D77\u59CB\u65F6\u95F4\uFF08\u4FDD\u630124\u5C0F\u65F6\u523B\u5EA6\uFF09").addDropdown((e) => {
       for (let t = 0; t < 24; t++) {
         var i = t.toString().padStart(2, "0") + ":00";
         e.addOption(t.toString(), i);
@@ -6965,11 +8293,63 @@ var UISettingsView = class extends AbstractSettingsView {
         this.plugin.refreshTaskView();
       });
     });
+    const pomodoroHeading = containerEl.createDiv({ cls: "setting-item-heading" });
+    pomodoroHeading.createDiv({ text: "\u756A\u8304\u949F\u4F11\u606F\u8BBE\u7F6E" });
+    pomodoroHeading.createDiv({
+      cls: "setting-item-description",
+      text: "\u8BBE\u7F6E\u77ED\u4F11\u606F\u548C\u957F\u4F11\u606F\u7684\u9ED8\u8BA4\u65F6\u957F\u3002\u4FEE\u6539\u540E\u4F1A\u5E94\u7528\u5230\u540E\u7EED\u4F11\u606F\u9636\u6BB5\uFF1B\u82E5\u5F53\u524D\u505C\u7559\u5728\u672A\u5F00\u59CB\u7684\u4F11\u606F\u9636\u6BB5\uFF0C\u4E5F\u4F1A\u540C\u6B65\u66F4\u65B0\u663E\u793A\u3002"
+    });
+    new import_obsidian14.Setting(containerEl).setName("\u77ED\u4F11\u606F\u65F6\u957F").setDesc("\u6BCF\u4E2A\u4E13\u6CE8\u756A\u8304\u7ED3\u675F\u540E\u7684\u77ED\u4F11\u606F\u65F6\u957F\uFF08\u5206\u949F\uFF09").addSlider(
+      (t) => {
+        var _a;
+        return t.setLimits(1, 15, 1).setValue(((_a = this.plugin.settings.pomodoroSettings) == null ? void 0 : _a.shortBreakMinutes) || 5).setDynamicTooltip().onChange(async (value) => {
+          const current = this.plugin.settings.pomodoroSettings || { ...DEFAULT_SETTINGS.pomodoroSettings };
+          this.plugin.settings.pomodoroSettings = { ...current, shortBreakMinutes: value };
+          await this.plugin.saveSettings();
+          this.app.workspace.getLeavesOfType("dida-task-view").forEach((leaf) => {
+            const view = leaf.view;
+            if ((view == null ? void 0 : view.pomodoroState) && view.pomodoroState.phase === "shortBreak" && !view.pomodoroState.isRunning) {
+              view.resetPomodoroPhase("shortBreak");
+              view.renderPomodoroPanel();
+              view.updatePomodoroUI();
+            }
+          });
+        });
+      }
+    );
+    new import_obsidian14.Setting(containerEl).setName("\u957F\u4F11\u606F\u65F6\u957F").setDesc("\u6BCF 4 \u4E2A\u4E13\u6CE8\u756A\u8304\u7ED3\u675F\u540E\u7684\u957F\u4F11\u606F\u65F6\u957F\uFF08\u5206\u949F\uFF09").addSlider(
+      (t) => {
+        var _a;
+        return t.setLimits(15, 30, 1).setValue(((_a = this.plugin.settings.pomodoroSettings) == null ? void 0 : _a.longBreakMinutes) || 15).setDynamicTooltip().onChange(async (value) => {
+          const current = this.plugin.settings.pomodoroSettings || { ...DEFAULT_SETTINGS.pomodoroSettings };
+          const presets = normalizePomodoroPresetMinutes(
+            [...current.longBreakPresetMinutes || [], value],
+            15,
+            30,
+            DEFAULT_SETTINGS.pomodoroSettings.longBreakPresetMinutes
+          );
+          this.plugin.settings.pomodoroSettings = {
+            ...current,
+            longBreakMinutes: value,
+            longBreakPresetMinutes: presets
+          };
+          await this.plugin.saveSettings();
+          this.app.workspace.getLeavesOfType("dida-task-view").forEach((leaf) => {
+            const view = leaf.view;
+            if ((view == null ? void 0 : view.pomodoroState) && view.pomodoroState.phase === "longBreak" && !view.pomodoroState.isRunning) {
+              view.resetPomodoroPhase("longBreak");
+              view.renderPomodoroPanel();
+              view.updatePomodoroUI();
+            }
+          });
+        });
+      }
+    );
   }
 };
 
 // src/settings/views/advanced-settings-view.ts
-var import_obsidian11 = require("obsidian");
+var import_obsidian15 = require("obsidian");
 var AdvancedSettingsView = class extends AbstractSettingsView {
   constructor(app, plugin) {
     super(app, plugin);
@@ -6979,11 +8359,11 @@ var AdvancedSettingsView = class extends AbstractSettingsView {
     const cleanInfo = containerEl.createDiv();
     cleanInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #6c757d;";
     cleanInfo.innerHTML = "<strong>\u8BF4\u660E\uFF1A</strong>\u542F\u7528\u81EA\u52A8\u6E05\u7406\u529F\u80FD\u540E\uFF0C\u63D2\u4EF6\u4F1A\u5728\u6BCF\u6B21\u542F\u52A8\u65F6\uFF08\u5EF6\u8FDF30\u79D2\uFF09\u81EA\u52A8\u6E05\u7406\u6307\u5B9A\u65F6\u95F4\u4E4B\u524D\u7684\u5DF2\u5B8C\u6210\u4EFB\u52A1\u6570\u636E\uFF0C\u4EE5\u4FDD\u6301\u6570\u636E\u6587\u4EF6\u7684\u6574\u6D01\u3002\u6B64\u64CD\u4F5C\u4EC5\u6E05\u7406\u672C\u5730\u6570\u636E\uFF0C\u4E0D\u4F1A\u5F71\u54CD\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u6570\u636E\u3002";
-    new import_obsidian11.Setting(containerEl).setName("\u81EA\u52A8\u6E05\u7406\u5DF2\u5B8C\u6210\u4EFB\u52A1").setDesc("\u542F\u7528\u540E\u4F1A\u5728\u63D2\u4EF6\u542F\u52A8\u65F6\u81EA\u52A8\u6E05\u7406\u6307\u5B9A\u65F6\u95F4\u4E4B\u524D\u7684\u5DF2\u5B8C\u6210\u4EFB\u52A1\u6570\u636E").addToggle((t) => t.setValue(this.plugin.settings.autoCleanCompletedTasks).onChange(async (t2) => {
+    new import_obsidian15.Setting(containerEl).setName("\u81EA\u52A8\u6E05\u7406\u5DF2\u5B8C\u6210\u4EFB\u52A1").setDesc("\u542F\u7528\u540E\u4F1A\u5728\u63D2\u4EF6\u542F\u52A8\u65F6\u81EA\u52A8\u6E05\u7406\u6307\u5B9A\u65F6\u95F4\u4E4B\u524D\u7684\u5DF2\u5B8C\u6210\u4EFB\u52A1\u6570\u636E").addToggle((t) => t.setValue(this.plugin.settings.autoCleanCompletedTasks).onChange(async (t2) => {
       this.plugin.settings.autoCleanCompletedTasks = t2;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian11.Setting(containerEl).setName("\u6E05\u7406\u95F4\u9694").setDesc("\u81EA\u52A8\u6E05\u7406\u5DF2\u5B8C\u6210\u4EFB\u52A1\u7684\u65F6\u95F4\u95F4\u9694\uFF08\u6708\u6570\uFF09").addDropdown((e) => {
+    new import_obsidian15.Setting(containerEl).setName("\u6E05\u7406\u95F4\u9694").setDesc("\u81EA\u52A8\u6E05\u7406\u5DF2\u5B8C\u6210\u4EFB\u52A1\u7684\u65F6\u95F4\u95F4\u9694\uFF08\u6708\u6570\uFF09").addDropdown((e) => {
       for (let t = 1; t <= 12; t++)
         e.addOption(t.toString(), t + "\u4E2A\u6708");
       e.setValue(this.plugin.settings.autoCleanInterval.toString()).onChange(async (t) => {
@@ -6995,7 +8375,7 @@ var AdvancedSettingsView = class extends AbstractSettingsView {
     const resetInfo = containerEl.createDiv();
     resetInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #856404; border: 1px solid #ffeaa7;";
     resetInfo.innerHTML = "<strong>\u26A0\uFE0F \u8B66\u544A\uFF1A</strong>\u6B64\u64CD\u4F5C\u5C06\u5B8C\u5168\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E\uFF0C\u5E76\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u91CD\u65B0\u83B7\u53D6\u6700\u65B0\u6570\u636E\u3002\u6B64\u64CD\u4F5C\u4E0D\u53EF\u9006\uFF0C\u5EFA\u8BAE\u5907\u4EFD\u4ED3\u5E93\u540E\u4F7F\u7528\u3002(\u9002\u7528\u4E8EObsidian\u672C\u5730\u4EFB\u52A1\u6570\u636E\u5DF2\u7ECF\u7834\u574F\u3001\u5F02\u5E38\u7B49\u60C5\u51B5\uFF09";
-    new import_obsidian11.Setting(containerEl).setName("\u91CD\u7F6E\u4EFB\u52A1\u6570\u636E").setDesc("\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E,\u5E76\u91CD\u65B0\u4ECE\u4E91\u7AEF\u83B7\u53D6\u4EFB\u52A1\u5230\u4F60\u7684Obsidian").addButton((t) => t.setButtonText("\u91CD\u7F6E\u6570\u636E").setWarning().onClick(async () => {
+    new import_obsidian15.Setting(containerEl).setName("\u91CD\u7F6E\u4EFB\u52A1\u6570\u636E").setDesc("\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E,\u5E76\u91CD\u65B0\u4ECE\u4E91\u7AEF\u83B7\u53D6\u4EFB\u52A1\u5230\u4F60\u7684Obsidian").addButton((t) => t.setButtonText("\u91CD\u7F6E\u6570\u636E").setWarning().onClick(async () => {
       if (this.plugin.settings.accessToken) {
         if (confirm('\u786E\u5B9A\u8981\u91CD\u7F6E\u4EFB\u52A1\u6570\u636E\u5417\uFF1F\n\n\u6B64\u64CD\u4F5C\u5C06\uFF1A\n\u2022 \u5B8C\u5168\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E\n\u2022 \u91CD\u65B0\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u83B7\u53D6\u6570\u636E\n\u2022 \u6B64\u64CD\u4F5C\u4E0D\u53EF\u9006\n\n\u70B9\u51FB"\u786E\u5B9A"\u7EE7\u7EED\uFF0C\u70B9\u51FB"\u53D6\u6D88"\u653E\u5F03\u64CD\u4F5C\u3002')) {
           this.plugin.settings.tasks = [];
@@ -7003,14 +8383,14 @@ var AdvancedSettingsView = class extends AbstractSettingsView {
           await this.plugin.syncManager.syncFromDidaList();
         }
       } else {
-        new import_obsidian11.Notice("\u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
+        new import_obsidian15.Notice("\u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
       }
     }));
   }
 };
 
 // src/settings/DidaSyncSettingTab.ts
-var DidaSyncSettingTab = class extends import_obsidian12.PluginSettingTab {
+var DidaSyncSettingTab = class extends import_obsidian16.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.activeTab = "oauth";
@@ -7687,21 +9067,34 @@ var TaskActionMenu = class {
 };
 
 // src/main.ts
-var DidaSyncPlugin = class extends import_obsidian13.Plugin {
+var AUTO_SYNC_EDIT_PAUSE_MAX_MS = 36e4;
+var AUTO_SYNC_EDIT_RECHECK_MS = 6e4;
+var DIDA_LUCIDE_ICON_NAMES = [];
+try {
+  const iconIds = typeof import_obsidian17.getIconIds === "function" ? (0, import_obsidian17.getIconIds)() : null;
+  if (Array.isArray(iconIds) && iconIds.length > 0) {
+    DIDA_LUCIDE_ICON_NAMES = iconIds.filter((id) => typeof id === "string" && id.startsWith("lucide-")).map((id) => id.substring("lucide-".length)).sort((a, b) => a.localeCompare(b));
+  }
+} catch (e) {
+}
+var DidaSyncPlugin = class extends import_obsidian17.Plugin {
   constructor() {
     super(...arguments);
     this.currentTaskActionMenu = null;
     this.isTaskActionInProgress = false;
     this.isPluginActivated = false;
     this.syncIntervalId = null;
+    this.autoSyncTimeout = null;
     this.statusBarItem = null;
     this._cachedTaskLeaf = null;
     this._handleOnlineForAutoSync = null;
     this._handleOfflineForAutoSync = null;
+    this._autoSyncDeferredSince = null;
     this._nativeTaskSyncTimeouts = null;
     this._isUpdatingNativeTaskStatus = false;
     this._taskStatusChangeTimeout = null;
     this._lastErrorTime = null;
+    this._projectCreationPromises = null;
     this.taskActionMenuDebounceTimer = null;
     this.dateChangeDebounceTimer = null;
     this.lastTaskMenuTriggerTime = 0;
@@ -7809,10 +9202,635 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
       this.settings.autoCleanInterval = 1;
     if (this.settings.projectCollapsedStates === void 0)
       this.settings.projectCollapsedStates = {};
+    if (!this.settings.projectIcons || typeof this.settings.projectIcons !== "object")
+      this.settings.projectIcons = {};
+    if (!Array.isArray(this.settings.projectCatalog))
+      this.settings.projectCatalog = [];
+    this.settings.projectCatalog = this.normalizeProjectCatalog(this.settings.projectCatalog);
+    await this.ensureProjectCatalogFromTasks();
+    if (this.settings.pomodoroSettings && typeof this.settings.pomodoroSettings === "object") {
+      this.settings.pomodoroSettings = { ...DEFAULT_SETTINGS.pomodoroSettings, ...this.settings.pomodoroSettings };
+    } else {
+      this.settings.pomodoroSettings = { ...DEFAULT_SETTINGS.pomodoroSettings };
+    }
+    this.settings.pomodoroSettings.focusPresetMinutes = normalizePomodoroPresetMinutes(
+      this.settings.pomodoroSettings.focusPresetMinutes,
+      1,
+      90,
+      DEFAULT_SETTINGS.pomodoroSettings.focusPresetMinutes
+    );
+    this.settings.pomodoroSettings.shortBreakMinutes = Math.max(
+      1,
+      Math.min(
+        15,
+        parseInt(String(this.settings.pomodoroSettings.shortBreakMinutes), 10) || DEFAULT_SETTINGS.pomodoroSettings.shortBreakMinutes
+      )
+    );
+    this.settings.pomodoroSettings.longBreakMinutes = Math.max(
+      15,
+      Math.min(
+        30,
+        parseInt(String(this.settings.pomodoroSettings.longBreakMinutes), 10) || DEFAULT_SETTINGS.pomodoroSettings.longBreakMinutes
+      )
+    );
+    this.settings.pomodoroSettings.longBreakPresetMinutes = normalizePomodoroPresetMinutes(
+      this.settings.pomodoroSettings.longBreakPresetMinutes,
+      15,
+      30,
+      DEFAULT_SETTINGS.pomodoroSettings.longBreakPresetMinutes
+    );
+    this.settings.pomodoroSettings.completionHistory = normalizePomodoroCompletionHistory(
+      this.settings.pomodoroSettings.completionHistory
+    );
     await this.saveSettings();
   }
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+  normalizeProjectCatalogEntry(entry) {
+    if (!entry || typeof entry !== "object")
+      return null;
+    const name = typeof entry.name === "string" ? entry.name.trim() : "";
+    if (!name)
+      return null;
+    const id = typeof entry.id === "string" ? entry.id.trim() : "";
+    return {
+      id,
+      name,
+      isArchived: entry.isArchived === true,
+      isLocalOnly: entry.isLocalOnly === true || !id && entry.isLocalOnly !== false
+    };
+  }
+  normalizeProjectCatalog(catalog) {
+    const normalized = [];
+    const seen = /* @__PURE__ */ new Set();
+    (Array.isArray(catalog) ? catalog : []).forEach((entry) => {
+      const normalizedEntry = this.normalizeProjectCatalogEntry(entry);
+      if (!normalizedEntry)
+        return;
+      const key = normalizedEntry.id ? `id:${normalizedEntry.id.toLowerCase()}` : `name:${normalizedEntry.name.trim().toLowerCase()}`;
+      if (seen.has(key))
+        return;
+      seen.add(key);
+      normalized.push(normalizedEntry);
+    });
+    return normalized;
+  }
+  getProjectCatalog() {
+    return this.normalizeProjectCatalog(this.settings.projectCatalog || []);
+  }
+  getTaskDerivedProjects() {
+    const map = /* @__PURE__ */ new Map();
+    map.set(this.getProjectIconConfigKey("inbox", "\u6536\u96C6\u7BB1"), {
+      id: "inbox",
+      name: "\u6536\u96C6\u7BB1",
+      isArchived: false,
+      isLocalOnly: false
+    });
+    (Array.isArray(this.settings.tasks) ? this.settings.tasks : []).forEach((task) => {
+      if (!task || task.parentId)
+        return;
+      let name = task.projectName || "";
+      let id = task.projectId || "";
+      if (!name && id) {
+        if (id === "inbox" || id.includes("inbox")) {
+          name = "\u6536\u96C6\u7BB1";
+          id = "inbox";
+        } else {
+          name = id;
+        }
+      } else if (!id && name) {
+        id = task.projectId || "";
+      }
+      name = name || "\u672C\u5730\u4EFB\u52A1";
+      const key = this.getProjectIconConfigKey(id, name);
+      if (!map.has(key)) {
+        map.set(key, {
+          id,
+          name,
+          isArchived: task.projectClosed === true,
+          isLocalOnly: !id || id === "local"
+        });
+      }
+    });
+    return Array.from(map.values());
+  }
+  async ensureProjectCatalogFromTasks() {
+    const current = this.getProjectCatalog();
+    const catalogMap = /* @__PURE__ */ new Map();
+    current.forEach((entry) => {
+      const key = entry.id ? `id:${entry.id.toLowerCase()}` : `name:${entry.name.trim().toLowerCase()}`;
+      catalogMap.set(key, entry);
+    });
+    let changed = false;
+    this.getTaskDerivedProjects().forEach((entry) => {
+      const idKey = entry.id ? `id:${entry.id.toLowerCase()}` : "";
+      const nameKey = `name:${entry.name.trim().toLowerCase()}`;
+      if (!catalogMap.has(idKey || nameKey) && !catalogMap.has(nameKey)) {
+        catalogMap.set(idKey || nameKey, entry);
+        changed = true;
+      }
+    });
+    if (changed) {
+      this.settings.projectCatalog = Array.from(catalogMap.values());
+      await this.saveSettings();
+    } else {
+      this.settings.projectCatalog = current;
+    }
+  }
+  generateTemporaryProjectId() {
+    return `local-project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  isTemporaryProjectId(projectId) {
+    return typeof projectId === "string" && projectId.startsWith("local-project-");
+  }
+  findProjectByName(name) {
+    const target = typeof name === "string" ? name.trim().toLowerCase() : "";
+    if (!target)
+      return null;
+    return this.getAvailableProjectConfigs().find((entry) => typeof (entry == null ? void 0 : entry.name) === "string" && entry.name.trim().toLowerCase() === target) || null;
+  }
+  getProjectTaskCount(project) {
+    if (!project || !project.name)
+      return 0;
+    const id = typeof project.id === "string" ? project.id.trim() : "";
+    const name = project.name;
+    const hasId = !!id;
+    return (Array.isArray(this.settings.tasks) ? this.settings.tasks : []).filter((task) => {
+      if (!task)
+        return false;
+      const byId = hasId && task.projectId === id;
+      const byName = task.projectName === name;
+      return byId || byName;
+    }).length;
+  }
+  getProjectDeleteState(project) {
+    if (!project || !project.name)
+      return { disabled: true, reason: "\u8BE5\u9879\u76EE\u6682\u65F6\u65E0\u6CD5\u5220\u9664" };
+    if (this.isInboxProject(project.id, project.name))
+      return { disabled: true, reason: "\u6536\u96C6\u7BB1\u4E0D\u652F\u6301\u5220\u9664\u6807\u9898" };
+    if (this.getProjectTaskCount(project) > 0)
+      return { disabled: true, reason: "\u9879\u76EE\u5185\u4ECD\u6709\u4EFB\u52A1\uFF0C\u65E0\u6CD5\u5220\u9664\u6807\u9898" };
+    return { disabled: false, reason: "\u5220\u9664\u9879\u76EE\u6807\u9898" };
+  }
+  getProjectIconConfigKey(projectId, projectName) {
+    return projectId && typeof projectId === "string" && projectId.trim() ? `id:${projectId.trim()}` : `name:${(projectName || "").trim()}`;
+  }
+  getProjectDefaultIconName(projectName) {
+    return projectName === "\u6536\u96C6\u7BB1" ? "inbox" : "list-checks";
+  }
+  isInboxProject(projectId, projectName) {
+    const id = typeof projectId === "string" ? projectId.trim().toLowerCase() : "";
+    const name = typeof projectName === "string" ? projectName.trim().toLowerCase() : "";
+    return !(id !== "inbox" && !id.includes("inbox")) || name === "\u6536\u96C6\u7BB1" || name === "inbox";
+  }
+  getProjectIconName(projectId, projectName) {
+    const icons = this.settings.projectIcons || {};
+    const key = this.getProjectIconConfigKey(projectId, projectName);
+    return icons[key] || icons[this.getProjectIconConfigKey("", projectName)] || this.getProjectDefaultIconName(projectName);
+  }
+  async setProjectIconName(projectId, projectName, iconName) {
+    if (!this.settings.projectIcons || typeof this.settings.projectIcons !== "object")
+      this.settings.projectIcons = {};
+    const key = this.getProjectIconConfigKey(projectId, projectName);
+    const next = (iconName || "").trim();
+    if (next)
+      this.settings.projectIcons[key] = next;
+    else
+      delete this.settings.projectIcons[key];
+    await this.saveSettings();
+  }
+  renderProjectIcon(container, projectId, projectName) {
+    if (!container)
+      return;
+    container.empty();
+    const iconName = this.getProjectIconName(projectId, projectName);
+    let rendered = false;
+    try {
+      (0, import_obsidian17.setIcon)(container, iconName);
+      rendered = !!container.querySelector("svg");
+    } catch (e) {
+    }
+    if (!rendered) {
+      container.empty();
+      try {
+        (0, import_obsidian17.setIcon)(container, this.getProjectDefaultIconName(projectName));
+      } catch (e) {
+      }
+    }
+    const svg = container.querySelector("svg");
+    if (svg) {
+      svg.setAttribute("width", "12");
+      svg.setAttribute("height", "12");
+      svg.setAttribute("stroke", "#da1b1b");
+    }
+  }
+  openProjectIconPicker(project) {
+    if (!project || !project.name)
+      return;
+    new ProjectIconPickerModal(this.app, this, project, async (iconName) => {
+      await this.setProjectIconName(project.id, project.name, iconName);
+      this.refreshTaskView();
+    }).open();
+  }
+  openProjectContextMenu(project, event) {
+    if (!project || !project.name)
+      return;
+    const menu = new import_obsidian17.Menu();
+    menu.setUseNativeMenu(false);
+    menu.addItem((item) => {
+      item.setTitle("\u8BBE\u7F6E\u9879\u76EE\u56FE\u6807").setIcon("folder").onClick(() => this.openProjectIconPicker(project));
+    });
+    menu.addItem((item) => {
+      item.setTitle("\u65B0\u589E\u9879\u76EE\u6807\u9898").setIcon("plus").onClick(() => this.openProjectCreateModal());
+    });
+    const isInbox = this.isInboxProject(project.id, project.name);
+    menu.addItem((item) => {
+      item.setTitle(isInbox ? "\u6536\u96C6\u7BB1\u4E0D\u652F\u6301\u4FEE\u6539\u6807\u9898" : "\u4FEE\u6539\u9879\u76EE\u6807\u9898").setIcon("pencil").setDisabled(isInbox).onClick(() => this.openProjectRenameModal(project));
+    });
+    const deleteState = this.getProjectDeleteState(project);
+    menu.addItem((item) => {
+      item.setTitle(deleteState.reason).setIcon("trash").setDisabled(deleteState.disabled).onClick(() => this.openProjectDeleteModal(project));
+    });
+    menu.showAtMouseEvent(event);
+  }
+  openProjectCreateModal() {
+    new ProjectCreateModal(this.app, (name) => {
+      this.createProjectInBackground(name);
+    }).open();
+  }
+  openProjectDeleteModal(project) {
+    const state = this.getProjectDeleteState(project);
+    if (state.disabled) {
+      new import_obsidian17.Notice(state.reason);
+      return;
+    }
+    new ProjectDeleteConfirmModal(this.app, project, () => {
+      this.deleteProjectInBackground(project);
+    }).open();
+  }
+  createProjectInBackground(name) {
+    setTimeout(async () => {
+      try {
+        await this.createProject(name);
+      } catch (e) {
+        new import_obsidian17.Notice((e == null ? void 0 : e.message) || "\u65B0\u589E\u9879\u76EE\u6807\u9898\u5931\u8D25");
+      }
+    }, 0);
+  }
+  async createProject(name) {
+    const trimmed = (name || "").trim();
+    if (!trimmed) {
+      new import_obsidian17.Notice("\u9879\u76EE\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+      return;
+    }
+    if (this.findProjectByName(trimmed))
+      throw new Error("\u5DF2\u5B58\u5728\u540C\u540D\u9879\u76EE\u6807\u9898");
+    const project = {
+      id: this.generateTemporaryProjectId(),
+      name: trimmed,
+      isArchived: false,
+      isLocalOnly: true
+    };
+    await this.applyLocalProjectCreate(project);
+    this.refreshTaskView();
+    if (this.settings.accessToken)
+      this.syncCreatedProjectInBackground(project);
+    else
+      new import_obsidian17.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u65B0\u589E\uFF0C\u5F53\u524D\u672A\u8BA4\u8BC1\uFF0C\u6682\u672A\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355");
+  }
+  syncCreatedProjectInBackground(project) {
+    setTimeout(async () => {
+      try {
+        await this.ensureRemoteProjectExists(project);
+        this.refreshTaskView();
+        new import_obsidian17.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355");
+      } catch (e) {
+        new import_obsidian17.Notice((e == null ? void 0 : e.message) || "\u9879\u76EE\u6807\u9898\u5DF2\u65B0\u589E\uFF0C\u4F46\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\u5931\u8D25");
+      }
+    }, 0);
+  }
+  async createRemoteProject(name) {
+    const res = await this.apiClient.makeAuthenticatedRequest(
+      "https://api.dida365.com/open/v1/project",
+      { method: "POST", body: JSON.stringify({ name }) }
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`\u521B\u5EFA\u6EF4\u7B54\u9879\u76EE\u5931\u8D25: ${res.status}${text ? " " + text : ""}`);
+    }
+    const data = await res.json().catch(() => null);
+    if (data && data.id)
+      return data;
+    throw new Error("\u521B\u5EFA\u6EF4\u7B54\u9879\u76EE\u5931\u8D25: \u672A\u8FD4\u56DE\u6709\u6548\u7684\u9879\u76EEID");
+  }
+  async ensureRemoteProjectExists(project) {
+    if (!project || !project.name)
+      throw new Error("\u9879\u76EE\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+    const known = project.id && this.getProjectCatalog().find((item) => item.id === project.id) || project;
+    if (!this.settings.accessToken)
+      throw new Error("\u8BF7\u5148\u5B8C\u6210OAuth\u8BA4\u8BC1\u540E\u518D\u540C\u6B65\u9879\u76EE\u6807\u9898\u5230\u6EF4\u7B54\u6E05\u5355");
+    if (!this._projectCreationPromises)
+      this._projectCreationPromises = /* @__PURE__ */ new Map();
+    const key = known.id || `name:${known.name.trim().toLowerCase()}`;
+    if (this._projectCreationPromises.has(key))
+      return this._projectCreationPromises.get(key);
+    const task = (async () => {
+      const created = await this.createRemoteProject(known.name);
+      await this.finalizeLocalProjectCreation(known, created);
+      return created;
+    })();
+    this._projectCreationPromises.set(key, task);
+    try {
+      return await task;
+    } finally {
+      this._projectCreationPromises.delete(key);
+    }
+  }
+  async applyLocalProjectCreate(project) {
+    if (!Array.isArray(this.settings.projectCatalog))
+      this.settings.projectCatalog = [];
+    this.settings.projectCatalog = this.normalizeProjectCatalog([
+      ...this.settings.projectCatalog,
+      project
+    ]);
+    if (!Array.isArray(this.settings.projectOrder))
+      this.settings.projectOrder = [];
+    if (!this.settings.projectOrder.includes(project.name))
+      this.settings.projectOrder.push(project.name);
+    await this.saveSettings();
+  }
+  async finalizeLocalProjectCreation(project, remote) {
+    const id = typeof (remote == null ? void 0 : remote.id) === "string" ? remote.id.trim() : "";
+    const name = typeof (remote == null ? void 0 : remote.name) === "string" && remote.name.trim() ? remote.name.trim() : project.name;
+    this.settings.projectCatalog = this.getProjectCatalog().map(
+      (entry) => entry.id === project.id || entry.name === project.name ? { id, name, isArchived: (remote == null ? void 0 : remote.closed) === true, isLocalOnly: false } : entry
+    );
+    (Array.isArray(this.settings.tasks) ? this.settings.tasks : []).forEach((task) => {
+      if (!task)
+        return;
+      if (task.projectId !== project.id && task.projectName !== project.name)
+        return;
+      task.projectId = id;
+      task.projectName = name;
+    });
+    if (this.settings.projectIcons) {
+      const oldKey = this.getProjectIconConfigKey(project.id, project.name);
+      const newKey = this.getProjectIconConfigKey(id, name);
+      if (this.settings.projectIcons[oldKey]) {
+        this.settings.projectIcons[newKey] = this.settings.projectIcons[oldKey];
+        delete this.settings.projectIcons[oldKey];
+      }
+    }
+    await this.saveSettings();
+  }
+  createProjectDeletionSnapshot(project) {
+    return {
+      projectCatalog: this.getProjectCatalog(),
+      projectOrder: Array.isArray(this.settings.projectOrder) ? [...this.settings.projectOrder] : [],
+      projectCollapsedStates: { ...this.settings.projectCollapsedStates || {} },
+      projectIcons: { ...this.settings.projectIcons || {} },
+      projectName: (project == null ? void 0 : project.name) || "",
+      projectId: (project == null ? void 0 : project.id) || ""
+    };
+  }
+  async restoreDeletedProject(snapshot) {
+    if (!snapshot)
+      return;
+    this.settings.projectCatalog = this.normalizeProjectCatalog(snapshot.projectCatalog || []);
+    this.settings.projectOrder = Array.isArray(snapshot.projectOrder) ? [...snapshot.projectOrder] : [];
+    this.settings.projectCollapsedStates = { ...snapshot.projectCollapsedStates || {} };
+    this.settings.projectIcons = { ...snapshot.projectIcons || {} };
+    await this.saveSettings();
+  }
+  mergeRemoteProjectsIntoCatalog(projectMap) {
+    const current = this.getProjectCatalog();
+    const locals = current.filter((entry) => entry.isLocalOnly === true);
+    const next = [...locals];
+    const seen = new Set(locals.map((entry) => entry.id ? `id:${entry.id.toLowerCase()}` : `name:${entry.name.trim().toLowerCase()}`));
+    if (projectMap instanceof Map) {
+      projectMap.forEach((value) => {
+        const entry = this.normalizeProjectCatalogEntry({
+          id: (value == null ? void 0 : value.id) || "",
+          name: (value == null ? void 0 : value.name) || "",
+          isArchived: (value == null ? void 0 : value.closed) === true,
+          isLocalOnly: false
+        });
+        if (!entry)
+          return;
+        const key = entry.id ? `id:${entry.id.toLowerCase()}` : `name:${entry.name.trim().toLowerCase()}`;
+        if (seen.has(key))
+          return;
+        seen.add(key);
+        next.push(entry);
+      });
+    }
+    const normalizedCurrent = this.normalizeProjectCatalog(current);
+    const normalizedNext = this.normalizeProjectCatalog(next);
+    if (JSON.stringify(normalizedCurrent) !== JSON.stringify(normalizedNext)) {
+      this.settings.projectCatalog = normalizedNext;
+      return true;
+    }
+    this.settings.projectCatalog = normalizedCurrent;
+    return false;
+  }
+  deleteProjectInBackground(project) {
+    setTimeout(async () => {
+      try {
+        await this.deleteProject(project);
+      } catch (e) {
+        new import_obsidian17.Notice((e == null ? void 0 : e.message) || "\u5220\u9664\u9879\u76EE\u6807\u9898\u5931\u8D25");
+      }
+    }, 0);
+  }
+  async deleteProject(project) {
+    if (!project || !project.name)
+      return;
+    const state = this.getProjectDeleteState(project);
+    if (state.disabled)
+      throw new Error(state.reason);
+    const isTemporary = this.isTemporaryProjectId(project.id) || project.isLocalOnly === true;
+    const shouldSync = !isTemporary && !this.isInboxProject(project.id, project.name) && !!this.settings.accessToken;
+    const snapshot = this.createProjectDeletionSnapshot(project);
+    await this.applyLocalProjectDelete(project);
+    this.refreshTaskView();
+    if (shouldSync) {
+      try {
+        let projectId = project.id;
+        if (!isTemporary && !projectId) {
+          const created = await this.ensureRemoteProjectExists(project);
+          projectId = (created == null ? void 0 : created.id) || "";
+        }
+        if (projectId)
+          await this.deleteRemoteProject(projectId);
+      } catch (e) {
+        await this.restoreDeletedProject(snapshot);
+        this.refreshTaskView();
+        throw e;
+      }
+      new import_obsidian17.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u540C\u6B65\u4ECE\u6EF4\u7B54\u6E05\u5355\u5220\u9664");
+      return;
+    }
+    if (!this.settings.accessToken && project.id && !isTemporary && !this.isInboxProject(project.id, project.name)) {
+      await this.restoreDeletedProject(snapshot);
+      this.refreshTaskView();
+      throw new Error("\u8BF7\u5148\u5B8C\u6210OAuth\u8BA4\u8BC1\u540E\u518D\u5220\u9664\u6EF4\u7B54\u9879\u76EE\u6807\u9898");
+    }
+    new import_obsidian17.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u5220\u9664");
+  }
+  async applyLocalProjectDelete(project) {
+    const id = typeof project.id === "string" ? project.id.trim() : "";
+    const name = project.name;
+    this.settings.projectCatalog = this.getProjectCatalog().filter((entry) => {
+      if (!entry)
+        return false;
+      if (id && entry.id === id)
+        return false;
+      if (entry.name === name)
+        return false;
+      return true;
+    });
+    if (Array.isArray(this.settings.projectOrder)) {
+      this.settings.projectOrder = this.settings.projectOrder.filter((value) => value !== name);
+    }
+    if (this.settings.projectCollapsedStates && Object.prototype.hasOwnProperty.call(this.settings.projectCollapsedStates, name)) {
+      delete this.settings.projectCollapsedStates[name];
+    }
+    if (this.settings.projectIcons) {
+      const idKey = this.getProjectIconConfigKey(id, name);
+      const nameKey = this.getProjectIconConfigKey("", name);
+      delete this.settings.projectIcons[idKey];
+      delete this.settings.projectIcons[nameKey];
+    }
+    await this.saveSettings();
+  }
+  async deleteRemoteProject(projectId) {
+    const res = await this.apiClient.makeAuthenticatedRequest(
+      `https://api.dida365.com/open/v1/project/${projectId}`,
+      { method: "DELETE" }
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`\u5220\u9664\u6EF4\u7B54\u9879\u76EE\u5931\u8D25: ${res.status}${text ? " " + text : ""}`);
+    }
+  }
+  openProjectRenameModal(project) {
+    if (!project || !project.name)
+      return;
+    new ProjectRenameModal(this.app, project, (name) => {
+      this.renameProjectInBackground(project, name);
+    }).open();
+  }
+  renameProjectInBackground(project, name) {
+    setTimeout(async () => {
+      try {
+        await this.renameProject(project, name);
+      } catch (e) {
+        new import_obsidian17.Notice((e == null ? void 0 : e.message) || "\u4FEE\u6539\u9879\u76EE\u6807\u9898\u5931\u8D25");
+      }
+    }, 0);
+  }
+  async renameProject(project, name) {
+    if (!project || !project.name)
+      return;
+    const next = (name || "").trim();
+    if (!next) {
+      new import_obsidian17.Notice("\u9879\u76EE\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+      return;
+    }
+    if (next === project.name)
+      return;
+    const isInbox = this.isInboxProject(project.id, project.name);
+    const isTemporary = this.isTemporaryProjectId(project.id) || project.isLocalOnly === true;
+    const shouldSync = !!project.id && !isInbox && !isTemporary;
+    const previousName = project.name;
+    await this.applyLocalProjectRename(project, next);
+    this.refreshTaskView();
+    if (shouldSync) {
+      if (!this.settings.accessToken) {
+        await this.applyLocalProjectRename({ ...project, name: next }, previousName);
+        this.refreshTaskView();
+        throw new Error("\u8BF7\u5148\u5B8C\u6210OAuth\u8BA4\u8BC1\u540E\u518D\u4FEE\u6539\u6EF4\u7B54\u9879\u76EE\u6807\u9898");
+      }
+      try {
+        await this.renameRemoteProject(project.id, next);
+      } catch (e) {
+        await this.applyLocalProjectRename({ ...project, name: next }, previousName);
+        this.refreshTaskView();
+        throw e;
+      }
+      new import_obsidian17.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355");
+    } else {
+      new import_obsidian17.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u66F4\u65B0");
+    }
+  }
+  async renameRemoteProject(projectId, name) {
+    const res = await this.apiClient.makeAuthenticatedRequest(
+      `https://api.dida365.com/open/v1/project/${projectId}`,
+      { method: "POST", body: JSON.stringify({ name }) }
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`\u4FEE\u6539\u6EF4\u7B54\u9879\u76EE\u6807\u9898\u5931\u8D25: ${res.status}${text ? " " + text : ""}`);
+    }
+  }
+  async applyLocalProjectRename(project, nextName) {
+    const oldName = project.name;
+    const id = project.id || "";
+    const hasId = !!id && id !== "inbox";
+    (Array.isArray(this.settings.tasks) ? this.settings.tasks : []).forEach((task) => {
+      if (!task)
+        return;
+      const byId = hasId && task.projectId === id;
+      const byName = !hasId && task.projectName === oldName;
+      if (byId || byName)
+        task.projectName = nextName;
+    });
+    if (this.settings.projectCollapsedStates && Object.prototype.hasOwnProperty.call(this.settings.projectCollapsedStates, oldName)) {
+      this.settings.projectCollapsedStates[nextName] = this.settings.projectCollapsedStates[oldName];
+      delete this.settings.projectCollapsedStates[oldName];
+    }
+    if (Array.isArray(this.settings.projectOrder)) {
+      this.settings.projectOrder = this.settings.projectOrder.map((value) => value === oldName ? nextName : value);
+    }
+    if (!hasId && this.settings.projectIcons) {
+      const oldKey = this.getProjectIconConfigKey("", oldName);
+      const newKey = this.getProjectIconConfigKey("", nextName);
+      if (this.settings.projectIcons[oldKey]) {
+        this.settings.projectIcons[newKey] = this.settings.projectIcons[oldKey];
+        delete this.settings.projectIcons[oldKey];
+      }
+    }
+    if (Array.isArray(this.settings.projectCatalog)) {
+      this.settings.projectCatalog = this.getProjectCatalog().map((entry) => {
+        const matchById = hasId && entry.id === id;
+        const matchByName = !hasId && entry.name === oldName;
+        return matchById || matchByName ? { ...entry, name: nextName } : entry;
+      });
+    }
+    await this.saveSettings();
+  }
+  getAvailableProjectConfigs() {
+    const map = /* @__PURE__ */ new Map();
+    [...this.getProjectCatalog(), ...this.getTaskDerivedProjects()].forEach((entry) => {
+      if (!entry || !entry.name)
+        return;
+      const key = this.getProjectIconConfigKey(entry.id, entry.name);
+      if (!map.has(key)) {
+        map.set(key, {
+          id: entry.id || "",
+          name: entry.name,
+          isArchived: entry.isArchived === true,
+          isLocalOnly: entry.isLocalOnly === true
+        });
+      }
+    });
+    return Array.from(map.values()).sort(
+      (a, b) => a.name === "\u6536\u96C6\u7BB1" ? -1 : b.name === "\u6536\u96C6\u7BB1" ? 1 : a.name.localeCompare(b.name)
+    );
+  }
+  getLucideIconNames() {
+    return DIDA_LUCIDE_ICON_NAMES.slice();
   }
   createStatusBarItem() {
     if (!this.statusBarItem) {
@@ -7847,9 +9865,74 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
           return;
       } catch (e) {
       }
-      this.syncIntervalId = window.setInterval(() => {
-        this.syncManager.syncFromDidaList();
-      }, 60 * this.settings.syncInterval * 1e3);
+      this.scheduleNextAutoSync(60 * this.settings.syncInterval * 1e3);
+    }
+  }
+  scheduleNextAutoSync(delayMs) {
+    if (this.autoSyncTimeout) {
+      clearTimeout(this.autoSyncTimeout);
+      this.autoSyncTimeout = null;
+    }
+    if (this.settings.autoSync && this.settings.accessToken) {
+      const safeDelay = Math.max(0, Number(delayMs) || 0);
+      this.autoSyncTimeout = window.setTimeout(() => {
+        this.handleAutoSyncTick();
+      }, safeDelay);
+    }
+  }
+  isFocusedTaskDetailsEditorActive() {
+    try {
+      const active = document.activeElement;
+      if (!active || !(active instanceof HTMLElement))
+        return false;
+      if (!active.closest(".dida-task-details"))
+        return false;
+      if (typeof document.hasFocus === "function" && !document.hasFocus())
+        return false;
+      if (active.tagName === "TEXTAREA")
+        return true;
+      if (active.tagName === "INPUT") {
+        const type = (active.getAttribute("type") || "text").toLowerCase();
+        return !["checkbox", "button", "submit", "reset", "radio", "range", "color"].includes(type);
+      }
+      if (active.isContentEditable)
+        return true;
+    } catch (e) {
+    }
+    return false;
+  }
+  async handleAutoSyncTick() {
+    this.autoSyncTimeout = null;
+    if (this.settings.autoSync && this.settings.accessToken) {
+      try {
+        if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
+          this._autoSyncDeferredSince = null;
+          return;
+        }
+      } catch (e) {
+      }
+      const now = Date.now();
+      if (this.isFocusedTaskDetailsEditorActive()) {
+        if (!this._autoSyncDeferredSince)
+          this._autoSyncDeferredSince = now;
+        let elapsed = now - this._autoSyncDeferredSince;
+        if (elapsed < AUTO_SYNC_EDIT_PAUSE_MAX_MS) {
+          elapsed = AUTO_SYNC_EDIT_PAUSE_MAX_MS - elapsed;
+          this.scheduleNextAutoSync(Math.min(AUTO_SYNC_EDIT_RECHECK_MS, elapsed));
+          return;
+        }
+      }
+      this._autoSyncDeferredSince = null;
+      try {
+        await this.syncManager.syncFromDidaList();
+      } catch (e) {
+      } finally {
+        if (this.settings.autoSync && this.settings.accessToken) {
+          this.scheduleNextAutoSync(60 * this.settings.syncInterval * 1e3);
+        }
+      }
+    } else {
+      this._autoSyncDeferredSince = null;
     }
   }
   clearAutoSync() {
@@ -7857,6 +9940,11 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
       window.clearInterval(this.syncIntervalId);
       this.syncIntervalId = null;
     }
+    if (this.autoSyncTimeout) {
+      window.clearTimeout(this.autoSyncTimeout);
+      this.autoSyncTimeout = null;
+    }
+    this._autoSyncDeferredSince = null;
   }
   async autoCleanCompletedTasks() {
     if (this.settings.autoCleanCompletedTasks) {
@@ -7878,13 +9966,13 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
       this.settings.tasks = [];
       await this.saveSettings();
       this.refreshTaskView();
-      new import_obsidian13.Notice(`\u5DF2\u6E05\u7A7A ${count} \u4E2A\u672C\u5730\u4EFB\u52A1\u6570\u636E`);
+      new import_obsidian17.Notice(`\u5DF2\u6E05\u7A7A ${count} \u4E2A\u672C\u5730\u4EFB\u52A1\u6570\u636E`);
       setTimeout(async () => {
         try {
-          new import_obsidian13.Notice("\u6B63\u5728\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u83B7\u53D6\u6700\u65B0\u6570\u636E...");
+          new import_obsidian17.Notice("\u6B63\u5728\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u83B7\u53D6\u6700\u65B0\u6570\u636E...");
           await this.syncManager.syncFromDidaList();
           const newCount = this.settings.tasks.length;
-          new import_obsidian13.Notice(`\u91CD\u7F6E\u5B8C\u6210\uFF01\u5DF2\u4ECE\u4E91\u7AEF\u83B7\u53D6 ${newCount} \u4E2A\u4EFB\u52A1\u6570\u636E`);
+          new import_obsidian17.Notice(`\u91CD\u7F6E\u5B8C\u6210\uFF01\u5DF2\u4ECE\u4E91\u7AEF\u83B7\u53D6 ${newCount} \u4E2A\u4EFB\u52A1\u6570\u636E`);
         } catch (e) {
         }
       }, 1e3);
@@ -8008,7 +10096,7 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
   }
   async checkPluginStatusAndNotify() {
     if (!this.settings.accessToken) {
-      new import_obsidian13.Notice("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6EDida Sync\u63D2\u4EF6");
+      new import_obsidian17.Notice("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6EDida Sync\u63D2\u4EF6");
       return false;
     }
     return true;
@@ -8105,7 +10193,7 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
     if (this.isPluginActivated) {
       try {
         if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
-          new import_obsidian13.Notice("\u5F53\u524D\u5904\u4E8E\u79BB\u7EBF\u72B6\u6001\uFF0C\u65F6\u95F4\u7EBF\u89C6\u56FE\u4E0D\u53EF\u7528");
+          new import_obsidian17.Notice("\u5F53\u524D\u5904\u4E8E\u79BB\u7EBF\u72B6\u6001\uFF0C\u65F6\u95F4\u7EBF\u89C6\u56FE\u4E0D\u53EF\u7528");
           return;
         }
       } catch (e) {
@@ -8655,7 +10743,7 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
             const linkRegex = /\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([^)]+)\)/;
             const linkMatch = content.match(linkRegex);
             if (linkMatch) {
-              new import_obsidian13.Notice("\u2139\uFE0F \u4EFB\u52A1\u5DF2\u540C\u6B65\uFF0C\u65E0\u9700\u518D\u6B21\u540C\u6B65", 3e3);
+              new import_obsidian17.Notice("\u2139\uFE0F \u4EFB\u52A1\u5DF2\u540C\u6B65\uFF0C\u65E0\u9700\u518D\u6B21\u540C\u6B65", 3e3);
             } else {
               let title = content;
               title = title.replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "").trim();
@@ -8697,21 +10785,21 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
                   };
                   this.settings.tasks.push(task);
                   await this.saveSettings();
-                  new import_obsidian13.Notice("\u2705 \u4EFB\u52A1\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355", 3e3);
+                  new import_obsidian17.Notice("\u2705 \u4EFB\u52A1\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355", 3e3);
                   this.refreshTaskView();
                 } else {
-                  new import_obsidian13.Notice("\u274C \u540C\u6B65\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5");
+                  new import_obsidian17.Notice("\u274C \u540C\u6B65\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5");
                 }
               }
             }
           } else {
-            new import_obsidian13.Notice("\u274C \u4EFB\u52A1\u5185\u5BB9\u4E0D\u80FD\u4E3A\u7A7A");
+            new import_obsidian17.Notice("\u274C \u4EFB\u52A1\u5185\u5BB9\u4E0D\u80FD\u4E3A\u7A7A");
           }
         } else {
-          new import_obsidian13.Notice("\u274C \u65E0\u6CD5\u8BC6\u522B\u4EFB\u52A1\u683C\u5F0F");
+          new import_obsidian17.Notice("\u274C \u65E0\u6CD5\u8BC6\u522B\u4EFB\u52A1\u683C\u5F0F");
         }
       } else {
-        new import_obsidian13.Notice("\u274C \u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
+        new import_obsidian17.Notice("\u274C \u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
       }
     } catch (e) {
       let msg = "\u540C\u6B65\u5931\u8D25";
@@ -8723,7 +10811,7 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
         msg = "\u672A\u627E\u5230";
       else if (e.message)
         msg = "\u540C\u6B65\u5931\u8D25: " + e.message;
-      new import_obsidian13.Notice("\u274C " + msg, 5e3);
+      new import_obsidian17.Notice("\u274C " + msg, 5e3);
     }
   }
   async createTaskDirectly(title) {
@@ -8801,10 +10889,10 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
             this.refreshTaskView();
           }
         } else {
-          new import_obsidian13.Notice("\u8BF7\u5148\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u518D\u8BBE\u7F6E\u5230\u671F\u65E5\u671F");
+          new import_obsidian17.Notice("\u8BF7\u5148\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u518D\u8BBE\u7F6E\u5230\u671F\u65E5\u671F");
         }
       } else {
-        new import_obsidian13.Notice("\u65E0\u6CD5\u8BC6\u522B\u4EFB\u52A1\u683C\u5F0F");
+        new import_obsidian17.Notice("\u65E0\u6CD5\u8BC6\u522B\u4EFB\u52A1\u683C\u5F0F");
       }
     } catch (e) {
       let msg = "\u6DFB\u52A0\u65E5\u671F\u5931\u8D25";
@@ -8816,7 +10904,7 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
         msg = "\u672A\u627E\u5230";
       else if (e.message)
         msg = "\u6DFB\u52A0\u65E5\u671F\u5931\u8D25: " + e.message;
-      new import_obsidian13.Notice("\u274C " + msg);
+      new import_obsidian17.Notice("\u274C " + msg);
     }
   }
   async handleDateChange(didaId, newDate, newTitle) {
@@ -8882,7 +10970,7 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
         msg = "\u672A\u627E\u5230";
       else if (e.message)
         msg = "\u540C\u6B65\u65E5\u671F\u53D8\u66F4\u5931\u8D25: " + e.message;
-      new import_obsidian13.Notice("\u274C " + msg);
+      new import_obsidian17.Notice("\u274C " + msg);
     }
   }
   async handleTitleChange(didaId, newTitle) {
@@ -8895,7 +10983,7 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
         await this.saveSettings();
         await this.updateTaskInDidaList(task);
         this.refreshTaskView();
-        new import_obsidian13.Notice("\u2705 \u5DF2\u540C\u6B65\u6807\u9898\u53D8\u66F4\u5230\u6EF4\u7B54\u6E05\u5355");
+        new import_obsidian17.Notice("\u2705 \u5DF2\u540C\u6B65\u6807\u9898\u53D8\u66F4\u5230\u6EF4\u7B54\u6E05\u5355");
       }
     } catch (e) {
       let msg = "\u540C\u6B65\u6807\u9898\u53D8\u66F4\u5931\u8D25";
@@ -8907,7 +10995,7 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
         msg = "\u672A\u627E\u5230";
       else if (e.message)
         msg = "\u540C\u6B65\u6807\u9898\u53D8\u66F4\u5931\u8D25: " + e.message;
-      new import_obsidian13.Notice("\u274C " + msg);
+      new import_obsidian17.Notice("\u274C " + msg);
     }
   }
   handleTaskLinkClick(evt) {
@@ -9051,7 +11139,7 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
     }, 100);
   }
   showFileSelectionModal(files, didaId) {
-    const modal = new import_obsidian13.Modal(this.app);
+    const modal = new import_obsidian17.Modal(this.app);
     modal.titleEl.setText("\u9009\u62E9\u5305\u542B\u4EFB\u52A1\u94FE\u63A5\u7684\u6587\u4EF6");
     const container = modal.contentEl.createDiv();
     container.createEl("p", { text: `\u627E\u5230 ${files.length} \u4E2A\u5305\u542B\u4EFB\u52A1\u94FE\u63A5\u7684\u6587\u4EF6:` });
@@ -9099,7 +11187,7 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
         this.showTaskDetailsInView(task);
       });
     } else {
-      new import_obsidian13.Notice("\u8BE5\u4EFB\u52A1\u5DF2\u5B8C\u6210");
+      new import_obsidian17.Notice("\u8BE5\u4EFB\u52A1\u5DF2\u5B8C\u6210");
     }
   }
   showTaskDetailsInViewOptimized(task) {
@@ -9322,7 +11410,7 @@ var DidaSyncPlugin = class extends import_obsidian13.Plugin {
           }
         }
       } else {
-        new import_obsidian13.Notice("\u4EFB\u52A1\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+        new import_obsidian17.Notice("\u4EFB\u52A1\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
       }
     }
   }
