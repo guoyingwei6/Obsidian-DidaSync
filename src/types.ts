@@ -60,6 +60,25 @@ export interface DidaProject {
     kind?: string;
 }
 
+export interface ProjectCatalogEntry {
+    id: string;
+    name: string;
+    isArchived: boolean;
+    isLocalOnly: boolean;
+}
+
+export interface PomodoroSettings {
+    focusMinutes: number;
+    shortBreakMinutes: number;
+    longBreakMinutes: number;
+    focusPresetMinutes: number[];
+    longBreakPresetMinutes: number[];
+    completionHistory: Record<string, { sessions: number; minutes: number }>;
+    selectedSound: string;
+    totalFocusSessions: number;
+    totalFocusMinutes: number;
+}
+
 export interface DidaSyncSettings {
     clientId: string;
     clientSecret: string;
@@ -68,6 +87,9 @@ export interface DidaSyncSettings {
 
     tasks: DidaTask[];
     projects: DidaProject[]; // Cache of projects
+
+    projectCatalog: ProjectCatalogEntry[];
+    projectIcons: { [key: string]: string };
 
     autoSync: boolean;
     syncInterval: number; // in minutes
@@ -89,18 +111,25 @@ export interface DidaSyncSettings {
     timeBlockHourHeight: number;
     timeBlockStartHour: number;
 
+    // Pomodoro settings
+    pomodoroSettings: PomodoroSettings;
+
     // Reverse completion verification metadata
-    reverseCompletionMeta: { [didaId: string]: {
-        missingStreak: number;
-        lastSeenAt: string | null;
-        lastMissingAt: string | null;
-    } };
+    reverseCompletionMeta: {
+        [didaId: string]: {
+            missingStreak: number;
+            lastSeenAt: string | null;
+            lastMissingAt: string | null;
+        }
+    };
 
     // Sync consistency metadata
-    syncConsistencyMeta: { [didaId: string]: {
-        title?: string;
-        date?: string;
-    } };
+    syncConsistencyMeta: {
+        [didaId: string]: {
+            title?: string;
+            date?: string;
+        }
+    };
 }
 
 export const DEFAULT_SETTINGS: DidaSyncSettings = {
@@ -110,6 +139,8 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     refreshToken: "",
     tasks: [],
     projects: [],
+    projectCatalog: [],
+    projectIcons: {},
     autoSync: true,
     syncInterval: 5,
     serverPort: 8080,
@@ -123,6 +154,17 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     defaultViewMode: "task",
     timeBlockHourHeight: 80,
     timeBlockStartHour: 0,
+    pomodoroSettings: {
+        focusMinutes: 25,
+        shortBreakMinutes: 5,
+        longBreakMinutes: 15,
+        focusPresetMinutes: [15, 25, 40, 60],
+        longBreakPresetMinutes: [15, 20, 25, 30],
+        completionHistory: {},
+        selectedSound: "none",
+        totalFocusSessions: 0,
+        totalFocusMinutes: 0
+    },
     reverseCompletionMeta: {},
     syncConsistencyMeta: {}
 };

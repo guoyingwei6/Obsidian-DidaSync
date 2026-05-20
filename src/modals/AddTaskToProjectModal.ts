@@ -1,7 +1,7 @@
-import { Modal, App, Notice } from 'obsidian';
+import { App, Modal, Notice } from 'obsidian';
 import DidaSyncPlugin from '../main';
-import { DatePickerModal } from './DatePickerModal';
 import { DidaTask } from '../types';
+import { DatePickerModal } from './DatePickerModal';
 
 export class AddTaskToProjectModal extends Modal {
     plugin: DidaSyncPlugin;
@@ -31,11 +31,11 @@ export class AddTaskToProjectModal extends Modal {
         } else {
             const formDiv = contentEl.createDiv();
             formDiv.style.cssText = "display: flex; gap: 15px; margin: 20px 0; align-items: flex-end;";
-            
+
             const projectGroup = formDiv.createDiv();
             projectGroup.style.cssText = "flex: 1;";
             projectGroup.createEl("label", { text: "选择项目：" });
-            
+
             const projectSelect = projectGroup.createEl("select", { cls: "dida-project-select" });
             projectSelect.style.cssText = "width: 100%; margin-top: 5px;";
             projects.forEach(p => {
@@ -50,7 +50,7 @@ export class AddTaskToProjectModal extends Modal {
                 cls: "dida-date-btn"
             });
             dateBtn.style.cssText = "width: 32px; height: 32px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0;";
-            
+
             const dateDisplay = formDiv.createEl("span", {
                 text: "未设置",
                 cls: "dida-date-display"
@@ -72,7 +72,7 @@ export class AddTaskToProjectModal extends Modal {
                     this.selectedDate = date;
                     this.selectedEndDate = endDate || null;
                     this.isAllDay = isAllDay;
-                    
+
                     if (this.selectedDate) {
                         const dateStr = this.selectedDate.toLocaleDateString("zh-CN");
                         if (isAllDay) {
@@ -92,28 +92,28 @@ export class AddTaskToProjectModal extends Modal {
 
             const btnContainer = contentEl.createDiv();
             btnContainer.style.cssText = "text-align: right; margin-top: 20px;";
-            
+
             btnContainer.createEl("button", { text: "取消" }).onclick = () => this.close();
-            
+
             const submitBtn = btnContainer.createEl("button", {
                 text: "添加任务",
                 cls: "mod-cta"
             });
             submitBtn.style.marginLeft = "10px";
-            
+
             submitBtn.onclick = async () => {
                 const project = JSON.parse(projectSelect.value);
                 const title = titleInput.value.trim();
-                
+
                 if (title) {
                     let startDate: string | null = null;
                     let dueDate: string | null = null;
-                    
+
                     if (this.selectedDate) {
                         startDate = this.selectedDate.toISOString();
                         dueDate = this.isAllDay ? startDate : (this.selectedEndDate || this.selectedDate).toISOString();
                     }
-                    
+
                     const newTask: DidaTask = {
                         id: Date.now().toString(),
                         title: title,
@@ -136,12 +136,12 @@ export class AddTaskToProjectModal extends Modal {
                         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                         isFloating: false
                     };
-                    
+
                     this.plugin.settings.tasks = this.plugin.settings.tasks || [];
                     this.plugin.settings.tasks.push(newTask);
                     await this.plugin.saveSettings();
                     this.plugin.refreshTaskView();
-                    
+
                     // Trigger refresh on time block view if open? 
                     // Source used document.querySelector logic
                     const selectedTimelineDate = document.querySelector(".dida-timeline-date-item.dida-timeline-selected") as HTMLElement;
@@ -176,33 +176,7 @@ export class AddTaskToProjectModal extends Modal {
     }
 
     getAvailableProjects() {
-        const projects = [];
-        projects.push({ id: "inbox", name: "收集箱" });
-        
-        const tasks = this.plugin.settings.tasks || [];
-        const projectMap = new Map<string, { id: string, name: string }>();
-        
-        tasks.forEach(t => {
-            if (t.projectName && t.projectId) {
-                const key = t.projectId + "-" + t.projectName;
-                if (!projectMap.has(key)) {
-                    projectMap.set(key, { id: t.projectId, name: t.projectName });
-                }
-            }
-        });
-        
-        projectMap.forEach(p => {
-            if (p.id !== "inbox" && p.name !== "收集箱") {
-                projects.push(p);
-            }
-        });
-        
-        projects.sort((a, b) => {
-            if (a.name === "收集箱") return -1;
-            if (b.name === "收集箱") return 1;
-            return a.name.localeCompare(b.name);
-        });
-        
-        return projects;
+        const configs = this.plugin.getAvailableProjectConfigs();
+        return configs.map((entry) => ({ id: entry.id, name: entry.name }));
     }
 }

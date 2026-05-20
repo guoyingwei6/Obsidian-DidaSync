@@ -125,6 +125,9 @@ export class SyncManager {
                                 kind: "TASK"
                             });
                         }
+                        if (this.plugin.mergeRemoteProjectsIntoCatalog(projectMap)) {
+                            await this.plugin.saveSettings();
+                        }
                         for (const project of list) {
                             for (const url of [
                                 `https://api.dida365.com/open/v1/project/${project.id}/task`,

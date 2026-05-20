@@ -13,9 +13,22 @@ export const DEFAULT_SETTINGS = {
     enableNativeTaskSync: true,
     projectCollapsedStates: {},
     projectOrder: [],
+    projectIcons: {},
+    projectCatalog: [],
     defaultViewMode: "task",
     timeBlockHourHeight: 80,
-    timeBlockStartHour: 0
+    timeBlockStartHour: 0,
+    pomodoroSettings: {
+        focusMinutes: 25,
+        shortBreakMinutes: 5,
+        longBreakMinutes: 15,
+        focusPresetMinutes: [15, 25, 40, 60],
+        longBreakPresetMinutes: [15, 20, 25, 30],
+        completionHistory: {},
+        selectedSound: "none",
+        totalFocusSessions: 0,
+        totalFocusMinutes: 0
+    }
 };
 
 export const OAUTH_CONFIG = {

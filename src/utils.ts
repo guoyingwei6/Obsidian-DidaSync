@@ -11,6 +11,36 @@ export function debounce<T extends (...args: any[]) => any>(
     };
 }
 
+export function normalizePomodoroPresetMinutes(
+    presets: number[] | undefined,
+    min: number,
+    max: number,
+    defaults: number[]
+): number[] {
+    let normalized = (Array.isArray(presets) ? presets : defaults)
+        .map((value) => parseInt(String(value), 10))
+        .filter((value) => Number.isFinite(value) && value >= min && value <= max);
+    normalized = Array.from(new Set(normalized)).sort((a, b) => a - b);
+    return normalized.length > 0 ? normalized : defaults.slice();
+}
+
+export function normalizePomodoroCompletionHistory(
+    history: Record<string, { sessions?: number; minutes?: number }> | undefined
+): Record<string, { sessions: number; minutes: number }> {
+    if (!history || typeof history !== "object") return {};
+    const normalized: Record<string, { sessions: number; minutes: number }> = {};
+    Object.entries(history).forEach(([key, value]) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return;
+        const sessions = parseInt(String(value?.sessions ?? 0), 10);
+        const minutes = parseInt(String(value?.minutes ?? 0), 10);
+        normalized[key] = {
+            sessions: Number.isFinite(sessions) && sessions > 0 ? sessions : 0,
+            minutes: Number.isFinite(minutes) && minutes > 0 ? minutes : 0
+        };
+    });
+    return normalized;
+}
+
 export function createDebouncedFunction<T extends (...args: any[]) => any>(
     func: T,
     wait: number

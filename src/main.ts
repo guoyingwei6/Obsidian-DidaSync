@@ -1,4 +1,4 @@
-import { Editor, EditorPosition, Modal, Notice, Plugin, TFile } from 'obsidian';
+import { Editor, EditorPosition, getIconIds, Menu, Modal, Notice, Plugin, setIcon, TFile } from 'obsidian';
 import { DidaApiClient } from './api/DidaApiClient';
 import { RRuleParser } from './core/RRuleParser';
 import { DailyNoteManager } from './managers/DailyNoteManager';
@@ -6,13 +6,32 @@ import { NativeTaskSyncManager } from './managers/NativeTaskSyncManager';
 import { RepeatTaskManager } from './managers/RepeatTaskManager';
 import { SyncManager } from './managers/SyncManager';
 import { AddTaskToProjectModal } from './modals/AddTaskToProjectModal';
+import { ProjectCreateModal } from './modals/ProjectCreateModal';
+import { ProjectDeleteConfirmModal } from './modals/ProjectDeleteConfirmModal';
+import { ProjectIconPickerModal } from './modals/ProjectIconPickerModal';
+import { ProjectRenameModal } from './modals/ProjectRenameModal';
 import { TaskSuggestionPopup } from './modals/TaskSuggestionPopup';
 import { TimelineViewModal } from './modals/TimelineViewModal';
 import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
-import { DEFAULT_SETTINGS, DidaSyncSettings, DidaTask } from './types';
+import { DEFAULT_SETTINGS, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry } from './types';
+import { normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes } from './utils';
 import { DidaTimeBlockView, TIME_BLOCK_VIEW_TYPE } from './views/DidaTimeBlockView';
 import { TaskActionMenu } from './views/TaskActionMenu';
 import { TASK_VIEW_TYPE, TaskView } from './views/TaskView';
+
+const AUTO_SYNC_EDIT_PAUSE_MAX_MS = 36e4;
+const AUTO_SYNC_EDIT_RECHECK_MS = 6e4;
+
+let DIDA_LUCIDE_ICON_NAMES: string[] = [];
+try {
+    const iconIds = typeof getIconIds === "function" ? getIconIds() : null;
+    if (Array.isArray(iconIds) && iconIds.length > 0) {
+        DIDA_LUCIDE_ICON_NAMES = iconIds
+            .filter((id) => typeof id === "string" && id.startsWith("lucide-"))
+            .map((id) => id.substring("lucide-".length))
+            .sort((a, b) => a.localeCompare(b));
+    }
+} catch (e) { }
 
 export default class DidaSyncPlugin extends Plugin {
     settings: DidaSyncSettings;
@@ -25,15 +44,18 @@ export default class DidaSyncPlugin extends Plugin {
     isTaskActionInProgress: boolean = false;
     isPluginActivated: boolean = false;
     syncIntervalId: number | null = null;
+    autoSyncTimeout: number | null = null;
     debouncedEditorChange: (editor: Editor, info: any) => void;
     statusBarItem: HTMLElement | null = null;
     _cachedTaskLeaf: any = null;
     _handleOnlineForAutoSync: (() => void) | null = null;
     _handleOfflineForAutoSync: (() => void) | null = null;
+    _autoSyncDeferredSince: number | null = null;
     _nativeTaskSyncTimeouts: Map<string, number> | null = null;
     _isUpdatingNativeTaskStatus: boolean = false;
     _taskStatusChangeTimeout: number | null = null;
     _lastErrorTime: number | null = null;
+    _projectCreationPromises: Map<string, Promise<any>> | null = null;
     taskActionMenuDebounceTimer: number | null = null;
     dateChangeDebounceTimer: number | null = null;
     lastTaskMenuTriggerTime: number = 0;
@@ -146,11 +168,647 @@ export default class DidaSyncPlugin extends Plugin {
         if (this.settings.autoCleanCompletedTasks === undefined) this.settings.autoCleanCompletedTasks = false;
         if (this.settings.autoCleanInterval === undefined) this.settings.autoCleanInterval = 1;
         if (this.settings.projectCollapsedStates === undefined) this.settings.projectCollapsedStates = {};
+        if (!this.settings.projectIcons || typeof this.settings.projectIcons !== "object") this.settings.projectIcons = {};
+        if (!Array.isArray(this.settings.projectCatalog)) this.settings.projectCatalog = [];
+        this.settings.projectCatalog = this.normalizeProjectCatalog(this.settings.projectCatalog);
+        await this.ensureProjectCatalogFromTasks();
+
+        if (this.settings.pomodoroSettings && typeof this.settings.pomodoroSettings === "object") {
+            this.settings.pomodoroSettings = { ...DEFAULT_SETTINGS.pomodoroSettings, ...this.settings.pomodoroSettings };
+        } else {
+            this.settings.pomodoroSettings = { ...DEFAULT_SETTINGS.pomodoroSettings };
+        }
+        this.settings.pomodoroSettings.focusPresetMinutes = normalizePomodoroPresetMinutes(
+            this.settings.pomodoroSettings.focusPresetMinutes,
+            1,
+            90,
+            DEFAULT_SETTINGS.pomodoroSettings.focusPresetMinutes
+        );
+        this.settings.pomodoroSettings.shortBreakMinutes = Math.max(
+            1,
+            Math.min(
+                15,
+                parseInt(String(this.settings.pomodoroSettings.shortBreakMinutes), 10) || DEFAULT_SETTINGS.pomodoroSettings.shortBreakMinutes
+            )
+        );
+        this.settings.pomodoroSettings.longBreakMinutes = Math.max(
+            15,
+            Math.min(
+                30,
+                parseInt(String(this.settings.pomodoroSettings.longBreakMinutes), 10) || DEFAULT_SETTINGS.pomodoroSettings.longBreakMinutes
+            )
+        );
+        this.settings.pomodoroSettings.longBreakPresetMinutes = normalizePomodoroPresetMinutes(
+            this.settings.pomodoroSettings.longBreakPresetMinutes,
+            15,
+            30,
+            DEFAULT_SETTINGS.pomodoroSettings.longBreakPresetMinutes
+        );
+        this.settings.pomodoroSettings.completionHistory = normalizePomodoroCompletionHistory(
+            this.settings.pomodoroSettings.completionHistory
+        );
         await this.saveSettings();
     }
 
     async saveSettings() {
         await this.saveData(this.settings);
+    }
+
+    normalizeProjectCatalogEntry(entry: any): ProjectCatalogEntry | null {
+        if (!entry || typeof entry !== "object") return null;
+        const name = typeof entry.name === "string" ? entry.name.trim() : "";
+        if (!name) return null;
+        const id = typeof entry.id === "string" ? entry.id.trim() : "";
+        return {
+            id,
+            name,
+            isArchived: entry.isArchived === true,
+            isLocalOnly: entry.isLocalOnly === true || (!id && entry.isLocalOnly !== false)
+        };
+    }
+
+    normalizeProjectCatalog(catalog: any[]): ProjectCatalogEntry[] {
+        const normalized: ProjectCatalogEntry[] = [];
+        const seen = new Set<string>();
+        (Array.isArray(catalog) ? catalog : []).forEach((entry) => {
+            const normalizedEntry = this.normalizeProjectCatalogEntry(entry);
+            if (!normalizedEntry) return;
+            const key = normalizedEntry.id
+                ? `id:${normalizedEntry.id.toLowerCase()}`
+                : `name:${normalizedEntry.name.trim().toLowerCase()}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            normalized.push(normalizedEntry);
+        });
+        return normalized;
+    }
+
+    getProjectCatalog(): ProjectCatalogEntry[] {
+        return this.normalizeProjectCatalog(this.settings.projectCatalog || []);
+    }
+
+    getTaskDerivedProjects(): ProjectCatalogEntry[] {
+        const map = new Map<string, ProjectCatalogEntry>();
+        map.set(this.getProjectIconConfigKey("inbox", "收集箱"), {
+            id: "inbox",
+            name: "收集箱",
+            isArchived: false,
+            isLocalOnly: false
+        });
+        (Array.isArray(this.settings.tasks) ? this.settings.tasks : []).forEach((task) => {
+            if (!task || task.parentId) return;
+            let name = task.projectName || "";
+            let id = task.projectId || "";
+            if (!name && id) {
+                if (id === "inbox" || id.includes("inbox")) {
+                    name = "收集箱";
+                    id = "inbox";
+                } else {
+                    name = id;
+                }
+            } else if (!id && name) {
+                id = task.projectId || "";
+            }
+            name = name || "本地任务";
+            const key = this.getProjectIconConfigKey(id, name);
+            if (!map.has(key)) {
+                map.set(key, {
+                    id,
+                    name,
+                    isArchived: task.projectClosed === true,
+                    isLocalOnly: !id || id === "local"
+                });
+            }
+        });
+        return Array.from(map.values());
+    }
+
+    async ensureProjectCatalogFromTasks() {
+        const current = this.getProjectCatalog();
+        const catalogMap = new Map<string, ProjectCatalogEntry>();
+        current.forEach((entry) => {
+            const key = entry.id ? `id:${entry.id.toLowerCase()}` : `name:${entry.name.trim().toLowerCase()}`;
+            catalogMap.set(key, entry);
+        });
+        let changed = false;
+        this.getTaskDerivedProjects().forEach((entry) => {
+            const idKey = entry.id ? `id:${entry.id.toLowerCase()}` : "";
+            const nameKey = `name:${entry.name.trim().toLowerCase()}`;
+            if (!catalogMap.has(idKey || nameKey) && !catalogMap.has(nameKey)) {
+                catalogMap.set(idKey || nameKey, entry);
+                changed = true;
+            }
+        });
+        if (changed) {
+            this.settings.projectCatalog = Array.from(catalogMap.values());
+            await this.saveSettings();
+        } else {
+            this.settings.projectCatalog = current;
+        }
+    }
+
+    generateTemporaryProjectId() {
+        return `local-project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    isTemporaryProjectId(projectId: string) {
+        return typeof projectId === "string" && projectId.startsWith("local-project-");
+    }
+
+    findProjectByName(name: string) {
+        const target = typeof name === "string" ? name.trim().toLowerCase() : "";
+        if (!target) return null;
+        return this.getAvailableProjectConfigs().find((entry) => typeof entry?.name === "string" && entry.name.trim().toLowerCase() === target) || null;
+    }
+
+    getProjectTaskCount(project: ProjectCatalogEntry) {
+        if (!project || !project.name) return 0;
+        const id = typeof project.id === "string" ? project.id.trim() : "";
+        const name = project.name;
+        const hasId = !!id;
+        return (Array.isArray(this.settings.tasks) ? this.settings.tasks : []).filter((task) => {
+            if (!task) return false;
+            const byId = hasId && task.projectId === id;
+            const byName = task.projectName === name;
+            return byId || byName;
+        }).length;
+    }
+
+    getProjectDeleteState(project: ProjectCatalogEntry) {
+        if (!project || !project.name) return { disabled: true, reason: "该项目暂时无法删除" };
+        if (this.isInboxProject(project.id, project.name)) return { disabled: true, reason: "收集箱不支持删除标题" };
+        if (this.getProjectTaskCount(project) > 0) return { disabled: true, reason: "项目内仍有任务，无法删除标题" };
+        return { disabled: false, reason: "删除项目标题" };
+    }
+
+    getProjectIconConfigKey(projectId: string, projectName: string) {
+        return projectId && typeof projectId === "string" && projectId.trim()
+            ? `id:${projectId.trim()}`
+            : `name:${(projectName || "").trim()}`;
+    }
+
+    getProjectDefaultIconName(projectName: string) {
+        return projectName === "收集箱" ? "inbox" : "list-checks";
+    }
+
+    isInboxProject(projectId: string, projectName: string) {
+        const id = typeof projectId === "string" ? projectId.trim().toLowerCase() : "";
+        const name = typeof projectName === "string" ? projectName.trim().toLowerCase() : "";
+        return !(id !== "inbox" && !id.includes("inbox")) || name === "收集箱" || name === "inbox";
+    }
+
+    getProjectIconName(projectId: string, projectName: string) {
+        const icons = this.settings.projectIcons || {};
+        const key = this.getProjectIconConfigKey(projectId, projectName);
+        return icons[key] || icons[this.getProjectIconConfigKey("", projectName)] || this.getProjectDefaultIconName(projectName);
+    }
+
+    async setProjectIconName(projectId: string, projectName: string, iconName: string) {
+        if (!this.settings.projectIcons || typeof this.settings.projectIcons !== "object") this.settings.projectIcons = {};
+        const key = this.getProjectIconConfigKey(projectId, projectName);
+        const next = (iconName || "").trim();
+        if (next) this.settings.projectIcons[key] = next;
+        else delete this.settings.projectIcons[key];
+        await this.saveSettings();
+    }
+
+    renderProjectIcon(container: HTMLElement, projectId: string, projectName: string) {
+        if (!container) return;
+        container.empty();
+        const iconName = this.getProjectIconName(projectId, projectName);
+        let rendered = false;
+        try {
+            setIcon(container, iconName);
+            rendered = !!container.querySelector("svg");
+        } catch (e) { }
+        if (!rendered) {
+            container.empty();
+            try {
+                setIcon(container, this.getProjectDefaultIconName(projectName));
+            } catch (e) { }
+        }
+        const svg = container.querySelector("svg");
+        if (svg) {
+            svg.setAttribute("width", "12");
+            svg.setAttribute("height", "12");
+            svg.setAttribute("stroke", "#da1b1b");
+        }
+    }
+
+    openProjectIconPicker(project: ProjectCatalogEntry) {
+        if (!project || !project.name) return;
+        new ProjectIconPickerModal(this.app, this, project, async (iconName) => {
+            await this.setProjectIconName(project.id, project.name, iconName);
+            this.refreshTaskView();
+        }).open();
+    }
+
+    openProjectContextMenu(project: ProjectCatalogEntry, event: MouseEvent) {
+        if (!project || !project.name) return;
+        const menu = new Menu();
+        menu.setUseNativeMenu(false);
+        menu.addItem((item) => {
+            item.setTitle("设置项目图标")
+                .setIcon("folder")
+                .onClick(() => this.openProjectIconPicker(project));
+        });
+        menu.addItem((item) => {
+            item.setTitle("新增项目标题")
+                .setIcon("plus")
+                .onClick(() => this.openProjectCreateModal());
+        });
+        const isInbox = this.isInboxProject(project.id, project.name);
+        menu.addItem((item) => {
+            item.setTitle(isInbox ? "收集箱不支持修改标题" : "修改项目标题")
+                .setIcon("pencil")
+                .setDisabled(isInbox)
+                .onClick(() => this.openProjectRenameModal(project));
+        });
+        const deleteState = this.getProjectDeleteState(project);
+        menu.addItem((item) => {
+            item.setTitle(deleteState.reason)
+                .setIcon("trash")
+                .setDisabled(deleteState.disabled)
+                .onClick(() => this.openProjectDeleteModal(project));
+        });
+        menu.showAtMouseEvent(event);
+    }
+
+    openProjectCreateModal() {
+        new ProjectCreateModal(this.app, (name) => {
+            this.createProjectInBackground(name);
+        }).open();
+    }
+
+    openProjectDeleteModal(project: ProjectCatalogEntry) {
+        const state = this.getProjectDeleteState(project);
+        if (state.disabled) {
+            new Notice(state.reason);
+            return;
+        }
+        new ProjectDeleteConfirmModal(this.app, project, () => {
+            this.deleteProjectInBackground(project);
+        }).open();
+    }
+
+    createProjectInBackground(name: string) {
+        setTimeout(async () => {
+            try {
+                await this.createProject(name);
+            } catch (e: any) {
+                new Notice(e?.message || "新增项目标题失败");
+            }
+        }, 0);
+    }
+
+    async createProject(name: string) {
+        const trimmed = (name || "").trim();
+        if (!trimmed) {
+            new Notice("项目标题不能为空");
+            return;
+        }
+        if (this.findProjectByName(trimmed)) throw new Error("已存在同名项目标题");
+        const project: ProjectCatalogEntry = {
+            id: this.generateTemporaryProjectId(),
+            name: trimmed,
+            isArchived: false,
+            isLocalOnly: true
+        };
+        await this.applyLocalProjectCreate(project);
+        this.refreshTaskView();
+        if (this.settings.accessToken) this.syncCreatedProjectInBackground(project);
+        else new Notice("项目标题已新增，当前未认证，暂未同步到滴答清单");
+    }
+
+    syncCreatedProjectInBackground(project: ProjectCatalogEntry) {
+        setTimeout(async () => {
+            try {
+                await this.ensureRemoteProjectExists(project);
+                this.refreshTaskView();
+                new Notice("项目标题已同步到滴答清单");
+            } catch (e: any) {
+                new Notice(e?.message || "项目标题已新增，但同步到滴答清单失败");
+            }
+        }, 0);
+    }
+
+    async createRemoteProject(name: string) {
+        const res = await this.apiClient.makeAuthenticatedRequest(
+            "https://api.dida365.com/open/v1/project",
+            { method: "POST", body: JSON.stringify({ name }) }
+        );
+        if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            throw new Error(`创建滴答项目失败: ${res.status}${text ? " " + text : ""}`);
+        }
+        const data = await res.json().catch(() => null);
+        if (data && data.id) return data;
+        throw new Error("创建滴答项目失败: 未返回有效的项目ID");
+    }
+
+    async ensureRemoteProjectExists(project: ProjectCatalogEntry) {
+        if (!project || !project.name) throw new Error("项目标题不能为空");
+        const known = (project.id && this.getProjectCatalog().find((item) => item.id === project.id)) || project;
+        if (!this.settings.accessToken) throw new Error("请先完成OAuth认证后再同步项目标题到滴答清单");
+        if (!this._projectCreationPromises) this._projectCreationPromises = new Map();
+        const key = known.id || `name:${known.name.trim().toLowerCase()}`;
+        if (this._projectCreationPromises.has(key)) return this._projectCreationPromises.get(key);
+        const task = (async () => {
+            const created = await this.createRemoteProject(known.name);
+            await this.finalizeLocalProjectCreation(known, created);
+            return created;
+        })();
+        this._projectCreationPromises.set(key, task);
+        try {
+            return await task;
+        } finally {
+            this._projectCreationPromises.delete(key);
+        }
+    }
+
+    async applyLocalProjectCreate(project: ProjectCatalogEntry) {
+        if (!Array.isArray(this.settings.projectCatalog)) this.settings.projectCatalog = [];
+        this.settings.projectCatalog = this.normalizeProjectCatalog([
+            ...this.settings.projectCatalog,
+            project
+        ]);
+        if (!Array.isArray(this.settings.projectOrder)) this.settings.projectOrder = [];
+        if (!this.settings.projectOrder.includes(project.name)) this.settings.projectOrder.push(project.name);
+        await this.saveSettings();
+    }
+
+    async finalizeLocalProjectCreation(project: ProjectCatalogEntry, remote: DidaProject) {
+        const id = typeof remote?.id === "string" ? remote.id.trim() : "";
+        const name = typeof remote?.name === "string" && remote.name.trim() ? remote.name.trim() : project.name;
+        this.settings.projectCatalog = this.getProjectCatalog().map((entry) =>
+            entry.id === project.id || entry.name === project.name
+                ? { id, name, isArchived: remote?.closed === true, isLocalOnly: false }
+                : entry
+        );
+        (Array.isArray(this.settings.tasks) ? this.settings.tasks : []).forEach((task) => {
+            if (!task) return;
+            if (task.projectId !== project.id && task.projectName !== project.name) return;
+            task.projectId = id;
+            task.projectName = name;
+        });
+        if (this.settings.projectIcons) {
+            const oldKey = this.getProjectIconConfigKey(project.id, project.name);
+            const newKey = this.getProjectIconConfigKey(id, name);
+            if (this.settings.projectIcons[oldKey]) {
+                this.settings.projectIcons[newKey] = this.settings.projectIcons[oldKey];
+                delete this.settings.projectIcons[oldKey];
+            }
+        }
+        await this.saveSettings();
+    }
+
+    createProjectDeletionSnapshot(project: ProjectCatalogEntry) {
+        return {
+            projectCatalog: this.getProjectCatalog(),
+            projectOrder: Array.isArray(this.settings.projectOrder) ? [...this.settings.projectOrder] : [],
+            projectCollapsedStates: { ...(this.settings.projectCollapsedStates || {}) },
+            projectIcons: { ...(this.settings.projectIcons || {}) },
+            projectName: project?.name || "",
+            projectId: project?.id || ""
+        };
+    }
+
+    async restoreDeletedProject(snapshot: any) {
+        if (!snapshot) return;
+        this.settings.projectCatalog = this.normalizeProjectCatalog(snapshot.projectCatalog || []);
+        this.settings.projectOrder = Array.isArray(snapshot.projectOrder) ? [...snapshot.projectOrder] : [];
+        this.settings.projectCollapsedStates = { ...(snapshot.projectCollapsedStates || {}) };
+        this.settings.projectIcons = { ...(snapshot.projectIcons || {}) };
+        await this.saveSettings();
+    }
+
+    mergeRemoteProjectsIntoCatalog(projectMap: Map<string, DidaProject>) {
+        const current = this.getProjectCatalog();
+        const locals = current.filter((entry) => entry.isLocalOnly === true);
+        const next = [...locals];
+        const seen = new Set(locals.map((entry) => entry.id
+            ? `id:${entry.id.toLowerCase()}`
+            : `name:${entry.name.trim().toLowerCase()}`));
+        if (projectMap instanceof Map) {
+            projectMap.forEach((value) => {
+                const entry = this.normalizeProjectCatalogEntry({
+                    id: value?.id || "",
+                    name: value?.name || "",
+                    isArchived: value?.closed === true,
+                    isLocalOnly: false
+                });
+                if (!entry) return;
+                const key = entry.id ? `id:${entry.id.toLowerCase()}` : `name:${entry.name.trim().toLowerCase()}`;
+                if (seen.has(key)) return;
+                seen.add(key);
+                next.push(entry);
+            });
+        }
+        const normalizedCurrent = this.normalizeProjectCatalog(current);
+        const normalizedNext = this.normalizeProjectCatalog(next);
+        if (JSON.stringify(normalizedCurrent) !== JSON.stringify(normalizedNext)) {
+            this.settings.projectCatalog = normalizedNext;
+            return true;
+        }
+        this.settings.projectCatalog = normalizedCurrent;
+        return false;
+    }
+
+    deleteProjectInBackground(project: ProjectCatalogEntry) {
+        setTimeout(async () => {
+            try {
+                await this.deleteProject(project);
+            } catch (e: any) {
+                new Notice(e?.message || "删除项目标题失败");
+            }
+        }, 0);
+    }
+
+    async deleteProject(project: ProjectCatalogEntry) {
+        if (!project || !project.name) return;
+        const state = this.getProjectDeleteState(project);
+        if (state.disabled) throw new Error(state.reason);
+        const isTemporary = this.isTemporaryProjectId(project.id) || project.isLocalOnly === true;
+        const shouldSync = !isTemporary && !this.isInboxProject(project.id, project.name) && !!this.settings.accessToken;
+        const snapshot = this.createProjectDeletionSnapshot(project);
+        await this.applyLocalProjectDelete(project);
+        this.refreshTaskView();
+        if (shouldSync) {
+            try {
+                let projectId = project.id;
+                if (!isTemporary && !projectId) {
+                    const created = await this.ensureRemoteProjectExists(project);
+                    projectId = created?.id || "";
+                }
+                if (projectId) await this.deleteRemoteProject(projectId);
+            } catch (e) {
+                await this.restoreDeletedProject(snapshot);
+                this.refreshTaskView();
+                throw e;
+            }
+            new Notice("项目标题已同步从滴答清单删除");
+            return;
+        }
+        if (!this.settings.accessToken && project.id && !isTemporary && !this.isInboxProject(project.id, project.name)) {
+            await this.restoreDeletedProject(snapshot);
+            this.refreshTaskView();
+            throw new Error("请先完成OAuth认证后再删除滴答项目标题");
+        }
+        new Notice("项目标题已删除");
+    }
+
+    async applyLocalProjectDelete(project: ProjectCatalogEntry) {
+        const id = typeof project.id === "string" ? project.id.trim() : "";
+        const name = project.name;
+        this.settings.projectCatalog = this.getProjectCatalog().filter((entry) => {
+            if (!entry) return false;
+            if (id && entry.id === id) return false;
+            if (entry.name === name) return false;
+            return true;
+        });
+        if (Array.isArray(this.settings.projectOrder)) {
+            this.settings.projectOrder = this.settings.projectOrder.filter((value) => value !== name);
+        }
+        if (this.settings.projectCollapsedStates && Object.prototype.hasOwnProperty.call(this.settings.projectCollapsedStates, name)) {
+            delete this.settings.projectCollapsedStates[name];
+        }
+        if (this.settings.projectIcons) {
+            const idKey = this.getProjectIconConfigKey(id, name);
+            const nameKey = this.getProjectIconConfigKey("", name);
+            delete this.settings.projectIcons[idKey];
+            delete this.settings.projectIcons[nameKey];
+        }
+        await this.saveSettings();
+    }
+
+    async deleteRemoteProject(projectId: string) {
+        const res = await this.apiClient.makeAuthenticatedRequest(
+            `https://api.dida365.com/open/v1/project/${projectId}`,
+            { method: "DELETE" }
+        );
+        if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            throw new Error(`删除滴答项目失败: ${res.status}${text ? " " + text : ""}`);
+        }
+    }
+
+    openProjectRenameModal(project: ProjectCatalogEntry) {
+        if (!project || !project.name) return;
+        new ProjectRenameModal(this.app, project, (name) => {
+            this.renameProjectInBackground(project, name);
+        }).open();
+    }
+
+    renameProjectInBackground(project: ProjectCatalogEntry, name: string) {
+        setTimeout(async () => {
+            try {
+                await this.renameProject(project, name);
+            } catch (e: any) {
+                new Notice(e?.message || "修改项目标题失败");
+            }
+        }, 0);
+    }
+
+    async renameProject(project: ProjectCatalogEntry, name: string) {
+        if (!project || !project.name) return;
+        const next = (name || "").trim();
+        if (!next) {
+            new Notice("项目标题不能为空");
+            return;
+        }
+        if (next === project.name) return;
+        const isInbox = this.isInboxProject(project.id, project.name);
+        const isTemporary = this.isTemporaryProjectId(project.id) || project.isLocalOnly === true;
+        const shouldSync = !!project.id && !isInbox && !isTemporary;
+        const previousName = project.name;
+        await this.applyLocalProjectRename(project, next);
+        this.refreshTaskView();
+        if (shouldSync) {
+            if (!this.settings.accessToken) {
+                await this.applyLocalProjectRename({ ...project, name: next }, previousName);
+                this.refreshTaskView();
+                throw new Error("请先完成OAuth认证后再修改滴答项目标题");
+            }
+            try {
+                await this.renameRemoteProject(project.id, next);
+            } catch (e) {
+                await this.applyLocalProjectRename({ ...project, name: next }, previousName);
+                this.refreshTaskView();
+                throw e;
+            }
+            new Notice("项目标题已同步到滴答清单");
+        } else {
+            new Notice("项目标题已更新");
+        }
+    }
+
+    async renameRemoteProject(projectId: string, name: string) {
+        const res = await this.apiClient.makeAuthenticatedRequest(
+            `https://api.dida365.com/open/v1/project/${projectId}`,
+            { method: "POST", body: JSON.stringify({ name }) }
+        );
+        if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            throw new Error(`修改滴答项目标题失败: ${res.status}${text ? " " + text : ""}`);
+        }
+    }
+
+    async applyLocalProjectRename(project: ProjectCatalogEntry, nextName: string) {
+        const oldName = project.name;
+        const id = project.id || "";
+        const hasId = !!id && id !== "inbox";
+        (Array.isArray(this.settings.tasks) ? this.settings.tasks : []).forEach((task) => {
+            if (!task) return;
+            const byId = hasId && task.projectId === id;
+            const byName = !hasId && task.projectName === oldName;
+            if (byId || byName) task.projectName = nextName;
+        });
+        if (this.settings.projectCollapsedStates && Object.prototype.hasOwnProperty.call(this.settings.projectCollapsedStates, oldName)) {
+            this.settings.projectCollapsedStates[nextName] = this.settings.projectCollapsedStates[oldName];
+            delete this.settings.projectCollapsedStates[oldName];
+        }
+        if (Array.isArray(this.settings.projectOrder)) {
+            this.settings.projectOrder = this.settings.projectOrder.map((value) => value === oldName ? nextName : value);
+        }
+        if (!hasId && this.settings.projectIcons) {
+            const oldKey = this.getProjectIconConfigKey("", oldName);
+            const newKey = this.getProjectIconConfigKey("", nextName);
+            if (this.settings.projectIcons[oldKey]) {
+                this.settings.projectIcons[newKey] = this.settings.projectIcons[oldKey];
+                delete this.settings.projectIcons[oldKey];
+            }
+        }
+        if (Array.isArray(this.settings.projectCatalog)) {
+            this.settings.projectCatalog = this.getProjectCatalog().map((entry) => {
+                const matchById = hasId && entry.id === id;
+                const matchByName = !hasId && entry.name === oldName;
+                return matchById || matchByName ? { ...entry, name: nextName } : entry;
+            });
+        }
+        await this.saveSettings();
+    }
+
+    getAvailableProjectConfigs() {
+        const map = new Map<string, ProjectCatalogEntry>();
+        [...this.getProjectCatalog(), ...this.getTaskDerivedProjects()].forEach((entry) => {
+            if (!entry || !entry.name) return;
+            const key = this.getProjectIconConfigKey(entry.id, entry.name);
+            if (!map.has(key)) {
+                map.set(key, {
+                    id: entry.id || "",
+                    name: entry.name,
+                    isArchived: entry.isArchived === true,
+                    isLocalOnly: entry.isLocalOnly === true
+                });
+            }
+        });
+        return Array.from(map.values()).sort((a, b) =>
+            a.name === "收集箱" ? -1 : b.name === "收集箱" ? 1 : a.name.localeCompare(b.name)
+        );
+    }
+
+    getLucideIconNames() {
+        return DIDA_LUCIDE_ICON_NAMES.slice();
     }
 
     createStatusBarItem() {
@@ -185,9 +843,69 @@ export default class DidaSyncPlugin extends Plugin {
             try {
                 if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) return;
             } catch (e) { }
-            this.syncIntervalId = window.setInterval(() => {
-                this.syncManager.syncFromDidaList();
-            }, 60 * this.settings.syncInterval * 1000);
+            this.scheduleNextAutoSync(60 * this.settings.syncInterval * 1000);
+        }
+    }
+
+    scheduleNextAutoSync(delayMs: number) {
+        if (this.autoSyncTimeout) {
+            clearTimeout(this.autoSyncTimeout);
+            this.autoSyncTimeout = null;
+        }
+        if (this.settings.autoSync && this.settings.accessToken) {
+            const safeDelay = Math.max(0, Number(delayMs) || 0);
+            this.autoSyncTimeout = window.setTimeout(() => {
+                this.handleAutoSyncTick();
+            }, safeDelay);
+        }
+    }
+
+    isFocusedTaskDetailsEditorActive() {
+        try {
+            const active = document.activeElement;
+            if (!active || !(active instanceof HTMLElement)) return false;
+            if (!active.closest(".dida-task-details")) return false;
+            if (typeof document.hasFocus === "function" && !document.hasFocus()) return false;
+            if (active.tagName === "TEXTAREA") return true;
+            if (active.tagName === "INPUT") {
+                const type = (active.getAttribute("type") || "text").toLowerCase();
+                return !["checkbox", "button", "submit", "reset", "radio", "range", "color"].includes(type);
+            }
+            if (active.isContentEditable) return true;
+        } catch (e) { }
+        return false;
+    }
+
+    async handleAutoSyncTick() {
+        this.autoSyncTimeout = null;
+        if (this.settings.autoSync && this.settings.accessToken) {
+            try {
+                if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
+                    this._autoSyncDeferredSince = null;
+                    return;
+                }
+            } catch (e) { }
+            const now = Date.now();
+            if (this.isFocusedTaskDetailsEditorActive()) {
+                if (!this._autoSyncDeferredSince) this._autoSyncDeferredSince = now;
+                let elapsed = now - this._autoSyncDeferredSince;
+                if (elapsed < AUTO_SYNC_EDIT_PAUSE_MAX_MS) {
+                    elapsed = AUTO_SYNC_EDIT_PAUSE_MAX_MS - elapsed;
+                    this.scheduleNextAutoSync(Math.min(AUTO_SYNC_EDIT_RECHECK_MS, elapsed));
+                    return;
+                }
+            }
+            this._autoSyncDeferredSince = null;
+            try {
+                await this.syncManager.syncFromDidaList();
+            } catch (e) {
+            } finally {
+                if (this.settings.autoSync && this.settings.accessToken) {
+                    this.scheduleNextAutoSync(60 * this.settings.syncInterval * 1000);
+                }
+            }
+        } else {
+            this._autoSyncDeferredSince = null;
         }
     }
 
@@ -196,6 +914,11 @@ export default class DidaSyncPlugin extends Plugin {
             window.clearInterval(this.syncIntervalId);
             this.syncIntervalId = null;
         }
+        if (this.autoSyncTimeout) {
+            window.clearTimeout(this.autoSyncTimeout);
+            this.autoSyncTimeout = null;
+        }
+        this._autoSyncDeferredSince = null;
     }
 
     async autoCleanCompletedTasks() {
