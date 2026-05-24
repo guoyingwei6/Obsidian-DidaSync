@@ -58,12 +58,17 @@ Obsidian-DidaSync ensures your tasks are always up-to-date, whether you're in Ob
 | ![Time Block View](./assets/time-block-view.png) | ![Timeline View](./assets/timeline-view.png) | ![Sidebar View](./assets/sidebar-view.png) |
 | Visualize your day with a calendar-style time block view of your tasks | A vertical timeline to track your task progress and upcoming deadlines | Manage your entire TickTick task list directly from the Obsidian sidebar |
 
+### 🤖 MCP / AI Plugin Integration
+
+Obsidian-DidaSync can expose a local HTTP MCP server on desktop, allowing MCP-compatible AI plugins to manage tasks through structured tools.
+
 ## Features
 
 | Feature | Description |
 |---------|-------------|
 | 🔄 **Two-way Sync** | Synchronize task status, content, and details between Obsidian and TickTick/Dida365 |
 | 🗓️ **Visual Views** | Multiple views including Time Block, Timeline, and Sidebar Task List |
+| 🤖 **MCP / AI Plugin Integration** | Expose local MCP tools for listing, searching, creating, updating, completing, deleting, and syncing tasks |
 | �️ **Interactive Drag & Drop Scheduling** | Time block view supports smooth drag-and-drop scheduling for all-day tasks, prevents accidental edits, and allows clicking date badges for quick calendar rescheduling |
 | 🔁 **Repeat Task Support** | Perfectly syncs and manages complex repeating tasks from TickTick (supports display and checking off recurring rules) |
 | �📝 **Daily Note Integration** | Automatically sync today's tasks directly into your daily notes |
@@ -77,6 +82,22 @@ Obsidian-DidaSync ensures your tasks are always up-to-date, whether you're in Ob
 2. Install and enable the plugin
 3. Use secure and convenient OAuth authorization in the plugin settings to connect your TickTick/Dida365 account with one click (no tedious API Key configuration required)
 4. Open the sidebar or use the ribbon icons to start syncing your tasks!
+
+## MCP / AI Plugin Usage
+
+Enable **Settings → Obsidian-DidaSync → Advanced/Reset → MCP Service**, then add this configuration to an MCP-compatible AI plugin:
+
+```json
+{
+  "transport": "http",
+  "url": "http://127.0.0.1:35829/mcp",
+  "headers": {
+    "Authorization": "Bearer <DIDASYNC_MCP_TOKEN>"
+  }
+}
+```
+
+Available tools include task listing, search, creation, updates, completion, deletion, project listing, and manual sync.
 
 ## Installation
 
