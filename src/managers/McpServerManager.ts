@@ -79,8 +79,24 @@ export class McpServerManager {
             res.end();
             return;
         }
-        if (req.method !== "POST" || !this.isMcpPath(req.url || "")) {
+        if (!this.isMcpPath(req.url || "")) {
             this.writeJson(res, 404, { error: "Not found" });
+            return;
+        }
+        if (req.method === "GET") {
+            if (!this.isAuthorized(req)) {
+                this.writeJson(res, 401, this.errorResponse(null, -32001, "Unauthorized MCP request"));
+                return;
+            }
+            this.openSseStream(req, res);
+            return;
+        }
+        if (req.method === "DELETE") {
+            this.writeJson(res, 405, { error: "Method not allowed" });
+            return;
+        }
+        if (req.method !== "POST") {
+            this.writeJson(res, 405, { error: "Method not allowed" });
             return;
         }
 
@@ -447,6 +463,24 @@ export class McpServerManager {
         res.end(JSON.stringify(body));
     }
 
+    private openSseStream(req: http.IncomingMessage, res: http.ServerResponse) {
+        this.setCorsHeaders(res);
+        res.writeHead(200, {
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        });
+        res.write(": DidaSync MCP stream connected\n\n");
+        const keepAlive = setInterval(() => {
+            if (!res.destroyed) res.write(": keep-alive\n\n");
+        }, 30000);
+        req.on("close", () => {
+            clearInterval(keepAlive);
+            if (!res.destroyed) res.end();
+        });
+    }
+
     private setCorsHeaders(res: http.ServerResponse) {
         res.setHeader("Access-Control-Allow-Origin", "app://obsidian.md");
         res.setHeader("Access-Control-Allow-Headers", [
@@ -457,9 +491,12 @@ export class McpServerManager {
             "Mcp-Protocol-Version",
             "mcp-protocol-version",
             "Mcp-Session-Id",
-            "mcp-session-id"
+            "mcp-session-id",
+            "Last-Event-ID",
+            "last-event-id"
         ].join(", "));
-        res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+        res.setHeader("Access-Control-Expose-Headers", "Mcp-Session-Id, mcp-session-id");
     }
 
     notifyStartupError(error: any) {
