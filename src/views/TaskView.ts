@@ -457,7 +457,7 @@ export class TaskView extends ItemView {
             this.pomodoroState.cycleFocusCount = isLongBreak ? 0 : count;
             await this.recordPomodoroCompletion(minutes);
             this.resetPomodoroPhase(isLongBreak ? "longBreak" : "shortBreak");
-            new Notice(isLongBreak ? "宸插畬鎴?4 涓暘鑼勯挓锛屽紑濮嬮暱浼戞伅" : "鐣寗閽熷畬鎴愶紝寮€濮嬬煭浼戞伅");
+            new Notice(isLongBreak ? "已经完成4个番茄钟，开始长休息" : "短暂休息完成，开始长休息");
         } else {
             this.resetPomodoroPhase("focus");
             new Notice("休息结束，开始新的专注");
@@ -738,7 +738,7 @@ export class TaskView extends ItemView {
         const stats = this.getTodayPomodoroStats();
         const panel = this.pomodoroHostEl.createDiv("dida-pomodoro-panel");
         const summary = panel.createDiv("dida-pomodoro-summary");
-        summary.textContent = `今日专注，${stats.sessions || 0} 涓暘鑼?路 ${stats.minutes || 0} 分钟`;
+        summary.textContent = `今日专注，${stats.sessions || 0} 个番茄，${stats.minutes || 0} 分钟`;
 
         const ringCard = panel.createDiv("dida-pomodoro-ring-card");
         let progressCircle: SVGCircleElement | null = null;
@@ -837,7 +837,7 @@ export class TaskView extends ItemView {
                         await this.submitPomodoroCustomDuration();
                     }
                 });
-                const applyBtn = row.createEl("button", { cls: "dida-pomodoro-picker-apply-btn", text: "纭畾" });
+                const applyBtn = row.createEl("button", { cls: "dida-pomodoro-picker-apply-btn", text: "确认" });
                 applyBtn.type = "button";
                 applyBtn.addEventListener("click", async () => this.submitPomodoroCustomDuration());
             }
@@ -874,7 +874,7 @@ export class TaskView extends ItemView {
             });
             const stopBtn = controls.createEl("button", { cls: "dida-pomodoro-control-btn" });
             stopBtn.type = "button";
-            stopBtn.title = "鍋滄";
+            stopBtn.title = "停止";
             stopBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square"><rect width="14" height="14" x="5" y="5" rx="2"/></svg>';
             stopBtn.addEventListener("click", () => this.stopPomodoro());
             const soundBtn = controls.createEl("button", { cls: "dida-pomodoro-control-btn" });
@@ -965,10 +965,10 @@ export class TaskView extends ItemView {
         if (this.pomodoroElements.timeEl) this.pomodoroElements.timeEl.title = this.getPomodoroHintText(this.pomodoroState.phase);
         const sound = this.getPomodoroSoundOptions().find((item) => item.value === settings.selectedSound);
         if (this.pomodoroElements.summaryEl) {
-            this.pomodoroElements.summaryEl.textContent = `今日专注，${stats.sessions || 0} 涓暘鑼?路 ${stats.minutes || 0} 分钟`;
+            this.pomodoroElements.summaryEl.textContent = `今日专注，${stats.sessions || 0} 个番茄，${stats.minutes || 0} 分钟`;
         }
         if (this.pomodoroElements.toggleBtn) {
-            this.pomodoroElements.toggleBtn.title = this.pomodoroState.isRunning ? "鏆傚仠" : "缁х画";
+            this.pomodoroElements.toggleBtn.title = this.pomodoroState.isRunning ? "暂停" : "继续";
             this.pomodoroElements.toggleBtn.innerHTML = this.pomodoroState.isRunning
                 ? '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-pause"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>'
                 : '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play"><polygon points="6 3 20 12 6 21 6 3"/></svg>';
@@ -1191,7 +1191,7 @@ export class TaskView extends ItemView {
                 `;
 
                 const filterOptions = [
-                    { label: "宸查€炬湡", value: "overdue" },
+                    { label: "已逾期", value: "overdue" },
                     { label: "今天", value: "today" },
                     { label: "近 3 天", value: "next3days" },
                     { label: "近 7 天", value: "next7days" }
@@ -1213,7 +1213,7 @@ export class TaskView extends ItemView {
                     });
                     option.addEventListener("click", () => {
                         this.dateFilter = opt.value;
-                        searchInput.placeholder = "绛涢€夛細" + opt.label;
+                        searchInput.placeholder = "筛选：" + opt.label;
                         dateFilterDropdown.style.display = "none";
                         dateFilterClearBtn.style.display = "flex";
                         this.renderTaskList({ preserveSearch: true });
@@ -1601,7 +1601,7 @@ export class TaskView extends ItemView {
                                         dueStr = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
                                     }
 
-                                    if (startStr && dueStr) reminderInfo = startStr + " - " + dueStr;
+                                    if (startStr && dueStr) reminderInfo = startStr + "～" + dueStr;
                                     else if (startStr) reminderInfo = startStr;
                                     else if (dueStr) reminderInfo = dueStr;
                                 }
@@ -2010,7 +2010,7 @@ export class TaskView extends ItemView {
             }
 
             dateSpan.style.cursor = "pointer";
-            dateSpan.title = "鐐瑰嚮璁剧疆鏃堕棿";
+            dateSpan.title = "点击设置时间";
             dateSpan.onclick = (e) => {
                 e.stopPropagation();
                 const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
@@ -2032,7 +2032,7 @@ export class TaskView extends ItemView {
             deleteBtn.onclick = async (e) => {
                 e.stopPropagation();
                 e.preventDefault();
-                if (confirm(`确定要删除任务“${task.title}”吗？`)) {
+                if (confirm(`确定要删除任务"${task.title}"吗？`)) {
                     const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
                     if (idx !== -1) await this.plugin.deleteTask(idx);
                 }
@@ -2484,7 +2484,7 @@ export class TaskView extends ItemView {
             deleteBtn.onclick = async (e) => {
                 e.stopPropagation();
                 e.preventDefault();
-                if (confirm(`确定要删除任务“${task.title}”吗？`)) {
+                if (confirm(`确定要删除任务"${task.title}"吗？`)) {
                     const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
                     if (idx !== -1) await this.plugin.deleteTask(idx);
                 }
@@ -2511,7 +2511,7 @@ export class TaskView extends ItemView {
                     if (!tooltip) {
                         const el = document.createElement("div");
                         el.className = "dida-time-block-tooltip";
-                        el.textContent = `${startLabel} - ${endLabel}  路  ${task.title || ""}`;
+                        el.textContent = `${startLabel} - ${endLabel}  ·  ${task.title || ""}`;
                         document.body.appendChild(el);
                         tooltip = el;
                         tooltipKeyHandler = (evt: KeyboardEvent) => {
@@ -2800,8 +2800,8 @@ export class TaskView extends ItemView {
             <h4>添加任务到 ${projectName}</h4>
             <input type="text" placeholder="输入任务标题..." class="task-title-input" />
             <div class="button-container">
-                <button class="cancel-btn">鍙栨秷</button>
-                <button class="submit-btn">娣诲姞</button>
+                <button class="cancel-btn">取消</button>
+                <button class="submit-btn">添加</button>
             </div>
         `;
             document.body.appendChild(popup);
@@ -2865,7 +2865,7 @@ export class TaskView extends ItemView {
         }
 
         const details = taskItem.createDiv("dida-task-details");
-        // 禁用当前任务项拖拽，并恢复上一个任务链接的拖拽
+        // 禁用当前任务项拖拽，并恢复上一个任务项的拖拽
         if (this.lastOpenTaskItem && this.lastOpenTaskItem !== taskItem) {
             this.lastOpenTaskItem.setAttribute("draggable", "true");
         }
@@ -2915,7 +2915,7 @@ export class TaskView extends ItemView {
             }
 
             const contentTextarea = contentRow.createEl("textarea", { cls: "dida-task-content-textarea" });
-            contentTextarea.placeholder = "鍐呭...";
+            contentTextarea.placeholder = "内容...";
             contentTextarea.value = contentValue;
 
             const checkTab = contentArea.createDiv(tab === "check-items-tab" ? "dida-tab-content active" : "dida-tab-content");
@@ -2933,7 +2933,7 @@ export class TaskView extends ItemView {
                             type: "text",
                             value: item.title,
                             cls: item.status === 1 ? "dida-task-completed" : "dida-task-title-input",
-                            placeholder: "妫€鏌ラ」鏍囬"
+                            placeholder: "检查项标题"
                         });
 
                         cb.onchange = () => {
@@ -2974,7 +2974,7 @@ export class TaskView extends ItemView {
             addCheckItemBtn.style.position = "absolute";
             addCheckItemBtn.style.top = "0";
             addCheckItemBtn.style.right = "0";
-            addCheckItemBtn.title = "娣诲姞妫€鏌ラ」";
+            addCheckItemBtn.title = "添加检查项";
             addCheckItemBtn.onclick = () => {
                 if (!currentTask.items) currentTask.items = [];
                 currentTask.items.push({
@@ -3100,7 +3100,7 @@ export class TaskView extends ItemView {
             subtaskTabBtn.onclick = () => switchTab("subtasks-tab");
 
             const btnContainer = details.createDiv("dida-task-button-container");
-            const saveBtn = btnContainer.createEl("button", { text: "淇濆瓨", cls: "dida-task-save-btn mod-cta" });
+            const saveBtn = btnContainer.createEl("button", { text: "保存", cls: "dida-task-save-btn mod-cta" });
 
             if (currentTask.didaId) {
                 this.plugin.findFilesWithDidaId(currentTask.didaId).then(files => {
@@ -3111,527 +3111,527 @@ export class TaskView extends ItemView {
                             await this.plugin.jumpToDidaIdInFile(currentTask.didaId!, jumpBtn);
                         };
 
-                        const unlinkBtn = btnContainer.createEl("button", { cls: "dida-task-delete-link-btn", title: "                        const unlinkBtn = btnContainer.createEl("button", { cls: "dida-task-delete-link-btn", title: "移除markdown文档中的任务链接" });
+                        const unlinkBtn = btnContainer.createEl("button", { cls: "dida-task-delete-link-btn", title: "删除markdown文件中的任务链接" });
                         unlinkBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
                         unlinkBtn.onclick = async (e) => {
                             e.stopPropagation();
                             e.preventDefault();
                             if (confirm("确定要删除所有文件中的任务链接吗？")) {
                                 await this.plugin.deleteDidaIdFromMarkdown(currentTask.didaId!);
-                            details.remove();
-                        }
-                    };
-                }
+                                details.remove();
+                            }
+                        };
+                    }
                 });
+            }
+
+            const save = async () => {
+                await this.saveTaskDetails(task.originalIndex, titleInput.value, contentTextarea.value, contentField);
+                const mainRow = taskItem.querySelector(".dida-task-main-row");
+                if (mainRow) {
+                    const titleEl = mainRow.querySelector(".dida-task-title, .dida-task-completed");
+                    if (titleEl) this.renderTaskTitleContent(titleEl as HTMLElement, titleInput.value.trim());
+                }
+                details.remove();
+                taskItem.setAttribute("draggable", "true");
+                if (this.lastOpenTaskItem === taskItem) this.lastOpenTaskItem = null;
+            };
+
+            saveBtn.onclick = save;
+            titleInput.addEventListener("keypress", (e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    save();
+                }
+            });
+            contentTextarea.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" && e.ctrlKey) {
+                    e.preventDefault();
+                    save();
+                }
+            });
+
+            setTimeout(() => titleInput.focus(), 100);
         }
-
-        const save = async () => {
-            await this.saveTaskDetails(task.originalIndex, titleInput.value, contentTextarea.value, contentField);
-            const mainRow = taskItem.querySelector(".dida-task-main-row");
-            if (mainRow) {
-                const titleEl = mainRow.querySelector(".dida-task-title, .dida-task-completed");
-                if (titleEl) this.renderTaskTitleContent(titleEl as HTMLElement, titleInput.value.trim());
-            }
-            details.remove();
-            taskItem.setAttribute("draggable", "true");
-            if (this.lastOpenTaskItem === taskItem) this.lastOpenTaskItem = null;
-        };
-
-        saveBtn.onclick = save;
-        titleInput.addEventListener("keypress", (e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                save();
-            }
-        });
-        contentTextarea.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" && e.ctrlKey) {
-                e.preventDefault();
-                save();
-            }
-        });
-
-        setTimeout(() => titleInput.focus(), 100);
     }
-}
 
     async updateTaskStartDate(index: number, date: Date | null, isAllDay: boolean) {
-    const task = this.plugin.settings.tasks[index];
-    if (task) {
-        const oldDate = task.startDate;
-        let newDateStr: string | null = null;
+        const task = this.plugin.settings.tasks[index];
+        if (task) {
+            const oldDate = task.startDate;
+            let newDateStr: string | null = null;
 
-        if (date) {
-            if (isAllDay) {
-                const dt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
-                const y = dt.getUTCFullYear();
-                const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
-                const d = String(dt.getUTCDate()).padStart(2, "0");
-                const h = String(dt.getUTCHours()).padStart(2, "0");
-                const min = String(dt.getUTCMinutes()).padStart(2, "0");
-                const s = String(dt.getUTCSeconds()).padStart(2, "0");
-                newDateStr = `${y}-${m}-${d}T${h}:${min}:${s}+0000`;
-            } else {
-                const y = date.getFullYear();
-                const m = String(date.getMonth() + 1).padStart(2, "0");
-                const d = String(date.getDate()).padStart(2, "0");
-                const h = String(date.getHours()).padStart(2, "0");
-                const min = String(date.getMinutes()).padStart(2, "0");
-                const s = String(date.getSeconds()).padStart(2, "0");
-                const offset = date.getTimezoneOffset();
-                const oh = Math.abs(Math.floor(offset / 60));
-                const om = Math.abs(offset % 60);
-                const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
-                newDateStr = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
+            if (date) {
+                if (isAllDay) {
+                    const dt = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+                    const y = dt.getUTCFullYear();
+                    const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+                    const d = String(dt.getUTCDate()).padStart(2, "0");
+                    const h = String(dt.getUTCHours()).padStart(2, "0");
+                    const min = String(dt.getUTCMinutes()).padStart(2, "0");
+                    const s = String(dt.getUTCSeconds()).padStart(2, "0");
+                    newDateStr = `${y}-${m}-${d}T${h}:${min}:${s}+0000`;
+                } else {
+                    const y = date.getFullYear();
+                    const m = String(date.getMonth() + 1).padStart(2, "0");
+                    const d = String(date.getDate()).padStart(2, "0");
+                    const h = String(date.getHours()).padStart(2, "0");
+                    const min = String(date.getMinutes()).padStart(2, "0");
+                    const s = String(date.getSeconds()).padStart(2, "0");
+                    const offset = date.getTimezoneOffset();
+                    const oh = Math.abs(Math.floor(offset / 60));
+                    const om = Math.abs(offset % 60);
+                    const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
+                    newDateStr = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
+                }
             }
-        }
 
-        const changed = task.startDate !== newDateStr;
-        task.startDate = newDateStr;
-        task.isAllDay = isAllDay;
-        if (!isAllDay && !task.dueDate) task.dueDate = newDateStr;
+            const changed = task.startDate !== newDateStr;
+            task.startDate = newDateStr;
+            task.isAllDay = isAllDay;
+            if (!isAllDay && !task.dueDate) task.dueDate = newDateStr;
 
-        task.updatedAt = new Date().toISOString();
-        await this.plugin.saveSettings();
-
-        if (changed && task.didaId) {
-            await this.updateNativeTaskDueDate(task, oldDate, task.dueDate || newDateStr || null);
-        }
-
-        this.renderTaskList();
-
-        if (this.plugin.settings.accessToken && task.didaId) {
-            setTimeout(async () => {
-                try {
-                    await this.plugin.updateTaskInDidaList(task);
-                } catch (e) { }
-            }, 0);
-        }
-    }
-}
-
-    async updateTaskDueDate(index: number, date: Date | null, isAllDay: boolean) {
-    const task = this.plugin.settings.tasks[index];
-    if (task) {
-        const oldDate = task.dueDate;
-        let newDateStr: string | null = null;
-        if (date) {
-            if (isAllDay) {
-                const y = date.getFullYear();
-                const m = String(date.getMonth() + 1).padStart(2, "0");
-                const d = String(date.getDate()).padStart(2, "0");
-                const h = String(date.getHours()).padStart(2, "0");
-                const min = String(date.getMinutes()).padStart(2, "0");
-                const s = String(date.getSeconds()).padStart(2, "0");
-                const offset = date.getTimezoneOffset();
-                const oh = Math.abs(Math.floor(offset / 60));
-                const om = Math.abs(offset % 60);
-                const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
-                newDateStr = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
-            } else {
-                const y = date.getFullYear();
-                const m = String(date.getMonth() + 1).padStart(2, "0");
-                const d = String(date.getDate()).padStart(2, "0");
-                const h = String(date.getHours()).padStart(2, "0");
-                const min = String(date.getMinutes()).padStart(2, "0");
-                const s = String(date.getSeconds()).padStart(2, "0");
-                const offset = date.getTimezoneOffset();
-                const oh = Math.abs(Math.floor(offset / 60));
-                const om = Math.abs(offset % 60);
-                const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
-                newDateStr = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
-            }
-        }
-
-        task.dueDate = newDateStr;
-        task.isAllDay = isAllDay;
-        task.updatedAt = new Date().toISOString();
-        await this.plugin.saveSettings();
-
-        if (task.didaId) {
-            await this.updateNativeTaskDueDate(task, oldDate, newDateStr);
-        }
-
-        this.renderTaskList();
-        if (this.plugin.settings.accessToken && task.didaId) {
-            setTimeout(async () => {
-                try {
-                    await this.plugin.updateTaskInDidaList(task);
-                } catch (e) { }
-            }, 0);
-        }
-    }
-}
-
-    async saveTaskDetails(index: number, title: string, content: string, contentField: string = "content") {
-    const task = this.plugin.settings.tasks[index];
-    if (task) {
-        const trimmed = title.trim();
-        if (trimmed) {
-            const titleChanged = task.title !== trimmed;
-            const oldTitle = task.title;
-            task.title = trimmed;
-            if (task.items && task.items.length > 0) {
-                task.content = content;
-                task.desc = content;
-            } else if (contentField === "desc") {
-                task.desc = content;
-            } else {
-                task.content = content;
-            }
             task.updatedAt = new Date().toISOString();
             await this.plugin.saveSettings();
-            if (titleChanged && task.didaId) {
-                await this.updateNativeTaskTitle(task, oldTitle, trimmed);
+
+            if (changed && task.didaId) {
+                await this.updateNativeTaskDueDate(task, oldDate, task.dueDate || newDateStr || null);
             }
-        } else {
-            new Notice("任务标题不能为空");
+
+            this.renderTaskList();
+
+            if (this.plugin.settings.accessToken && task.didaId) {
+                setTimeout(async () => {
+                    try {
+                        await this.plugin.updateTaskInDidaList(task);
+                    } catch (e) { }
+                }, 0);
+            }
         }
     }
-}
+
+    async updateTaskDueDate(index: number, date: Date | null, isAllDay: boolean) {
+        const task = this.plugin.settings.tasks[index];
+        if (task) {
+            const oldDate = task.dueDate;
+            let newDateStr: string | null = null;
+            if (date) {
+                if (isAllDay) {
+                    const y = date.getFullYear();
+                    const m = String(date.getMonth() + 1).padStart(2, "0");
+                    const d = String(date.getDate()).padStart(2, "0");
+                    const h = String(date.getHours()).padStart(2, "0");
+                    const min = String(date.getMinutes()).padStart(2, "0");
+                    const s = String(date.getSeconds()).padStart(2, "0");
+                    const offset = date.getTimezoneOffset();
+                    const oh = Math.abs(Math.floor(offset / 60));
+                    const om = Math.abs(offset % 60);
+                    const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
+                    newDateStr = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
+                } else {
+                    const y = date.getFullYear();
+                    const m = String(date.getMonth() + 1).padStart(2, "0");
+                    const d = String(date.getDate()).padStart(2, "0");
+                    const h = String(date.getHours()).padStart(2, "0");
+                    const min = String(date.getMinutes()).padStart(2, "0");
+                    const s = String(date.getSeconds()).padStart(2, "0");
+                    const offset = date.getTimezoneOffset();
+                    const oh = Math.abs(Math.floor(offset / 60));
+                    const om = Math.abs(offset % 60);
+                    const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
+                    newDateStr = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
+                }
+            }
+
+            task.dueDate = newDateStr;
+            task.isAllDay = isAllDay;
+            task.updatedAt = new Date().toISOString();
+            await this.plugin.saveSettings();
+
+            if (task.didaId) {
+                await this.updateNativeTaskDueDate(task, oldDate, newDateStr);
+            }
+
+            this.renderTaskList();
+            if (this.plugin.settings.accessToken && task.didaId) {
+                setTimeout(async () => {
+                    try {
+                        await this.plugin.updateTaskInDidaList(task);
+                    } catch (e) { }
+                }, 0);
+            }
+        }
+    }
+
+    async saveTaskDetails(index: number, title: string, content: string, contentField: string = "content") {
+        const task = this.plugin.settings.tasks[index];
+        if (task) {
+            const trimmed = title.trim();
+            if (trimmed) {
+                const titleChanged = task.title !== trimmed;
+                const oldTitle = task.title;
+                task.title = trimmed;
+                if (task.items && task.items.length > 0) {
+                    task.content = content;
+                    task.desc = content;
+                } else if (contentField === "desc") {
+                    task.desc = content;
+                } else {
+                    task.content = content;
+                }
+                task.updatedAt = new Date().toISOString();
+                await this.plugin.saveSettings();
+                if (titleChanged && task.didaId) {
+                    await this.updateNativeTaskTitle(task, oldTitle, trimmed);
+                }
+            } else {
+                new Notice("任务标题不能为空");
+            }
+        }
+    }
 
     async updateNativeTaskDueDate(task: DidaTask, oldDueDate: string | null | undefined, newDueDate: string | null | undefined) {
-    try {
-        this.plugin._isUpdatingNativeTaskStatus = true;
-        for (const file of this.app.vault.getMarkdownFiles()) {
-            try {
-                const lines = (await this.app.vault.read(file)).split("\n");
-                let updated = false;
-                for (let i = 0; i < lines.length; i++) {
-                    const line = lines[i];
-                    if (line.includes(`[馃敆Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
-                        const formatted = this.convertDidaDateToNativeFormat(newDueDate || null);
-                        if (formatted) {
-                            const has = line.match(/馃搮\s*(\d{4}-\d{2}-\d{2})/);
-                            if (has) lines[i] = line.replace(/馃搮\s*\d{4}-\d{2}-\d{2}/, `馃搮 ${formatted} `);
-                            else lines[i] = line + ` 馃搮 ${formatted} `;
-                            updated = true;
-                        } else if (newDueDate == null && line.match(/馃搮\s*(\d{4}-\d{2}-\d{2})/)) {
-                            lines[i] = line.replace(/\s*馃搮\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
-                            updated = true;
-                        }
-                    }
-                }
-                if (updated) {
-                    await this.app.vault.modify(file, lines.join("\n"));
-                }
-            } catch (e) { }
-        }
-    } catch (e) { }
-    finally {
-        this.plugin._isUpdatingNativeTaskStatus = false;
-    }
-}
-
-convertDidaDateToNativeFormat(date: string | null) {
-    if (!date) return null;
-    try {
-        const d = new Date(date);
-        return d.getFullYear() + `-${String(d.getMonth() + 1).padStart(2, "0")}-` + String(d.getDate()).padStart(2, "0");
-    } catch (e) {
-        return null;
-    }
-}
-
-    async updateNativeTaskTitle(task: DidaTask, oldTitle: string, newTitle: string) {
-    try {
-        this.plugin._isUpdatingNativeTaskStatus = true;
-        for (const file of this.app.vault.getMarkdownFiles()) {
-            try {
-                const lines = (await this.app.vault.read(file)).split("\n");
-                let updated = false;
-                for (let i = 0; i < lines.length; i++) {
-                    let line = lines[i];
-                    if (line.includes(`[馃敆Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
-                        const prefixMatch = line.match(/^(\s*-\s*\[[ x]\]\s*)/);
-                        const linkMatch = line.match(/\[馃敆Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)/);
-                        const dateMatch = line.match(/馃搮\s*\d{4}-\d{2}-\d{2}/);
-                        if (prefixMatch) {
-                            const prefix = prefixMatch[1];
-                            const linkPart = linkMatch ? " " + linkMatch[0] : "";
-                            const datePart = dateMatch ? " " + dateMatch[0] : "";
-                            const textOnly = line.replace(/^\s*-\s*\[[ x]\]\s*/, "").replace(/\s*\[馃敆Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)\s*/g, "").replace(/\s*馃搮\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
-                            if (textOnly === oldTitle.trim()) {
-                                lines[i] = `${prefix}${newTitle}${linkPart}${datePart}`;
+        try {
+            this.plugin._isUpdatingNativeTaskStatus = true;
+            for (const file of this.app.vault.getMarkdownFiles()) {
+                try {
+                    const lines = (await this.app.vault.read(file)).split("\n");
+                    let updated = false;
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i];
+                        if (line.includes(`[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
+                            const formatted = this.convertDidaDateToNativeFormat(newDueDate || null);
+                            if (formatted) {
+                                const has = line.match(/📅\s*(\d{4}-\d{2}-\d{2})/);
+                                if (has) lines[i] = line.replace(/📅\s*\d{4}-\d{2}-\d{2}/, `📅 ${formatted} `);
+                                else lines[i] = line + ` 📅 ${formatted} `;
+                                updated = true;
+                            } else if (newDueDate == null && line.match(/📅\s*(\d{4}-\d{2}-\d{2})/)) {
+                                lines[i] = line.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
                                 updated = true;
                             }
                         }
                     }
-                }
-                if (updated) {
-                    await this.app.vault.modify(file, lines.join("\n"));
-                }
-            } catch (e) { }
+                    if (updated) {
+                        await this.app.vault.modify(file, lines.join("\n"));
+                    }
+                } catch (e) { }
+            }
+        } catch (e) { }
+        finally {
+            this.plugin._isUpdatingNativeTaskStatus = false;
         }
-    } catch (e) { }
-    finally {
-        this.plugin._isUpdatingNativeTaskStatus = false;
     }
-}
 
-    async updateNativeTaskStatus(task: DidaTask, completed: boolean) {
-    try {
-        this.plugin._isUpdatingNativeTaskStatus = true;
-        for (const file of this.app.vault.getMarkdownFiles()) {
-            try {
-                const lines = (await this.app.vault.read(file)).split("\n");
-                let updated = false;
-                for (let i = 0; i < lines.length; i++) {
-                    const line = lines[i];
-                    if (line.includes(`[馃敆Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
-                        const indentMatch = line.match(/^(\s*)/);
-                        const taskMatch = line.match(/^(\s*)-\s*\[[ x]\]\s*(.*)/);
-                        if (taskMatch) {
-                            const indent = indentMatch ? indentMatch[1] : "";
-                            const rest = taskMatch[2];
-                            const newLine = completed ? `${indent}- [x] ${rest}` : `${indent}- [ ] ${rest}`;
-                            lines[i] = newLine;
-                            updated = true;
+    convertDidaDateToNativeFormat(date: string | null) {
+        if (!date) return null;
+        try {
+            const d = new Date(date);
+            return d.getFullYear() + `-${String(d.getMonth() + 1).padStart(2, "0")}-` + String(d.getDate()).padStart(2, "0");
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async updateNativeTaskTitle(task: DidaTask, oldTitle: string, newTitle: string) {
+        try {
+            this.plugin._isUpdatingNativeTaskStatus = true;
+            for (const file of this.app.vault.getMarkdownFiles()) {
+                try {
+                    const lines = (await this.app.vault.read(file)).split("\n");
+                    let updated = false;
+                    for (let i = 0; i < lines.length; i++) {
+                        let line = lines[i];
+                        if (line.includes(`[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
+                            const prefixMatch = line.match(/^(\s*-\s*\[[ x]\]\s*)/);
+                            const linkMatch = line.match(/\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)/);
+                            const dateMatch = line.match(/📅\s*\d{4}-\d{2}-\d{2}/);
+                            if (prefixMatch) {
+                                const prefix = prefixMatch[1];
+                                const linkPart = linkMatch ? " " + linkMatch[0] : "";
+                                const datePart = dateMatch ? " " + dateMatch[0] : "";
+                                const textOnly = line.replace(/^\s*-\s*\[[ x]\]\s*/, "").replace(/\s*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)\s*/g, "").replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
+                                if (textOnly === oldTitle.trim()) {
+                                    lines[i] = `${prefix}${newTitle}${linkPart}${datePart}`;
+                                    updated = true;
+                                }
+                            }
                         }
                     }
-                }
-                if (updated) {
-                    await this.app.vault.modify(file, lines.join("\n"));
-                }
-            } catch (e) { }
+                    if (updated) {
+                        await this.app.vault.modify(file, lines.join("\n"));
+                    }
+                } catch (e) { }
+            }
+        } catch (e) { }
+        finally {
+            this.plugin._isUpdatingNativeTaskStatus = false;
         }
-    } catch (e) { }
-    finally {
-        this.plugin._isUpdatingNativeTaskStatus = false;
     }
-}
+
+    async updateNativeTaskStatus(task: DidaTask, completed: boolean) {
+        try {
+            this.plugin._isUpdatingNativeTaskStatus = true;
+            for (const file of this.app.vault.getMarkdownFiles()) {
+                try {
+                    const lines = (await this.app.vault.read(file)).split("\n");
+                    let updated = false;
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i];
+                        if (line.includes(`[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
+                            const indentMatch = line.match(/^(\s*)/);
+                            const taskMatch = line.match(/^(\s*)-\s*\[[ x]\]\s*(.*)/);
+                            if (taskMatch) {
+                                const indent = indentMatch ? indentMatch[1] : "";
+                                const rest = taskMatch[2];
+                                const newLine = completed ? `${indent}- [x] ${rest}` : `${indent}- [ ] ${rest}`;
+                                lines[i] = newLine;
+                                updated = true;
+                            }
+                        }
+                    }
+                    if (updated) {
+                        await this.app.vault.modify(file, lines.join("\n"));
+                    }
+                } catch (e) { }
+            }
+        } catch (e) { }
+        finally {
+            this.plugin._isUpdatingNativeTaskStatus = false;
+        }
+    }
 
     async updateSubtask(taskIndex: number, itemIndex: number, item: any) {
-    const task = this.plugin.settings.tasks[taskIndex];
-    if (task && task.items) {
-        task.items[itemIndex] = item;
-        if (task.items.length > 0) {
-            if (task.content && !task.desc) task.desc = task.content;
-            else if (task.desc && !task.content) task.content = task.desc;
+        const task = this.plugin.settings.tasks[taskIndex];
+        if (task && task.items) {
+            task.items[itemIndex] = item;
+            if (task.items.length > 0) {
+                if (task.content && !task.desc) task.desc = task.content;
+                else if (task.desc && !task.content) task.content = task.desc;
+            }
+            task.updatedAt = new Date().toISOString();
+            await this.plugin.saveSettings();
+            setTimeout(() => {
+                this.syncTaskToDidaListInBackground(task);
+            }, 0);
         }
-        task.updatedAt = new Date().toISOString();
-        await this.plugin.saveSettings();
-        setTimeout(() => {
-            this.syncTaskToDidaListInBackground(task);
-        }, 0);
     }
-}
 
     async updateTaskSubtasks(taskIndex: number, items: any[]) {
-    const task = this.plugin.settings.tasks[taskIndex];
-    if (task) {
-        task.items = items;
-        if (items && items.length > 0) {
-            if (task.content && !task.desc) task.desc = task.content;
-            else if (task.desc && !task.content) task.content = task.desc;
+        const task = this.plugin.settings.tasks[taskIndex];
+        if (task) {
+            task.items = items;
+            if (items && items.length > 0) {
+                if (task.content && !task.desc) task.desc = task.content;
+                else if (task.desc && !task.content) task.content = task.desc;
+            }
+            task.updatedAt = new Date().toISOString();
+            await this.plugin.saveSettings();
+            setTimeout(() => {
+                this.syncTaskToDidaListInBackground(task);
+            }, 0);
         }
-        task.updatedAt = new Date().toISOString();
-        await this.plugin.saveSettings();
-        setTimeout(() => {
-            this.syncTaskToDidaListInBackground(task);
-        }, 0);
     }
-}
 
     async updateTaskSubtasksImmediate(taskIndex: number, items: any[]) {
-    const task = this.plugin.settings.tasks[taskIndex];
-    if (task) {
-        task.items = items;
-        if (items && items.length > 0) {
-            if (task.content && !task.desc) task.desc = task.content;
-            else if (task.desc && !task.content) task.content = task.desc;
+        const task = this.plugin.settings.tasks[taskIndex];
+        if (task) {
+            task.items = items;
+            if (items && items.length > 0) {
+                if (task.content && !task.desc) task.desc = task.content;
+                else if (task.desc && !task.content) task.content = task.desc;
+            }
+            task.updatedAt = new Date().toISOString();
+            await this.plugin.saveSettings();
+            await this.syncTaskToDidaListInBackground(task);
         }
-        task.updatedAt = new Date().toISOString();
-        await this.plugin.saveSettings();
-        await this.syncTaskToDidaListInBackground(task);
     }
-}
 
     async syncTaskToDidaListInBackground(task: DidaTask) {
-    if (this.plugin.settings.accessToken && task.didaId) {
-        try {
-            await this.plugin.updateTaskInDidaList(task);
-        } catch (e) { }
+        if (this.plugin.settings.accessToken && task.didaId) {
+            try {
+                await this.plugin.updateTaskInDidaList(task);
+            } catch (e) { }
+        }
     }
-}
 
-updateTaskRowSubtaskCount(taskItem: HTMLElement, task: any) {
-    const existing = taskItem.querySelector(".dida-subtask-count");
-    if (task.items && task.items.length > 0) {
-        const completedItems = task.items.filter((i: any) => i.status === 1).length;
-        const span = existing || document.createElement("span");
-        span.className = "dida-subtask-count";
-        const icon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" id="item-text" fill="#4c4f69">
+    updateTaskRowSubtaskCount(taskItem: HTMLElement, task: any) {
+        const existing = taskItem.querySelector(".dida-subtask-count");
+        if (task.items && task.items.length > 0) {
+            const completedItems = task.items.filter((i: any) => i.status === 1).length;
+            const span = existing || document.createElement("span");
+            span.className = "dida-subtask-count";
+            const icon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" id="item-text" fill="#4c4f69">
   <path d="M30.06666612625122,7.625000095367431Q30.06666612625122,7.221142095367432,30.35223712625122,6.935571095367432Q30.637808126251223,6.650000095367432,31.041666126251222,6.650000095367432L40.95836612625122,6.650000095367432Q41.362166126251225,6.650000095367432,41.64776612625122,6.935571095367432Q41.93336612625122,7.221140095367431,41.93336612625122,7.625000095367431Q41.93336612625122,8.028860095367431,41.64776612625122,8.314430095367431Q41.362166126251225,8.600000095367431,40.95836612625122,8.600000095367431L31.041666126251222,8.600000095367431Q30.637808126251223,8.600000095367431,30.35223712625122,8.314430095367431Q30.06666612625122,8.028860095367431,30.06666612625122,7.625000095367431ZM32.98332612625122,12.000000095367431Q32.98332612625122,11.596140095367431,33.26889612625122,11.310570095367432Q33.554476126251224,11.025000095367432,33.95832612625122,11.025000095367432L40.95836612625122,11.025000095367432Q41.362166126251225,11.025000095367432,41.64776612625122,11.310570095367432Q41.93336612625122,11.596140095367431,41.93336612625122,12.000000095367431Q41.93336612625122,12.403860095367431,41.64776612625122,12.689430095367431Q41.362166126251225,12.975000095367431,40.95836612625122,12.975000095367431L37.45832612625122,12.975000095367431L33.95832612625122,12.975000095367431Q33.554476126251224,12.975000095367431,33.26889612625122,12.689430095367431Q32.98332612625122,12.403860095367431,32.98332612625122,12.000000095367431ZM32.98332612625122,16.375000095367433Q32.98332612625122,15.971140095367431,33.26889612625122,15.685570095367432Q33.55446612625122,15.400000095367432,33.95832612625122,15.400000095367432L40.95836612625122,15.400000095367432Q41.362166126251225,15.400000095367432,41.64776612625122,15.685570095367432Q41.93336612625122,15.971140095367431,41.93336612625122,16.375000095367433Q41.93336612625122,16.778900095367433,41.64776612625122,17.064400095367432Q41.362166126251225,17.35000009536743,40.95836612625122,17.35000009536743L33.95832612625122,17.35000009536743Q33.55446612625122,17.35000009536743,33.26889612625122,17.064400095367432Q32.98332612625122,16.778900095367433,32.98332612625122,16.375000095367433Z" fill-rule="evenodd"></path>
   <path d="M46.5,18.5L46.5,5.5Q46.5,3.84314,45.3284,2.671573Q44.1569,1.5,42.5,1.5L29.5,1.5Q27.84315,1.5,26.671573,2.671573Q25.5,3.84315,25.5,5.5L25.5,18.5Q25.5,20.1569,26.671573,21.3284Q27.84314,22.5,29.5,22.5L42.5,22.5Q44.1569,22.5,45.3284,21.3284Q46.5,20.1569,46.5,18.5ZM44.5,5.5L44.5,18.5Q44.5,19.3284,43.9142,19.9142Q43.3284,20.5,42.5,20.5L29.5,20.5Q28.67157,20.5,28.08579,19.9142Q27.5,19.3284,27.5,18.5L27.5,5.5Q27.5,4.67157,28.08579,4.08579Q28.67157,3.5,29.5,3.5L42.5,3.5Q43.3284,3.5,43.9142,4.08579Q44.5,4.67157,44.5,5.5Z" fill-rule="evenodd" transform="matrix(-1 0 0 1 48 0)"></path>
 </svg>`;
-        span.innerHTML = `${icon}${completedItems}/${task.items.length}`;
-        span.style.fontSize = "0.8em";
-        span.style.color = "#666";
-        span.style.marginLeft = "2px";
-        span.style.display = "flex";
-        span.style.alignItems = "center";
-        span.style.gap = "2px";
-        span.style.cursor = "pointer";
-        span.title = "鐐瑰嚮鏌ョ湅妫€鏌ラ」";
-        span.onclick = () => this.toggleTaskDetails(taskItem, task, "check-items-tab");
-        if (!existing) taskItem.querySelector(".dida-task-left-content")?.appendChild(span);
-    } else if (existing) {
-        existing.remove();
+            span.innerHTML = `${icon}${completedItems}/${task.items.length}`;
+            span.style.fontSize = "0.8em";
+            span.style.color = "#666";
+            span.style.marginLeft = "2px";
+            span.style.display = "flex";
+            span.style.alignItems = "center";
+            span.style.gap = "2px";
+            span.style.cursor = "pointer";
+            span.title = "点击查看检查项";
+            span.onclick = () => this.toggleTaskDetails(taskItem, task, "check-items-tab");
+            if (!existing) taskItem.querySelector(".dida-task-left-content")?.appendChild(span);
+        } else if (existing) {
+            existing.remove();
+        }
     }
-}
 
-updateTaskRowChildCount(taskItem: HTMLElement, task: any) {
-    const existing = taskItem.querySelector(".dida-child-task-count");
-    const childTasks = this.plugin.settings.tasks.filter(t => t.parentId === task.didaId);
-    if (task.didaId && childTasks.length > 0) {
-        const completedChilds = childTasks.filter(t => t.status === 2).length;
-        const span = existing || document.createElement("span");
-        span.className = "dida-child-task-count";
-        const icon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 12 12" id="descendant-task-small" fill="#4c4f69">
+    updateTaskRowChildCount(taskItem: HTMLElement, task: any) {
+        const existing = taskItem.querySelector(".dida-child-task-count");
+        const childTasks = this.plugin.settings.tasks.filter(t => t.parentId === task.didaId);
+        if (task.didaId && childTasks.length > 0) {
+            const completedChilds = childTasks.filter(t => t.status === 2).length;
+            const span = existing || document.createElement("span");
+            span.className = "dida-child-task-count";
+            const icon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 12 12" id="descendant-task-small" fill="#4c4f69">
   <path d="M1.2500016689300537,1.491542L1.2500016689300537,8.31342C1.2500016689300537,9.3755,2.1029426689300537,10.25,3.1650316689300535,10.25L6.995881668930053,10.25C7.272021668930054,10.25,7.500001668930054,10.02614,7.500001668930054,9.75C7.500001668930054,9.47386,7.2761416689300535,9.25,7.000001668930054,9.25L3.204551668930054,9.25C2.677361668930054,9.25,2.2500016689300537,8.82264,2.2500016689300537,8.295449999999999L2.2500016689300537,4.75L7.000001668930054,4.75C7.2761416689300535,4.75,7.500001668930054,4.52614,7.500001668930054,4.25C7.500001668930054,3.97386,7.2761416689300535,3.75,7.000001668930054,3.75L2.2500016689300537,3.75L2.2500016689300537,1.5C2.2500016689300537,1.223858,2.026143668930054,1,1.7500016689300537,1C1.4738596689300536,1,1.2500016689300537,1.2154,1.2500016689300537,1.491542ZM10.750001668930054,4.25Q10.750001668930054,4.34849,10.730781668930053,4.44509Q10.711571668930054,4.54169,10.673881668930054,4.632680000000001Q10.636191668930053,4.72368,10.581471668930053,4.8055699999999995Q10.526751668930054,4.88746,10.457111668930054,4.95711Q10.387461668930055,5.02675,10.305571668930053,5.08147Q10.223681668930054,5.13619,10.132681668930054,5.17388Q10.041691668930053,5.21157,9.945091668930054,5.23078Q9.848491668930054,5.25,9.750001668930054,5.25Q9.651511668930054,5.25,9.554911668930053,5.23078Q9.458311668930055,5.21157,9.367321668930053,5.17388Q9.276321668930054,5.13619,9.194431668930054,5.08147Q9.112541668930053,5.02675,9.042891668930054,4.95711Q8.973251668930054,4.88746,8.918531668930054,4.8055699999999995Q8.863811668930055,4.72368,8.826121668930053,4.632680000000001Q8.788431668930054,4.54169,8.769211668930055,4.44509Q8.750001668930054,4.34849,8.750001668930054,4.25Q8.750001668930054,4.15151,8.769211668930055,4.05491Q8.788431668930054,3.95831,8.826121668930053,3.86732Q8.863811668930055,3.77632,8.918531668930054,3.69443Q8.973251668930054,3.61254,9.042891668930054,3.54289Q9.112541668930053,3.47325,9.194431668930054,3.41853Q9.276321668930054,3.36381,9.367321668930053,3.32612Q9.458311668930055,3.28843,9.554911668930053,3.26922Q9.651511668930054,3.25,9.750001668930054,3.25Q9.848491668930054,3.25,9.945091668930054,3.26922Q10.041691668930053,3.28843,10.132681668930054,3.32612Q10.223681668930054,3.36381,10.305571668930053,3.41853Q10.387461668930055,3.47325,10.457111668930054,3.54289Q10.526751668930054,3.61254,10.581471668930053,3.69443Q10.636191668930053,3.77632,10.673881668930054,3.86732Q10.711571668930054,3.95831,10.730781668930053,4.05491Q10.750001668930054,4.15151,10.750001668930054,4.25Z" fill-rule="evenodd"></path>
 </svg>`;
-        span.innerHTML = `${icon}${completedChilds}/${childTasks.length}`;
-        span.style.fontSize = "0.8em";
-        span.style.color = "#0066cc";
-        span.style.marginLeft = "2px";
-        span.style.display = "flex";
-        span.style.alignItems = "center";
-        span.style.gap = "2px";
-        span.style.cursor = "pointer";
-        span.title = "点击查看子任务";
-        span.onclick = () => this.toggleTaskDetails(taskItem, task, "subtasks-tab");
-        if (!existing) taskItem.querySelector(".dida-task-left-content")?.appendChild(span);
-    } else if (existing) {
-        existing.remove();
+            span.innerHTML = `${icon}${completedChilds}/${childTasks.length}`;
+            span.style.fontSize = "0.8em";
+            span.style.color = "#0066cc";
+            span.style.marginLeft = "2px";
+            span.style.display = "flex";
+            span.style.alignItems = "center";
+            span.style.gap = "2px";
+            span.style.cursor = "pointer";
+            span.title = "点击查看子任务";
+            span.onclick = () => this.toggleTaskDetails(taskItem, task, "subtasks-tab");
+            if (!existing) taskItem.querySelector(".dida-task-left-content")?.appendChild(span);
+        } else if (existing) {
+            existing.remove();
+        }
     }
-}
 
-updateTaskRowRepeatRule(taskItem: HTMLElement | any, task ?: any) {
-    const targetTask = task || taskItem;
-    let targetItem: HTMLElement | null = null;
-    if (taskItem instanceof HTMLElement) targetItem = taskItem;
-    else if (targetTask?.id) {
-        const el = this.containerEl.querySelector(`[data-task-id="${targetTask.id}"]`);
-        targetItem = el ? el.closest(".dida-task-item") as HTMLElement : null;
+    updateTaskRowRepeatRule(taskItem: HTMLElement | any, task?: any) {
+        const targetTask = task || taskItem;
+        let targetItem: HTMLElement | null = null;
+        if (taskItem instanceof HTMLElement) targetItem = taskItem;
+        else if (targetTask?.id) {
+            const el = this.containerEl.querySelector(`[data-task-id="${targetTask.id}"]`);
+            targetItem = el ? el.closest(".dida-task-item") as HTMLElement : null;
+        }
+        if (!targetItem) return;
+        const existing = targetItem.querySelector(".dida-task-repeat-rule");
+        if (targetTask.repeatFlag && targetTask.repeatFlag.trim() !== "") {
+            const text = translateRepeatFlag(targetTask.repeatFlag);
+            if (text) {
+                if (existing) {
+                    existing.innerHTML = text;
+                } else {
+                    const div = document.createElement("div");
+                    div.className = "dida-task-repeat-rule";
+                    div.innerHTML = text;
+                    targetItem.appendChild(div);
+                }
+            }
+        } else if (existing) {
+            existing.remove();
+        }
     }
-    if (!targetItem) return;
-    const existing = targetItem.querySelector(".dida-task-repeat-rule");
-    if (targetTask.repeatFlag && targetTask.repeatFlag.trim() !== "") {
-        const text = translateRepeatFlag(targetTask.repeatFlag);
-        if (text) {
-            if (existing) {
-                existing.innerHTML = text;
-            } else {
-                const div = document.createElement("div");
-                div.className = "dida-task-repeat-rule";
-                div.innerHTML = text;
-                targetItem.appendChild(div);
+
+    // ==================== Drag Task to Markdown ====================
+
+    _enableTaskDragToMarkdown(element: HTMLElement, task: DidaTask) {
+        if (!element || !task) return;
+        if (!task.didaId) return;
+        if (element.dataset && element.dataset.didaDragBound === "1") return;
+        element.setAttribute("draggable", "true");
+        if (element.dataset) element.dataset.didaDragBound = "1";
+        element.addEventListener("dragstart", (e: DragEvent) => {
+            this._beginSidebarTaskDragMenuSuppression();
+            try {
+                const payload = this._buildDidaTaskDragPayload(task);
+                if (payload && e.dataTransfer) {
+                    e.dataTransfer.setData("text/plain", payload);
+                    e.dataTransfer.effectAllowed = "copy";
+                    element.classList.add("dida-task-dragging");
+                    e.stopPropagation();
+                }
+            } catch (err) { }
+        });
+        element.addEventListener("dragend", () => {
+            element.classList.remove("dida-task-dragging");
+            this._scheduleEndSidebarTaskDragMenuSuppression();
+            setTimeout(() => {
+                this._collapseActiveMarkdownEditorSelectionAfterSidebarTaskDrop();
+            }, 0);
+        });
+    }
+
+    _buildDidaTaskDragPayload(task: DidaTask): string {
+        if (!task || !task.didaId) return "";
+        const lines: string[] = [];
+        const mainLine = this._formatDidaTaskLineForDrag(task, "");
+        if (!mainLine) return "";
+        lines.push(mainLine);
+        const childIds = new Set<string>();
+        if (task.didaId) childIds.add(task.didaId);
+        if (task.id && task.id !== task.didaId) childIds.add(task.id);
+        const tasks = this.plugin.settings.tasks || [];
+        for (const child of tasks) {
+            if (child && child.parentId && childIds.has(child.parentId) && child.didaId) {
+                const childLine = this._formatDidaTaskLineForDrag(child, "\t");
+                if (childLine) lines.push(childLine);
             }
         }
-    } else if (existing) {
-        existing.remove();
+        return lines.join("\n");
     }
-}
 
-// ==================== Drag Task to Markdown ====================
+    _formatDidaTaskLineForDrag(task: DidaTask, indent: string): string {
+        if (!task || !task.didaId) return "";
+        const checkbox = task.status === 2 ? "[x]" : "[ ]";
+        const title = (task.title || "").replace(/\r?\n/g, " ").trim() || "无标题任务";
+        const dateStr = this._formatDidaTaskDueDateForDrag(task);
+        return `${indent}- ${checkbox} ${title} [🔗Dida](obsidian://dida-task?didaId=${task.didaId})${dateStr}`;
+    }
 
-_enableTaskDragToMarkdown(element: HTMLElement, task: DidaTask) {
-    if (!element || !task) return;
-    if (!task.didaId) return;
-    if (element.dataset && element.dataset.didaDragBound === "1") return;
-    element.setAttribute("draggable", "true");
-    if (element.dataset) element.dataset.didaDragBound = "1";
-    element.addEventListener("dragstart", (e: DragEvent) => {
-        this._beginSidebarTaskDragMenuSuppression();
+    _formatDidaTaskDueDateForDrag(task: DidaTask): string {
+        const dateValue = (task && (task.dueDate || task.startDate)) || null;
+        if (!dateValue) return "";
         try {
-            const payload = this._buildDidaTaskDragPayload(task);
-            if (payload && e.dataTransfer) {
-                e.dataTransfer.setData("text/plain", payload);
-                e.dataTransfer.effectAllowed = "copy";
-                element.classList.add("dida-task-dragging");
-                e.stopPropagation();
-            }
-        } catch (err) { }
-    });
-    element.addEventListener("dragend", () => {
-        element.classList.remove("dida-task-dragging");
-        this._scheduleEndSidebarTaskDragMenuSuppression();
-        setTimeout(() => {
-            this._collapseActiveMarkdownEditorSelectionAfterSidebarTaskDrop();
-        }, 0);
-    });
-}
-
-_buildDidaTaskDragPayload(task: DidaTask): string {
-    if (!task || !task.didaId) return "";
-    const lines: string[] = [];
-    const mainLine = this._formatDidaTaskLineForDrag(task, "");
-    if (!mainLine) return "";
-    lines.push(mainLine);
-    const childIds = new Set<string>();
-    if (task.didaId) childIds.add(task.didaId);
-    if (task.id && task.id !== task.didaId) childIds.add(task.id);
-    const tasks = this.plugin.settings.tasks || [];
-    for (const child of tasks) {
-        if (child && child.parentId && childIds.has(child.parentId) && child.didaId) {
-            const childLine = this._formatDidaTaskLineForDrag(child, "\t");
-            if (childLine) lines.push(childLine);
+            const date = new Date(dateValue);
+            if (isNaN(date.getTime())) return "";
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, "0");
+            const d = String(date.getDate()).padStart(2, "0");
+            return ` 📅 ${y}-${m}-${d}`;
+        } catch {
+            return "";
         }
     }
-    return lines.join("\n");
-}
 
-_formatDidaTaskLineForDrag(task: DidaTask, indent: string): string {
-    if (!task || !task.didaId) return "";
-    const checkbox = task.status === 2 ? "[x]" : "[ ]";
-    const title = (task.title || "").replace(/\r?\n/g, " ").trim() || "无标题任务";
-    const dateStr = this._formatDidaTaskDueDateForDrag(task);
-    return `${indent}- ${checkbox} ${title} [馃敆Dida](obsidian://dida-task?didaId=${task.didaId})${dateStr}`;
-}
-
-_formatDidaTaskDueDateForDrag(task: DidaTask): string {
-    const dateValue = (task && (task.dueDate || task.startDate)) || null;
-    if (!dateValue) return "";
-    try {
-        const date = new Date(dateValue);
-        if (isNaN(date.getTime())) return "";
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, "0");
-        const d = String(date.getDate()).padStart(2, "0");
-        return ` 馃搮 ${y}-${m}-${d}`;
-    } catch {
-        return "";
+    _beginSidebarTaskDragMenuSuppression() {
+        // Suppress context menu during drag
     }
-}
 
-_beginSidebarTaskDragMenuSuppression() {
-    // Suppress context menu during drag
-}
+    _scheduleEndSidebarTaskDragMenuSuppression() {
+        // Restore context menu after drag
+    }
 
-_scheduleEndSidebarTaskDragMenuSuppression() {
-    // Restore context menu after drag
-}
-
-_collapseActiveMarkdownEditorSelectionAfterSidebarTaskDrop() {
-    try {
-        const leaves = this.plugin.app.workspace.getLeavesOfType("markdown");
-        for (const leaf of leaves) {
-            const view = leaf.view;
-            if (view && (view as any).editor) {
-                const editor = (view as any).editor as any;
-                if (editor && editor.cm && editor.cm.doc) {
-                    const sel = editor.cm.doc.selection;
-                    if (!sel.empty()) {
-                        editor.cm.dispatch({
-                            selection: { anchor: sel.anchor },
-                            scrollIntoView: true
-                        });
+    _collapseActiveMarkdownEditorSelectionAfterSidebarTaskDrop() {
+        try {
+            const leaves = this.plugin.app.workspace.getLeavesOfType("markdown");
+            for (const leaf of leaves) {
+                const view = leaf.view;
+                if (view && (view as any).editor) {
+                    const editor = (view as any).editor as any;
+                    if (editor && editor.cm && editor.cm.doc) {
+                        const sel = editor.cm.doc.selection;
+                        if (!sel.empty()) {
+                            editor.cm.dispatch({
+                                selection: { anchor: sel.anchor },
+                                scrollIntoView: true
+                            });
+                        }
                     }
                 }
             }
-        }
-    } catch { }
-}
+        } catch { }
+    }
 
 }
