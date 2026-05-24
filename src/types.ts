@@ -94,6 +94,10 @@ export interface DidaSyncSettings {
     autoSync: boolean;
     syncInterval: number; // in minutes
     serverPort: number;
+    enableMcpServer: boolean;
+    mcpPort: number;
+    mcpToken: string;
+    mcpReadOnly: boolean;
     showArchivedProjects: boolean;
 
     autoCleanCompletedTasks: boolean;
@@ -144,6 +148,10 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     autoSync: true,
     syncInterval: 5,
     serverPort: 8080,
+    enableMcpServer: false,
+    mcpPort: 35829,
+    mcpToken: "",
+    mcpReadOnly: false,
     showArchivedProjects: false,
     autoCleanCompletedTasks: false,
     autoCleanInterval: 1,

@@ -2,6 +2,7 @@ import { Editor, EditorPosition, getIconIds, Menu, Modal, Notice, Plugin, setIco
 import { DidaApiClient } from './api/DidaApiClient';
 import { RRuleParser } from './core/RRuleParser';
 import { DailyNoteManager } from './managers/DailyNoteManager';
+import { McpServerManager } from './managers/McpServerManager';
 import { NativeTaskSyncManager } from './managers/NativeTaskSyncManager';
 import { RepeatTaskManager } from './managers/RepeatTaskManager';
 import { SyncManager } from './managers/SyncManager';
@@ -37,6 +38,7 @@ export default class DidaSyncPlugin extends Plugin {
     settings: DidaSyncSettings;
     apiClient: DidaApiClient;
     syncManager: SyncManager;
+    mcpServerManager: McpServerManager;
     nativeTaskSyncManager: NativeTaskSyncManager;
     repeatTaskManager: RepeatTaskManager;
     dailyNoteManager: DailyNoteManager;
@@ -67,6 +69,7 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.apiClient = new DidaApiClient(this);
         this.syncManager = new SyncManager(this);
+        this.mcpServerManager = new McpServerManager(this);
         this.nativeTaskSyncManager = new NativeTaskSyncManager(this);
         this.repeatTaskManager = new RepeatTaskManager(this);
         this.dailyNoteManager = new DailyNoteManager(this.app, this);
@@ -133,9 +136,13 @@ export default class DidaSyncPlugin extends Plugin {
         });
 
         this.initializePluginFeatures();
+        this.mcpServerManager.start().catch((e) => this.mcpServerManager.notifyStartupError(e));
     }
 
     async onunload() {
+        if (this.mcpServerManager) {
+            await this.mcpServerManager.stop();
+        }
         this.clearAutoSync();
         try {
             if (this._handleOnlineForAutoSync) {
@@ -207,6 +214,10 @@ export default class DidaSyncPlugin extends Plugin {
         this.settings.pomodoroSettings.completionHistory = normalizePomodoroCompletionHistory(
             this.settings.pomodoroSettings.completionHistory
         );
+        if (this.settings.enableMcpServer === undefined) this.settings.enableMcpServer = false;
+        if (this.settings.mcpPort === undefined) this.settings.mcpPort = 35829;
+        if (this.settings.mcpToken === undefined) this.settings.mcpToken = "";
+        if (this.settings.mcpReadOnly === undefined) this.settings.mcpReadOnly = false;
         await this.saveSettings();
     }
 
