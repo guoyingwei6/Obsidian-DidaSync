@@ -5,6 +5,7 @@ import { OAuthSettingsView } from "./views/oauth-settings-view";
 import { SyncSettingsView } from "./views/sync-settings-view";
 import { UISettingsView } from "./views/ui-settings-view";
 import { AdvancedSettingsView } from "./views/advanced-settings-view";
+import { McpSettingsView } from "./views/mcp-settings-view";
 
 export class DidaSyncSettingTab extends PluginSettingTab {
     plugin: DidaSyncPlugin;
@@ -30,6 +31,7 @@ export class DidaSyncSettingTab extends PluginSettingTab {
             { id: "oauth", name: "OAuth 配置", view: new OAuthSettingsView(this.app, this.plugin) },
             { id: "sync", name: "同步设置", view: new SyncSettingsView(this.app, this.plugin) },
             { id: "ui", name: "视图/界面", view: new UISettingsView(this.app, this.plugin) },
+            { id: "mcp", name: "MCP / AI", view: new McpSettingsView(this.app, this.plugin) },
             { id: "advanced", name: "高级/重置", view: new AdvancedSettingsView(this.app, this.plugin) }
         ];
 
