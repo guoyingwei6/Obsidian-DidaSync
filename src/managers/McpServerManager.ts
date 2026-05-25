@@ -412,55 +412,55 @@ export class McpServerManager {
             type: "object",
             additionalProperties: false,
             properties: {
-                id: { type: "string", description: "DidaSync local task id returned by list/search/get tools. Use either id or didaId." },
-                didaId: { type: "string", description: "TickTick/Dida task id returned by list/search/get tools. Prefer didaId when available. Use either id or didaId." }
+                id: { type: "string", description: "Local task id. Use either id or didaId." },
+                didaId: { type: "string", description: "Dida task id. Use either id or didaId." }
             }
         };
         return [
             {
                 name: "dida_list_tasks",
-                description: "List tasks from the local DidaSync cache. Use this before planning, summarizing, filtering overdue/today tasks, or choosing tasks to update. Defaults to unfinished tasks only; set completion='all' to include completed tasks.",
+                description: "List/filter cached Dida tasks. Default completion is active.",
                 readOnly: true,
                 inputSchema: {
                     type: "object",
                     additionalProperties: false,
                     properties: {
-                        completion: { type: "string", enum: ["active", "completed", "all"], description: "Completion filter. Use 'active' for unfinished tasks, 'completed' for finished tasks, or 'all'. Default is 'active'." },
-                        includeCompleted: { type: "boolean", description: "Legacy compatibility flag. Prefer completion='all' instead." },
-                        status: { type: "number", enum: [0, 2], description: "Low-level status filter. 0 means active, 2 means completed. Prefer completion unless the user explicitly asks for a numeric status." },
-                        datePreset: { type: "string", enum: ["overdue", "today", "tomorrow", "this_week", "scheduled", "unscheduled"], description: "Common date filter. 'overdue' means before today and not completed; 'scheduled' means has startDate or dueDate; 'unscheduled' means no date." },
-                        from: { type: "string", description: "Inclusive date/time range start. Use YYYY-MM-DD for a whole day or ISO datetime such as 2026-05-25T09:00:00+08:00." },
-                        to: { type: "string", description: "Inclusive date/time range end. Use YYYY-MM-DD for a whole day or ISO datetime such as 2026-05-25T18:00:00+08:00." },
-                        dateField: { type: "string", enum: ["startDate", "dueDate", "either"], description: "Which task date to filter by. Default 'either' checks startDate first, then dueDate." },
-                        query: { type: "string", description: "Case-insensitive text search across title, content, description, and project name." },
-                        projectId: { type: "string", description: "Exact project id. Use dida_list_projects first if only a project name is known." },
-                        projectName: { type: "string", description: "Partial project name match, useful when the user names a project but projectId is unknown." },
-                        priority: { type: "number", description: "Exact numeric Dida priority. Common values are 0 for none, 1 low, 3 medium, 5 high." },
-                        isAllDay: { type: "boolean", description: "Filter all-day tasks when true or timed tasks when false." },
-                        sortBy: { type: "string", enum: ["date", "priority", "updatedAt", "createdAt", "title"], description: "Sort field. Default is date." },
-                        sortDirection: { type: "string", enum: ["asc", "desc"], description: "Sort direction. Default is asc." },
-                        limit: { type: "number", minimum: 1, maximum: 500, description: "Maximum number of tasks to return. Default 100, max 500." }
+                        completion: { type: "string", enum: ["active", "completed", "all"], description: "Default active." },
+                        includeCompleted: { type: "boolean", description: "Legacy; prefer completion=all." },
+                        status: { type: "number", enum: [0, 2], description: "0 active, 2 completed." },
+                        datePreset: { type: "string", enum: ["overdue", "today", "tomorrow", "this_week", "scheduled", "unscheduled"], description: "Shortcut date filter." },
+                        from: { type: "string", description: "Range start: YYYY-MM-DD or ISO datetime." },
+                        to: { type: "string", description: "Range end: YYYY-MM-DD or ISO datetime." },
+                        dateField: { type: "string", enum: ["startDate", "dueDate", "either"], description: "Default either." },
+                        query: { type: "string", description: "Text search." },
+                        projectId: { type: "string", description: "Exact project id." },
+                        projectName: { type: "string", description: "Partial project name." },
+                        priority: { type: "number", description: "Exact priority." },
+                        isAllDay: { type: "boolean", description: "Filter all-day status." },
+                        sortBy: { type: "string", enum: ["date", "priority", "updatedAt", "createdAt", "title"], description: "Default date." },
+                        sortDirection: { type: "string", enum: ["asc", "desc"], description: "Default asc." },
+                        limit: { type: "number", minimum: 1, maximum: 500, description: "Default 100, max 500." }
                     }
                 }
             },
-            { name: "dida_get_task", description: "Get one full task by local id or Dida id. Use this after list/search when you need details for a specific task. Provide either id or didaId.", readOnly: true, inputSchema: idInput },
+            { name: "dida_get_task", description: "Get one task by id or didaId.", readOnly: true, inputSchema: idInput },
             {
                 name: "dida_search_tasks",
-                description: "Search tasks by title, content, description, or project name. Use when the user names a task but you do not know its id. Defaults to returning active and completed matches.",
+                description: "Search cached tasks by text.",
                 readOnly: true,
                 inputSchema: {
                     type: "object",
                     required: ["query"],
                     additionalProperties: false,
                     properties: {
-                        query: { type: "string", description: "Required search text, for example a task title keyword or project name." },
-                        limit: { type: "number", minimum: 1, maximum: 200, description: "Maximum number of tasks to return. Default 50, max 200." }
+                        query: { type: "string", description: "Search text." },
+                        limit: { type: "number", minimum: 1, maximum: 200, description: "Default 50, max 200." }
                     }
                 }
             },
             {
                 name: "dida_create_task",
-                description: "Create a new DidaSync task locally and optionally sync it to TickTick/Dida. Use only when the user asks to add/create/remember a new task.",
+                description: "Create a Dida task.",
                 inputSchema: {
                     type: "object",
                     required: ["title"],
@@ -470,16 +470,16 @@ export class McpServerManager {
             },
             {
                 name: "dida_update_task",
-                description: "Update one existing task by local id or Dida id. Use only after you know the exact task from list/search/get. Provide either id or didaId and only the fields to change.",
+                description: "Update one task. Requires id or didaId.",
                 inputSchema: {
                     type: "object",
                     additionalProperties: false,
-                    properties: { ...idInput.properties, ...this.taskMutationProperties(false), status: { type: "number", enum: [0, 2], description: "Set 0 for active or 2 for completed. Prefer dida_complete_task to complete a task." } }
+                    properties: { ...idInput.properties, ...this.taskMutationProperties(false), status: { type: "number", enum: [0, 2], description: "0 active, 2 completed." } }
                 }
             },
             {
                 name: "dida_schedule_tasks",
-                description: "Batch schedule existing tasks for daily planning or time blocking. Use after dida_list_tasks/search identifies exact task ids. Updates only startDate, dueDate, and isAllDay for each item.",
+                description: "Batch update task dates for planning/time blocking.",
                 inputSchema: {
                     type: "object",
                     required: ["items"],
@@ -488,44 +488,44 @@ export class McpServerManager {
                         items: {
                             type: "array",
                             minItems: 1,
-                            description: "Tasks to schedule. Each item must include id or didaId plus at least startDate or dueDate.",
+                            description: "Each item needs id/didaId and startDate or dueDate.",
                             items: {
                                 type: "object",
                                 additionalProperties: false,
                                 properties: {
                                     id: idInput.properties.id,
                                     didaId: idInput.properties.didaId,
-                                    startDate: { type: "string", description: "New task start time/date. Use ISO datetime with timezone for timed blocks, e.g. 2026-05-25T09:00:00+08:00." },
-                                    dueDate: { type: "string", description: "New task end/due time/date. For timed blocks, should be after startDate. For all-day tasks, use YYYY-MM-DD or midnight ISO." },
-                                    isAllDay: { type: "boolean", description: "true for all-day tasks; false for timed tasks." }
+                                    startDate: { type: "string", description: "YYYY-MM-DD or ISO datetime." },
+                                    dueDate: { type: "string", description: "YYYY-MM-DD or ISO datetime; >= startDate." },
+                                    isAllDay: { type: "boolean", description: "true for all-day." }
                                 }
                             }
                         },
-                        sync: { type: "boolean", description: "Whether to sync changed tasks to TickTick/Dida immediately. Default true." }
+                        sync: { type: "boolean", description: "Default true." }
                     }
                 }
             },
-            { name: "dida_complete_task", description: "Mark one task completed by local id or Dida id. Use when the user explicitly says the task is done/finished/completed. Provide either id or didaId.", inputSchema: idInput },
-            { name: "dida_delete_task", description: "Delete one task by local id or Dida id. Use only when the user explicitly asks to delete/remove a task. Provide either id or didaId.", inputSchema: idInput },
-            { name: "dida_sync_now", description: "Run DidaSync manual two-way sync. Use when the user asks to sync/refresh/pull latest tasks.", inputSchema: { type: "object", additionalProperties: false, properties: {} } },
-            { name: "dida_list_projects", description: "List projects known to the local DidaSync cache. Use before create/update when only the project name is known and projectId is needed.", readOnly: true, inputSchema: { type: "object", additionalProperties: false, properties: {} } }
+            { name: "dida_complete_task", description: "Complete one task by id or didaId.", inputSchema: idInput },
+            { name: "dida_delete_task", description: "Delete one task by id or didaId.", inputSchema: idInput },
+            { name: "dida_sync_now", description: "Run DidaSync two-way sync.", inputSchema: { type: "object", additionalProperties: false, properties: {} } },
+            { name: "dida_list_projects", description: "List cached Dida projects.", readOnly: true, inputSchema: { type: "object", additionalProperties: false, properties: {} } }
         ];
     }
 
     private taskMutationProperties(includeRequestId: boolean) {
         const properties: any = {
-            title: { type: "string", description: "Task title. Required for create; omit for update unless changing the title." },
-            content: { type: "string", description: "Task content/body. Use for longer notes." },
-            desc: { type: "string", description: "Task description. Use only when the user explicitly provides description text." },
-            projectId: { type: "string", description: "Target project id. Use 'inbox' for 收集箱 or dida_list_projects to find a project id." },
-            projectName: { type: "string", description: "Human-readable project name. Use together with projectId when known." },
-            dueDate: { type: "string", description: "Due/end date. Use YYYY-MM-DD for date-only tasks or ISO datetime with timezone, e.g. 2026-05-25T18:00:00+08:00." },
-            startDate: { type: "string", description: "Start date/time. Use ISO datetime with timezone for time blocking, e.g. 2026-05-25T09:00:00+08:00." },
-            isAllDay: { type: "boolean", description: "true when the user gives only a date; false when the user gives a specific time or time block." },
-            priority: { type: "number", description: "Numeric Dida priority. Common values: 0 none, 1 low, 3 medium, 5 high." },
-            sync: { type: "boolean", description: "Whether to sync this change to TickTick/Dida immediately. Default true." }
+            title: { type: "string", description: "Task title." },
+            content: { type: "string", description: "Task body." },
+            desc: { type: "string", description: "Task description." },
+            projectId: { type: "string", description: "Project id; inbox for 收集箱." },
+            projectName: { type: "string", description: "Project name." },
+            dueDate: { type: "string", description: "YYYY-MM-DD or ISO datetime." },
+            startDate: { type: "string", description: "YYYY-MM-DD or ISO datetime." },
+            isAllDay: { type: "boolean", description: "true for date-only tasks." },
+            priority: { type: "number", description: "0 none, 1 low, 3 medium, 5 high." },
+            sync: { type: "boolean", description: "Default true." }
         };
-        if (includeRequestId) properties.requestId = { type: "string", description: "Optional idempotency key for create calls. Reuse the same value only when retrying the same create request." };
+        if (includeRequestId) properties.requestId = { type: "string", description: "Idempotency key for retries." };
         return properties;
     }
 
