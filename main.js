@@ -3868,7 +3868,7 @@ var TaskView = class extends import_obsidian5.ItemView {
           });
         });
         const completedOption = dateFilterDropdown.createDiv("dida-date-filter-option");
-        completedOption.textContent = "\u67E5\u770B\u5DF2\u5B8C\u6210\u4EFB\u52A1";
+        completedOption.textContent = "\u5DF2\u5B8C\u6210\u4EFB\u52A1";
         completedOption.style.cssText = `
                     padding: 8px 12px;
                     cursor: pointer;

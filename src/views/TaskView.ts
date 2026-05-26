@@ -1223,7 +1223,7 @@ export class TaskView extends ItemView {
                 });
 
                 const completedOption = dateFilterDropdown.createDiv("dida-date-filter-option");
-                completedOption.textContent = "查看已完成任务";
+                completedOption.textContent = "已完成任务";
                 completedOption.style.cssText = `
                     padding: 8px 12px;
                     cursor: pointer;
