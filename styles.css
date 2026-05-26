@@ -190,28 +190,6 @@
     position: relative;
 }
 
-.dida-task-mode-tabs {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-right: 8px;
-}
-
-.dida-task-mode-tab,
-.dida-completed-refresh-btn {
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 999px;
-    padding: 4px 10px;
-    font-size: 11px !important;
-    line-height: 1.2;
-}
-
-.dida-task-mode-tab.is-active {
-    background: var(--interactive-accent) !important;
-    color: var(--text-on-accent);
-    border-color: var(--interactive-accent);
-}
-
 .dida-search-input {
     width: 100%;
     font-size: 10px !important;
@@ -242,13 +220,65 @@
     color: var(--text-normal);
 }
 
-.dida-task-move {
-    color: var(--text-muted);
-}
-
 .dida-search-clear-btn svg {
     width: 14px;
     height: 14px;
+}
+
+.dida-completed-modal {
+    min-width: 560px;
+    max-width: 760px;
+}
+
+.dida-completed-controls {
+    display: flex;
+    align-items: end;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.dida-completed-control {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dida-completed-control input {
+    min-width: 160px;
+}
+
+.dida-completed-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.dida-completed-loading {
+    color: var(--text-muted);
+    margin-bottom: 10px;
+}
+
+.dida-completed-results {
+    max-height: 420px;
+    overflow-y: auto;
+}
+
+.dida-completed-item {
+    padding: 10px 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    background: var(--background-secondary);
+}
+
+.dida-completed-item-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.dida-completed-item-meta {
+    font-size: 12px;
+    color: var(--text-muted);
 }
 
 /* 日期筛选清除按钮：与搜索清除按钮并列，稍微靠左 */

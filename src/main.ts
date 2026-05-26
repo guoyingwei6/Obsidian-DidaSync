@@ -7,10 +7,10 @@ import { NativeTaskSyncManager } from './managers/NativeTaskSyncManager';
 import { RepeatTaskManager } from './managers/RepeatTaskManager';
 import { SyncManager } from './managers/SyncManager';
 import { AddTaskToProjectModal } from './modals/AddTaskToProjectModal';
+import { CompletedTasksModal } from './modals/CompletedTasksModal';
 import { ProjectCreateModal } from './modals/ProjectCreateModal';
 import { ProjectDeleteConfirmModal } from './modals/ProjectDeleteConfirmModal';
 import { ProjectIconPickerModal } from './modals/ProjectIconPickerModal';
-import { ProjectMoveModal } from './modals/ProjectMoveModal';
 import { ProjectRenameModal } from './modals/ProjectRenameModal';
 import { TaskSuggestionPopup } from './modals/TaskSuggestionPopup';
 import { TimelineViewModal } from './modals/TimelineViewModal';
@@ -138,16 +138,9 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.addCommand({
             id: 'fetch-completed-dida-tasks',
-            name: '获取最近 7 天已完成任务',
-            callback: async () => {
-                await this.fetchCompletedTasks();
-                this.openTaskViewWithCache();
-                const leaves = this.app.workspace.getLeavesOfType(TASK_VIEW_TYPE);
-                leaves.forEach((leaf) => {
-                    if (leaf.view instanceof TaskView && typeof (leaf.view as any).showCompletedTasks === "function") {
-                        (leaf.view as any).showCompletedTasks();
-                    }
-                });
+            name: '查看已完成任务',
+            callback: () => {
+                this.showCompletedTasksModal();
             }
         });
 
@@ -941,6 +934,10 @@ export default class DidaSyncPlugin extends Plugin {
         return this.settings.completedTasks;
     }
 
+    showCompletedTasksModal() {
+        new CompletedTasksModal(this.app, this).open();
+    }
+
     async moveTaskToProject(task: DidaTask, targetProjectId: string) {
         if (!task) throw new Error("任务不存在");
         const sourceProjectId = task.projectId || "inbox";
@@ -965,13 +962,6 @@ export default class DidaSyncPlugin extends Plugin {
         await this.saveSettings();
         this.refreshTaskView();
         return task;
-    }
-
-    openMoveTaskModal(task: DidaTask) {
-        new ProjectMoveModal(this.app, this, task, async (targetProjectId: string) => {
-            await this.moveTaskToProject(task, targetProjectId);
-            new Notice(`任务已移动到 ${this.getProjectDisplayInfo(targetProjectId).name}`);
-        }).open();
     }
 
     getLucideIconNames() {
