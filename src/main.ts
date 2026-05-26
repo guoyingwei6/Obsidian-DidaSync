@@ -938,6 +938,77 @@ export default class DidaSyncPlugin extends Plugin {
         new CompletedTasksModal(this.app, this).open();
     }
 
+    async restoreCompletedTask(task: DidaTask) {
+        if (!task?.didaId) throw new Error("任务缺少滴答清单 ID，无法恢复");
+        if (!this.settings.accessToken) throw new Error("请先进行OAuth认证");
+
+        const didaId = task.didaId;
+        const existingIndex = this.settings.tasks.findIndex((item) => item.didaId === didaId);
+        const existingTask = existingIndex >= 0 ? this.settings.tasks[existingIndex] : null;
+        const project = this.findProjectById(task.projectId || "inbox");
+        const display = this.getProjectDisplayInfo(task.projectId || project?.id || "inbox", task.projectName || project?.name);
+        const now = new Date().toISOString();
+
+        const restoredTask: DidaTask = existingTask
+            ? {
+                ...existingTask,
+                title: task.title || existingTask.title,
+                content: task.content || existingTask.content,
+                desc: task.desc || existingTask.desc,
+                dueDate: task.dueDate || existingTask.dueDate || null,
+                startDate: task.startDate || existingTask.startDate || null,
+                reminders: task.reminders || existingTask.reminders || [],
+                repeatFlag: task.repeatFlag || existingTask.repeatFlag || null,
+                items: task.items || existingTask.items || [],
+                isAllDay: task.isAllDay ?? existingTask.isAllDay ?? false,
+                status: 0,
+                completed: false,
+                completedTime: null,
+                updatedAt: now,
+                projectId: display.id,
+                projectName: display.name,
+                projectColor: task.projectColor || existingTask.projectColor || display.color,
+                projectClosed: task.projectClosed ?? existingTask.projectClosed ?? display.closed,
+                projectViewMode: task.projectViewMode || existingTask.projectViewMode || display.viewMode,
+                projectKind: task.projectKind || existingTask.projectKind || display.kind,
+                projectPermission: task.projectPermission || existingTask.projectPermission || display.permission
+            }
+            : {
+                ...this.normalizeRemoteTask({
+                    ...task,
+                    id: didaId,
+                    status: 0,
+                    completedTime: null
+                }, project),
+                didaId,
+                status: 0,
+                completed: false,
+                completedTime: null,
+                updatedAt: now,
+                projectId: display.id,
+                projectName: display.name,
+                projectColor: task.projectColor || display.color,
+                projectClosed: task.projectClosed ?? display.closed,
+                projectViewMode: task.projectViewMode || display.viewMode,
+                projectKind: task.projectKind || display.kind,
+                projectPermission: task.projectPermission || display.permission
+            };
+
+        await this.updateTaskInDidaList(restoredTask);
+
+        if (existingIndex >= 0) {
+            this.settings.tasks[existingIndex] = restoredTask;
+        } else {
+            this.settings.tasks.push(restoredTask);
+        }
+
+        this.settings.completedTasks = this.settings.completedTasks.filter((item) => item.didaId !== didaId);
+        await this.saveSettings();
+        this.refreshTaskView();
+        new Notice("任务已恢复为未完成");
+        return restoredTask;
+    }
+
     async moveTaskToProject(task: DidaTask, targetProjectId: string) {
         if (!task) throw new Error("任务不存在");
         const sourceProjectId = task.projectId || "inbox";

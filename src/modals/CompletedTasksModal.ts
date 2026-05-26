@@ -137,15 +137,35 @@ export class CompletedTasksModal extends Modal {
             .sort((a, b) => new Date(b.completedTime || 0 as any).getTime() - new Date(a.completedTime || 0 as any).getTime())
             .forEach((task) => {
                 const item = this.resultEl!.createDiv("dida-completed-item");
-                const titleRow = item.createDiv("dida-completed-item-title");
+                const main = item.createDiv("dida-completed-item-main");
+                const titleRow = main.createDiv("dida-completed-item-title");
                 titleRow.textContent = task.title || "未命名任务";
-                const meta = item.createDiv("dida-completed-item-meta");
+                const meta = main.createDiv("dida-completed-item-meta");
                 const parts = [
                     task.projectName || (task.projectId === "inbox" ? "收集箱" : task.projectId),
                     task.completedTime ? `完成于 ${this.extractDateValue(task.completedTime)}` : "",
                     task.dueDate ? `原计划 ${this.extractDateValue(task.dueDate)}` : ""
                 ].filter(Boolean);
                 meta.textContent = parts.join(" · ");
+
+                const actionBtn = item.createEl("button", {
+                    text: "恢复",
+                    cls: "dida-completed-restore-btn"
+                });
+                actionBtn.addEventListener("click", async () => {
+                    actionBtn.disabled = true;
+                    try {
+                        await this.plugin.restoreCompletedTask(task);
+                        const nextTasks = (this.plugin.settings.completedTasks || []).filter((item) => item.didaId !== task.didaId);
+                        await this.renderResults(nextTasks);
+                        if (this.loadingEl) {
+                            this.loadingEl.textContent = `共 ${nextTasks.length} 个任务`;
+                        }
+                    } catch (e: any) {
+                        new Notice(e?.message || "恢复任务失败");
+                        actionBtn.disabled = false;
+                    }
+                });
             });
     }
 
