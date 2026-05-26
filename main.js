@@ -37,7 +37,7 @@ __export(main_exports, {
   default: () => DidaSyncPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian19 = require("obsidian");
+var import_obsidian20 = require("obsidian");
 
 // src/api/DidaApiClient.ts
 var import_electron = require("electron");
@@ -123,7 +123,10 @@ var DEFAULT_SETTINGS = {
     totalFocusMinutes: 0
   },
   reverseCompletionMeta: {},
-  syncConsistencyMeta: {}
+  syncConsistencyMeta: {},
+  completedTasks: [],
+  completedTasksLastFetchedAt: "",
+  completedTasksQuery: {}
 };
 var OAUTH_CONFIG = {
   authUrl: "https://dida365.com/oauth/authorize",
@@ -542,6 +545,58 @@ var DidaApiClient = class {
     });
     if (!res.ok)
       throw new Error("Failed to complete task");
+  }
+  async moveTask(fromProjectId, toProjectId, taskId) {
+    return this.moveTasks([{ fromProjectId, toProjectId, taskId }]);
+  }
+  async moveTasks(operations) {
+    if (!Array.isArray(operations) || operations.length === 0)
+      throw new Error("Move operations are required");
+    const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/move", {
+      method: "POST",
+      body: JSON.stringify(operations)
+    });
+    if (res.ok)
+      return await res.json();
+    throw await res.text();
+  }
+  async getCompletedTasks(filters = {}) {
+    const payload = {};
+    if (Array.isArray(filters.projectIds) && filters.projectIds.length > 0)
+      payload.projectIds = filters.projectIds;
+    if (filters.startDate)
+      payload.startDate = filters.startDate;
+    if (filters.endDate)
+      payload.endDate = filters.endDate;
+    const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/completed", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    if (res.ok)
+      return await res.json();
+    throw await res.text();
+  }
+  async filterTasks(filters = {}) {
+    const payload = {};
+    if (Array.isArray(filters.projectIds) && filters.projectIds.length > 0)
+      payload.projectIds = filters.projectIds;
+    if (filters.startDate)
+      payload.startDate = filters.startDate;
+    if (filters.endDate)
+      payload.endDate = filters.endDate;
+    if (Array.isArray(filters.priority) && filters.priority.length > 0)
+      payload.priority = filters.priority;
+    if (Array.isArray(filters.tag) && filters.tag.length > 0)
+      payload.tag = filters.tag;
+    if (Array.isArray(filters.status) && filters.status.length > 0)
+      payload.status = filters.status;
+    const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/filter", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    if (res.ok)
+      return await res.json();
+    throw await res.text();
   }
 };
 
@@ -2607,6 +2662,7 @@ var TaskView = class extends import_obsidian5.ItemView {
     this.pomodoroHostEl = null;
     this.plugin = plugin;
     this.searchQuery = "";
+    this.taskListMode = "active";
     this.isComposing = false;
     this.viewMode = "task";
     this.isPomodoroVisible = false;
@@ -2679,6 +2735,34 @@ var TaskView = class extends import_obsidian5.ItemView {
       totalFocusSessions: (settings.totalFocusSessions || 0) + 1,
       totalFocusMinutes: (settings.totalFocusMinutes || 0) + minutes
     });
+  }
+  getDisplayedTasks() {
+    const source = this.taskListMode === "completed" ? this.plugin.settings.completedTasks || [] : this.plugin.settings.tasks || [];
+    return this.taskListMode === "completed" ? source.filter((task) => task && task.status === 2) : source.filter((task) => task && task.status !== 2);
+  }
+  async showCompletedTasks() {
+    this.taskListMode = "completed";
+    if ((this.plugin.settings.completedTasks || []).length === 0) {
+      try {
+        await this.plugin.fetchCompletedTasks();
+      } catch (e) {
+        new import_obsidian5.Notice((e == null ? void 0 : e.message) || "\u83B7\u53D6\u5DF2\u5B8C\u6210\u4EFB\u52A1\u5931\u8D25");
+      }
+    }
+    await this.renderTaskList({ preserveSearch: true });
+  }
+  async refreshCompletedTasks() {
+    try {
+      await this.plugin.fetchCompletedTasks(this.plugin.settings.completedTasksQuery || {});
+      if (this.taskListMode === "completed")
+        await this.renderTaskList({ preserveSearch: true });
+    } catch (e) {
+      new import_obsidian5.Notice((e == null ? void 0 : e.message) || "\u5237\u65B0\u5DF2\u5B8C\u6210\u4EFB\u52A1\u5931\u8D25");
+    }
+  }
+  async showActiveTasks() {
+    this.taskListMode = "active";
+    await this.renderTaskList({ preserveSearch: true });
   }
   getPomodoroTrendData(period = this.pomodoroTrendPeriod) {
     const history = this.getPomodoroCompletionHistory();
@@ -3678,6 +3762,30 @@ var TaskView = class extends import_obsidian5.ItemView {
         return;
       }
       if (this.viewMode === "task") {
+        const modeTabs = header.createDiv("dida-task-mode-tabs");
+        const activeTab = modeTabs.createEl("button", {
+          cls: `dida-task-mode-tab${this.taskListMode === "active" ? " is-active" : ""}`,
+          text: "\u5F85\u529E"
+        });
+        activeTab.onclick = async () => {
+          await this.showActiveTasks();
+        };
+        const completedTab = modeTabs.createEl("button", {
+          cls: `dida-task-mode-tab${this.taskListMode === "completed" ? " is-active" : ""}`,
+          text: "\u5DF2\u5B8C\u6210"
+        });
+        completedTab.onclick = async () => {
+          await this.showCompletedTasks();
+        };
+        if (this.taskListMode === "completed") {
+          const completedRefreshBtn = header.createEl("button", {
+            cls: "dida-completed-refresh-btn"
+          });
+          completedRefreshBtn.textContent = "\u5237\u65B0\u5DF2\u5B8C\u6210";
+          completedRefreshBtn.onclick = async () => {
+            await this.refreshCompletedTasks();
+          };
+        }
         const searchContainer = header.createDiv("dida-search-container");
         searchContainer.style.position = "relative";
         const searchInput = searchContainer.createEl("input", {
@@ -3822,10 +3930,10 @@ var TaskView = class extends import_obsidian5.ItemView {
         }
       } catch (e) {
       }
-      const tasks = this.plugin.settings.tasks || [];
+      const tasks = this.getDisplayedTasks();
       if (tasks.length === 0 && this.plugin.getProjectCatalog().length === 0) {
         taskListContainer.createEl("p", {
-          text: "\u6682\u65E0\u4EFB\u52A1\uFF0C\u8BF7\u5148\u6DFB\u52A0\u4E00\u4E9B\u4EFB\u52A1",
+          text: this.taskListMode === "completed" ? "\u6682\u65E0\u5DF2\u5B8C\u6210\u4EFB\u52A1\uFF0C\u8BF7\u5148\u5237\u65B0" : "\u6682\u65E0\u4EFB\u52A1\uFF0C\u8BF7\u5148\u6DFB\u52A0\u4E00\u4E9B\u4EFB\u52A1",
           cls: "dida-empty-state"
         });
       } else {
@@ -3925,7 +4033,7 @@ var TaskView = class extends import_obsidian5.ItemView {
         });
         if (projectMap.size === 0) {
           taskListContainer.createEl("p", {
-            text: "\u6682\u65E0\u4EFB\u52A1\uFF0C\u8BF7\u5148\u6DFB\u52A0\u4E00\u4E9B\u4EFB\u52A1",
+            text: this.taskListMode === "completed" ? "\u6682\u65E0\u7B26\u5408\u6761\u4EF6\u7684\u5DF2\u5B8C\u6210\u4EFB\u52A1" : "\u6682\u65E0\u4EFB\u52A1\uFF0C\u8BF7\u5148\u6DFB\u52A0\u4E00\u4E9B\u4EFB\u52A1",
             cls: "dida-empty-state"
           });
           return;
@@ -3954,7 +4062,7 @@ var TaskView = class extends import_obsidian5.ItemView {
             cls: projectInfo.isArchived ? "dida-project-title archived" : "dida-project-title"
           });
           const archiveIcon = projectInfo.isArchived ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-archive-icon lucide-archive" style="margin-left: 5px;"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M9 15h6"/></svg>' : "";
-          const tasksInProject = this.plugin.settings.tasks.filter((t) => {
+          const tasksInProject = tasks.filter((t) => {
             if (t.parentId)
               return false;
             let pName = "\u672C\u5730\u4EFB\u52A1";
@@ -4054,10 +4162,13 @@ var TaskView = class extends import_obsidian5.ItemView {
             const rightButtons = mainRow.createDiv("dida-task-right-buttons");
             const checkbox = leftContent.createEl("input", { type: "checkbox" });
             checkbox.checked = task.status === 2;
+            if (this.taskListMode === "completed")
+              checkbox.disabled = true;
             const toggleTaskDebounced = debounce(() => {
               this.toggleTask(task.originalIndex);
             }, 200);
-            checkbox.onchange = toggleTaskDebounced;
+            if (this.taskListMode !== "completed")
+              checkbox.onchange = toggleTaskDebounced;
             const titleSpan = leftContent.createEl("span", {
               cls: task.status === 2 ? "dida-task-completed dida-task-title-clickable" : "dida-task-title dida-task-title-clickable"
             });
@@ -4115,7 +4226,17 @@ var TaskView = class extends import_obsidian5.ItemView {
             const dateSpan = rightButtons.createEl("span", {
               cls: "dida-task-due-date"
             });
-            if (task.startDate) {
+            if (this.taskListMode === "completed" && task.completedTime) {
+              try {
+                const completedDate = new Date(task.completedTime);
+                const month = completedDate.getMonth() + 1;
+                const day = completedDate.getDate();
+                dateSpan.textContent = `\u5B8C\u6210 ${month}/${day}`;
+                dateSpan.classList.add("today");
+              } catch (e) {
+                dateSpan.textContent = "\u5DF2\u5B8C\u6210";
+              }
+            } else if (task.startDate) {
               try {
                 const date = new Date(task.startDate);
                 const month = date.getMonth() + 1;
@@ -4135,30 +4256,48 @@ var TaskView = class extends import_obsidian5.ItemView {
               dateSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#da1b1b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-x2-icon lucide-calendar-x-2"><path d="M8 2v4"/><path d="M16 2v4"/><path d="M21 13V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8"/><path d="M3 10h18"/><path d="m17 22 5-5"/><path d="m17 17 5 5"/></svg>';
               dateSpan.classList.add("no-date");
             }
-            dateSpan.style.cursor = "pointer";
-            dateSpan.title = "\u70B9\u51FB\u8BBE\u7F6E\u5F00\u59CB\u65F6\u95F4";
-            dateSpan.onclick = (e) => {
-              e.stopPropagation();
-              new DatePickerModal(this.app, task.startDate, (date, isAllDay, endDate) => {
-                if (date) {
-                  this.updateTaskStartDate(task.originalIndex, date, isAllDay);
-                  if (endDate && !isAllDay) {
-                    this.updateTaskDueDate(task.originalIndex, endDate, false);
+            if (this.taskListMode !== "completed") {
+              dateSpan.style.cursor = "pointer";
+              dateSpan.title = "\u70B9\u51FB\u8BBE\u7F6E\u5F00\u59CB\u65F6\u95F4";
+              dateSpan.onclick = (e) => {
+                e.stopPropagation();
+                new DatePickerModal(this.app, task.startDate, (date, isAllDay, endDate) => {
+                  if (date) {
+                    this.updateTaskStartDate(task.originalIndex, date, isAllDay);
+                    if (endDate && !isAllDay) {
+                      this.updateTaskDueDate(task.originalIndex, endDate, false);
+                    }
                   }
-                }
-              }, e.currentTarget, this.plugin, task.originalIndex).open();
-            };
+                }, e.currentTarget, this.plugin, task.originalIndex).open();
+              };
+            }
+            if (this.taskListMode !== "completed") {
+              const moveBtn = rightButtons.createEl("button", {
+                cls: "dida-task-move"
+              });
+              moveBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9V5h4"/><path d="M3 3l6 6"/><path d="M19 15v4h-4"/><path d="M21 21l-6-6"/><path d="M5 15v4h4"/><path d="M3 21l6-6"/><path d="M19 9V5h-4"/><path d="M21 3l-6 6"/></svg>';
+              moveBtn.title = "\u79FB\u52A8\u5230\u5176\u4ED6\u9879\u76EE";
+              moveBtn.onclick = (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                this.plugin.openMoveTaskModal(task);
+              };
+            }
             const deleteBtn = rightButtons.createEl("button", {
               cls: "dida-task-delete"
             });
             deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
-            deleteBtn.onclick = (e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              if (window.confirm("\u786E\u5B9A\u8981\u5220\u9664\u8FD9\u4E2A\u4EFB\u52A1\u5417\uFF1F")) {
-                this.deleteTask(task.originalIndex);
-              }
-            };
+            if (this.taskListMode === "completed") {
+              deleteBtn.style.display = "none";
+            } else {
+              deleteBtn.onclick = (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (window.confirm("\u786E\u5B9A\u8981\u5220\u9664\u8FD9\u4E2A\u4EFB\u52A1\u5417\uFF1F")) {
+                  this.deleteTask(task.originalIndex);
+                }
+              };
+            }
             const syncStatusSpan = rightButtons.createEl("span", {
               cls: task.didaId ? "dida-sync-status synced" : "dida-sync-status unsynced"
             });
@@ -7486,9 +7625,80 @@ var ProjectIconPickerModal = class extends import_obsidian10.Modal {
   }
 };
 
-// src/modals/ProjectRenameModal.ts
+// src/modals/ProjectMoveModal.ts
 var import_obsidian11 = require("obsidian");
-var ProjectRenameModal = class extends import_obsidian11.Modal {
+var ProjectMoveModal = class extends import_obsidian11.Modal {
+  constructor(app, plugin, task, onSubmit) {
+    super(app);
+    this.selectEl = null;
+    this.submitting = false;
+    this.plugin = plugin;
+    this.task = task;
+    this.onSubmit = onSubmit;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: `\u79FB\u52A8\u4EFB\u52A1\uFF1A${this.task.title || "\u672A\u547D\u540D\u4EFB\u52A1"}` });
+    contentEl.createEl("p", { text: "\u9009\u62E9\u8981\u79FB\u52A8\u5230\u7684\u76EE\u6807\u9879\u76EE\u3002\u4EC5\u5C55\u793A\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\u7684\u9879\u76EE\u3002" });
+    const projects = this.plugin.getAvailableProjectConfigs().filter((project) => (project == null ? void 0 : project.id) && project.isLocalOnly !== true && project.id !== (this.task.projectId || "inbox"));
+    this.selectEl = contentEl.createEl("select");
+    this.selectEl.style.width = "100%";
+    this.selectEl.style.marginBottom = "12px";
+    if (projects.length === 0) {
+      const option = this.selectEl.createEl("option", { text: "\u6CA1\u6709\u53EF\u7528\u76EE\u6807\u9879\u76EE", value: "" });
+      option.disabled = true;
+      option.selected = true;
+    } else {
+      projects.forEach((project, index) => {
+        const option = this.selectEl.createEl("option", {
+          text: project.name,
+          value: project.id
+        });
+        if (index === 0)
+          option.selected = true;
+      });
+    }
+    const footer = contentEl.createDiv();
+    footer.style.display = "flex";
+    footer.style.justifyContent = "flex-end";
+    footer.style.gap = "8px";
+    const cancelBtn = footer.createEl("button", { text: "\u53D6\u6D88" });
+    cancelBtn.addEventListener("click", () => this.close());
+    const confirmBtn = footer.createEl("button", { text: "\u79FB\u52A8" });
+    confirmBtn.addClass("mod-cta");
+    confirmBtn.addEventListener("click", () => {
+      this.submit(confirmBtn);
+    });
+  }
+  async submit(buttonEl) {
+    var _a;
+    if (this.submitting)
+      return;
+    const targetProjectId = ((_a = this.selectEl) == null ? void 0 : _a.value) || "";
+    if (!targetProjectId) {
+      new import_obsidian11.Notice("\u8BF7\u9009\u62E9\u76EE\u6807\u9879\u76EE");
+      return;
+    }
+    this.submitting = true;
+    buttonEl.disabled = true;
+    try {
+      await this.onSubmit(targetProjectId);
+      this.close();
+    } catch (e) {
+      new import_obsidian11.Notice((e == null ? void 0 : e.message) || "\u79FB\u52A8\u4EFB\u52A1\u5931\u8D25");
+      buttonEl.disabled = false;
+      this.submitting = false;
+    }
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+
+// src/modals/ProjectRenameModal.ts
+var import_obsidian12 = require("obsidian");
+var ProjectRenameModal = class extends import_obsidian12.Modal {
   constructor(app, project, onSubmit) {
     super(app);
     this.inputEl = null;
@@ -7533,7 +7743,7 @@ var ProjectRenameModal = class extends import_obsidian11.Modal {
     var _a, _b, _c;
     const value = (((_a = this.inputEl) == null ? void 0 : _a.value) || "").trim();
     if (!value) {
-      new import_obsidian11.Notice("\u9879\u76EE\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+      new import_obsidian12.Notice("\u9879\u76EE\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
       (_b = this.inputEl) == null ? void 0 : _b.focus();
       (_c = this.inputEl) == null ? void 0 : _c.select();
       return;
@@ -7805,8 +8015,8 @@ var TaskSuggestionPopup = class {
 };
 
 // src/modals/AddTaskModal.ts
-var import_obsidian12 = require("obsidian");
-var AddTaskModal = class extends import_obsidian12.Modal {
+var import_obsidian13 = require("obsidian");
+var AddTaskModal = class extends import_obsidian13.Modal {
   constructor(app, onSubmit, projectName = "\u6536\u96C6\u7BB1") {
     super(app);
     this.onSubmit = onSubmit;
@@ -8756,10 +8966,10 @@ var TimelineViewModal = class {
 };
 
 // src/settings/DidaSyncSettingTab.ts
-var import_obsidian18 = require("obsidian");
+var import_obsidian19 = require("obsidian");
 
 // src/settings/views/oauth-settings-view.ts
-var import_obsidian13 = require("obsidian");
+var import_obsidian14 = require("obsidian");
 
 // src/settings/views/abstract-settings-view.ts
 var AbstractSettingsView = class {
@@ -8785,7 +8995,7 @@ var OAuthSettingsView = class extends AbstractSettingsView {
     linkDiv.createEl("code", { text: "https://developer.dida365.com/manage" });
     linkDiv.createEl("button", { text: "\u590D\u5236", cls: "mod-small" }).onclick = () => {
       navigator.clipboard.writeText("https://developer.dida365.com/manage");
-      new import_obsidian13.Notice("\u5F00\u53D1\u8005\u540E\u53F0\u94FE\u63A5\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
+      new import_obsidian14.Notice("\u5F00\u53D1\u8005\u540E\u53F0\u94FE\u63A5\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
     };
     const step2Div = oauthContainer.createDiv();
     step2Div.style.cssText = "margin: 10px 0;";
@@ -8799,17 +9009,17 @@ var OAuthSettingsView = class extends AbstractSettingsView {
     uriDiv.createEl("code", { text: `http://localhost:${this.plugin.settings.serverPort}/callback` });
     uriDiv.createEl("button", { text: "\u590D\u5236", cls: "mod-small" }).onclick = () => {
       navigator.clipboard.writeText(`http://localhost:${this.plugin.settings.serverPort}/callback`);
-      new import_obsidian13.Notice("\u91CD\u5B9A\u5411URI\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
+      new import_obsidian14.Notice("\u91CD\u5B9A\u5411URI\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
     };
-    new import_obsidian13.Setting(containerEl).setName("Client ID").setDesc("\u6EF4\u7B54\u6E05\u5355\u5E94\u7528\u7684Client ID").addText((t) => t.setPlaceholder("\u8F93\u5165Client ID").setValue(this.plugin.settings.clientId).onChange(async (t2) => {
+    new import_obsidian14.Setting(containerEl).setName("Client ID").setDesc("\u6EF4\u7B54\u6E05\u5355\u5E94\u7528\u7684Client ID").addText((t) => t.setPlaceholder("\u8F93\u5165Client ID").setValue(this.plugin.settings.clientId).onChange(async (t2) => {
       this.plugin.settings.clientId = t2;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian13.Setting(containerEl).setName("Client Secret").setDesc("\u6EF4\u7B54\u6E05\u5355\u5E94\u7528\u7684Client Secret").addText((t) => t.setPlaceholder("\u8F93\u5165Client Secret").setValue(this.plugin.settings.clientSecret).onChange(async (t2) => {
+    new import_obsidian14.Setting(containerEl).setName("Client Secret").setDesc("\u6EF4\u7B54\u6E05\u5355\u5E94\u7528\u7684Client Secret").addText((t) => t.setPlaceholder("\u8F93\u5165Client Secret").setValue(this.plugin.settings.clientSecret).onChange(async (t2) => {
       this.plugin.settings.clientSecret = t2;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian13.Setting(containerEl).setName("\u670D\u52A1\u5668\u7AEF\u53E3").setDesc("OAuth\u56DE\u8C03\u670D\u52A1\u5668\u7AEF\u53E3\uFF08\u4FEE\u6539\u540E\u9700\u8981\u66F4\u65B0\u91CD\u5B9A\u5411URI\u914D\u7F6E\uFF09").addText((t) => {
+    new import_obsidian14.Setting(containerEl).setName("\u670D\u52A1\u5668\u7AEF\u53E3").setDesc("OAuth\u56DE\u8C03\u670D\u52A1\u5668\u7AEF\u53E3\uFF08\u4FEE\u6539\u540E\u9700\u8981\u66F4\u65B0\u91CD\u5B9A\u5411URI\u914D\u7F6E\uFF09").addText((t) => {
       const debouncedSave = debounce(async (val) => {
         const port = parseInt(val) || 8080;
         this.plugin.settings.serverPort = port;
@@ -8818,7 +9028,7 @@ var OAuthSettingsView = class extends AbstractSettingsView {
       }, 300);
       t.setPlaceholder("8080").setValue(this.plugin.settings.serverPort.toString()).onChange(debouncedSave);
     });
-    new import_obsidian13.Setting(containerEl).setName("OAuth\u8BA4\u8BC1").setDesc("\u70B9\u51FB\u5F00\u59CBOAuth\u8BA4\u8BC1\u6D41\u7A0B").addButton((t) => t.setButtonText("\u5F00\u59CB\u8BA4\u8BC1").onClick(() => {
+    new import_obsidian14.Setting(containerEl).setName("OAuth\u8BA4\u8BC1").setDesc("\u70B9\u51FB\u5F00\u59CBOAuth\u8BA4\u8BC1\u6D41\u7A0B").addButton((t) => t.setButtonText("\u5F00\u59CB\u8BA4\u8BC1").onClick(() => {
       this.plugin.apiClient.startOAuthFlow();
     }));
     const statusDiv = containerEl.createDiv();
@@ -8845,7 +9055,7 @@ var OAuthSettingsView = class extends AbstractSettingsView {
         if (parent && ((_b = (_a = parent.querySelector("code")) == null ? void 0 : _a.textContent) == null ? void 0 : _b.includes("/callback"))) {
           btn.onclick = () => {
             navigator.clipboard.writeText(`http://localhost:${port}/callback`);
-            new import_obsidian13.Notice("\u91CD\u5B9A\u5411URI\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
+            new import_obsidian14.Notice("\u91CD\u5B9A\u5411URI\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
           };
         }
       }
@@ -8854,36 +9064,36 @@ var OAuthSettingsView = class extends AbstractSettingsView {
 };
 
 // src/settings/views/sync-settings-view.ts
-var import_obsidian14 = require("obsidian");
+var import_obsidian15 = require("obsidian");
 var SyncSettingsView = class extends AbstractSettingsView {
   constructor(app, plugin) {
     super(app, plugin);
   }
   render(containerEl) {
     containerEl.createEl("h3", { text: "\u540C\u6B65\u8BBE\u7F6E" });
-    new import_obsidian14.Setting(containerEl).setName("\u81EA\u52A8\u540C\u6B65").setDesc("\u542F\u7528\u540E\u4F1A\u5B9A\u671F\u4ECE\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u4EFB\u52A1").addToggle((t) => t.setValue(this.plugin.settings.autoSync).onChange(async (t2) => {
+    new import_obsidian15.Setting(containerEl).setName("\u81EA\u52A8\u540C\u6B65").setDesc("\u542F\u7528\u540E\u4F1A\u5B9A\u671F\u4ECE\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u4EFB\u52A1").addToggle((t) => t.setValue(this.plugin.settings.autoSync).onChange(async (t2) => {
       this.plugin.settings.autoSync = t2;
       await this.plugin.saveSettings();
       this.plugin.syncManager.setupAutoSync();
     }));
-    new import_obsidian14.Setting(containerEl).setName("\u663E\u793A\u5F52\u6863\u9879\u76EE").setDesc("\u9009\u62E9\u662F\u5426\u5728\u4EFB\u52A1\u6E05\u5355\u4E2D\u663E\u793A\u5DF2\u5F52\u6863\u7684\u9879\u76EE").addDropdown((t) => t.addOption("false", "\u9690\u85CF\u5F52\u6863\u9879\u76EE").addOption("true", "\u663E\u793A\u5F52\u6863\u9879\u76EE").setValue(this.plugin.settings.showArchivedProjects.toString()).onChange(async (t2) => {
+    new import_obsidian15.Setting(containerEl).setName("\u663E\u793A\u5F52\u6863\u9879\u76EE").setDesc("\u9009\u62E9\u662F\u5426\u5728\u4EFB\u52A1\u6E05\u5355\u4E2D\u663E\u793A\u5DF2\u5F52\u6863\u7684\u9879\u76EE").addDropdown((t) => t.addOption("false", "\u9690\u85CF\u5F52\u6863\u9879\u76EE").addOption("true", "\u663E\u793A\u5F52\u6863\u9879\u76EE").setValue(this.plugin.settings.showArchivedProjects.toString()).onChange(async (t2) => {
       this.plugin.settings.showArchivedProjects = "true" === t2;
       await this.plugin.saveSettings();
       this.plugin.refreshTaskView();
     }));
-    new import_obsidian14.Setting(containerEl).setName("\u540C\u6B65\u95F4\u9694").setDesc("\u81EA\u52A8\u4ECE\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u7684\u95F4\u9694\u65F6\u95F4\uFF08\u5206\u949F\uFF09").addSlider((t) => t.setLimits(5, 120, 5).setValue(this.plugin.settings.syncInterval).setDynamicTooltip().onChange(async (t2) => {
+    new import_obsidian15.Setting(containerEl).setName("\u540C\u6B65\u95F4\u9694").setDesc("\u81EA\u52A8\u4ECE\u6EF4\u7B54\u6E05\u5355\u540C\u6B65\u7684\u95F4\u9694\u65F6\u95F4\uFF08\u5206\u949F\uFF09").addSlider((t) => t.setLimits(5, 120, 5).setValue(this.plugin.settings.syncInterval).setDynamicTooltip().onChange(async (t2) => {
       this.plugin.settings.syncInterval = t2;
       await this.plugin.saveSettings();
       this.plugin.syncManager.setupAutoSync();
     }));
-    new import_obsidian14.Setting(containerEl).setName("\u624B\u52A8\u540C\u6B65").setDesc("\u7ACB\u5373\u6267\u884C\u53CC\u5411\u540C\u6B65").addButton((t) => t.setButtonText("\u5F00\u59CB\u540C\u6B65").onClick(async () => {
+    new import_obsidian15.Setting(containerEl).setName("\u624B\u52A8\u540C\u6B65").setDesc("\u7ACB\u5373\u6267\u884C\u53CC\u5411\u540C\u6B65").addButton((t) => t.setButtonText("\u5F00\u59CB\u540C\u6B65").onClick(async () => {
       await this.plugin.manualSync();
     }));
     containerEl.createEl("h3", { text: "\u539F\u751F\u4EFB\u52A1\u540C\u6B65\u8BBE\u7F6E" });
     const nativeInfo = containerEl.createDiv();
     nativeInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #0066cc;";
     nativeInfo.innerHTML = '<strong>\u8BF4\u660E\uFF1A</strong>\u539F\u751F\u4EFB\u52A1\u540C\u6B65\u529F\u80FD\u652F\u6301\u624B\u52A8\u540C\u6B65Obsidian\u4E2D\u7684\u539F\u751F\u4EFB\u52A1\u683C\u5F0F\uFF08- [ ] \uFF09\u5230\u6EF4\u7B54\u6E05\u5355\u3002\u542F\u7528\u540E\uFF0C\u8F93\u5165"- [ ] "\u65F6\u4F1A\u5F39\u51FA\u64CD\u4F5C\u83DC\u5355\uFF0C\u53EF\u9009\u62E9\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\u6216\u6DFB\u52A0\u5230\u671F\u65E5\u671F\u3002\u540C\u6B65\u540E\u4F1A\u5728\u4EFB\u52A1\u540E\u6DFB\u52A0\u94FE\u63A5\uFF0C\u65B9\u4FBF\u8DF3\u8F6C\u5230\u6EF4\u7B54\u6E05\u5355\u67E5\u770B\u8BE6\u60C5\u3002';
-    new import_obsidian14.Setting(containerEl).setName("\u542F\u7528\u539F\u751F\u4EFB\u52A1\u540C\u6B65").setDesc('\u542F\u7528\u540E\u53EF\u4EE5\u624B\u52A8\u540C\u6B65Obsidian\u539F\u751F\u4EFB\u52A1\u683C\u5F0F\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u8F93\u5165"- [ ] "\u65F6\u663E\u793A\u64CD\u4F5C\u83DC\u5355').addToggle((t) => t.setValue(this.plugin.settings.enableNativeTaskSync).onChange(async (t2) => {
+    new import_obsidian15.Setting(containerEl).setName("\u542F\u7528\u539F\u751F\u4EFB\u52A1\u540C\u6B65").setDesc('\u542F\u7528\u540E\u53EF\u4EE5\u624B\u52A8\u540C\u6B65Obsidian\u539F\u751F\u4EFB\u52A1\u683C\u5F0F\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u8F93\u5165"- [ ] "\u65F6\u663E\u793A\u64CD\u4F5C\u83DC\u5355').addToggle((t) => t.setValue(this.plugin.settings.enableNativeTaskSync).onChange(async (t2) => {
       this.plugin.settings.enableNativeTaskSync = t2;
       await this.plugin.saveSettings();
     }));
@@ -8891,7 +9101,7 @@ var SyncSettingsView = class extends AbstractSettingsView {
     const dailyInfo = containerEl.createDiv();
     dailyInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #0066cc;";
     dailyInfo.innerHTML = "<strong>\u8BF4\u660E\uFF1A</strong>\u65E5\u8BB0\u540C\u6B65\u529F\u80FD\u5141\u8BB8\u4F60\u901A\u8FC7\u547D\u4EE4\u5C06\u4ECA\u5929\u7684\u5F85\u529E\u4EFB\u52A1\u540C\u6B65\u5230\u65E5\u8BB0\u4E2D\u3002";
-    new import_obsidian14.Setting(containerEl).setName("\u76EE\u6807\u8BED\u6CD5\u5757\u6807\u8BC6").setDesc("\u5728\u6B64\u8BBE\u7F6E\u8981\u66F4\u65B0\u7684\u65E5\u8BB0\u5F85\u529E\u4E8B\u9879\u5757\u7684\u6807\u9898(\u5305\u62ECMarkdown\u524D\u7F00)").addText((text) => text.setPlaceholder("\u8F93\u5165\u76EE\u6807\u533A\u5757\u6807\u8BC6").setValue(this.plugin.settings.dailySyncTargetBlockHeader).onChange(async (value) => {
+    new import_obsidian15.Setting(containerEl).setName("\u76EE\u6807\u8BED\u6CD5\u5757\u6807\u8BC6").setDesc("\u5728\u6B64\u8BBE\u7F6E\u8981\u66F4\u65B0\u7684\u65E5\u8BB0\u5F85\u529E\u4E8B\u9879\u5757\u7684\u6807\u9898(\u5305\u62ECMarkdown\u524D\u7F00)").addText((text) => text.setPlaceholder("\u8F93\u5165\u76EE\u6807\u533A\u5757\u6807\u8BC6").setValue(this.plugin.settings.dailySyncTargetBlockHeader).onChange(async (value) => {
       this.plugin.settings.dailySyncTargetBlockHeader = value;
       await this.plugin.saveSettings();
     }));
@@ -8899,23 +9109,23 @@ var SyncSettingsView = class extends AbstractSettingsView {
 };
 
 // src/settings/views/ui-settings-view.ts
-var import_obsidian15 = require("obsidian");
+var import_obsidian16 = require("obsidian");
 var UISettingsView = class extends AbstractSettingsView {
   constructor(app, plugin) {
     super(app, plugin);
   }
   render(containerEl) {
     containerEl.createEl("h3", { text: "\u4E3B\u4EFB\u52A1\u89C6\u56FE\u8BBE\u7F6E" });
-    new import_obsidian15.Setting(containerEl).setName("\u9ED8\u8BA4\u89C6\u56FE\u6A21\u5F0F").setDesc("\u53F3\u4FA7\u8FB9\u680F\u6253\u5F00\u4EFB\u52A1\u6E05\u5355\u65F6\u9ED8\u8BA4\u663E\u793A\u7684\u89C6\u56FE\u7C7B\u578B").addDropdown((t) => t.addOption("task", "\u4EFB\u52A1\u5217\u8868").addOption("timeblock", "\u65F6\u95F4\u6BB5\u89C6\u56FE").setValue(this.plugin.settings.defaultViewMode || "task").onChange(async (t2) => {
+    new import_obsidian16.Setting(containerEl).setName("\u9ED8\u8BA4\u89C6\u56FE\u6A21\u5F0F").setDesc("\u53F3\u4FA7\u8FB9\u680F\u6253\u5F00\u4EFB\u52A1\u6E05\u5355\u65F6\u9ED8\u8BA4\u663E\u793A\u7684\u89C6\u56FE\u7C7B\u578B").addDropdown((t) => t.addOption("task", "\u4EFB\u52A1\u5217\u8868").addOption("timeblock", "\u65F6\u95F4\u6BB5\u89C6\u56FE").setValue(this.plugin.settings.defaultViewMode || "task").onChange(async (t2) => {
       this.plugin.settings.defaultViewMode = t2;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian15.Setting(containerEl).setName("\u65F6\u95F4\u5757\u6BCF\u5C0F\u65F6\u9AD8\u5EA6").setDesc("\u65F6\u95F4\u6BB5\u89C6\u56FE\u4E2D\u6BCF\u5C0F\u65F6\u7684\u9AD8\u5EA6\uFF08\u50CF\u7D20\uFF09\uFF0C\u8C03\u6574\u540E\u9700\u8981\u5207\u6362\u89C6\u56FE\u624D\u80FD\u751F\u6548").addSlider((t) => t.setLimits(50, 100, 5).setValue(this.plugin.settings.timeBlockHourHeight || 80).setDynamicTooltip().onChange(async (t2) => {
+    new import_obsidian16.Setting(containerEl).setName("\u65F6\u95F4\u5757\u6BCF\u5C0F\u65F6\u9AD8\u5EA6").setDesc("\u65F6\u95F4\u6BB5\u89C6\u56FE\u4E2D\u6BCF\u5C0F\u65F6\u7684\u9AD8\u5EA6\uFF08\u50CF\u7D20\uFF09\uFF0C\u8C03\u6574\u540E\u9700\u8981\u5207\u6362\u89C6\u56FE\u624D\u80FD\u751F\u6548").addSlider((t) => t.setLimits(50, 100, 5).setValue(this.plugin.settings.timeBlockHourHeight || 80).setDynamicTooltip().onChange(async (t2) => {
       this.plugin.settings.timeBlockHourHeight = t2;
       await this.plugin.saveSettings();
       document.documentElement.style.setProperty("--dida-hour-height", t2 + "px");
     }));
-    new import_obsidian15.Setting(containerEl).setName("\u65F6\u95F4\u6BB5\u89C6\u56FE\u8D77\u59CB\u65F6\u95F4").setDesc("\u81EA\u5B9A\u4E49\u8BBE\u7F6E\u65F6\u95F4\u6BB5\u89C6\u56FE\u7684\u8D77\u59CB\u65F6\u95F4\uFF08\u4FDD\u630124\u5C0F\u65F6\u523B\u5EA6\uFF09").addDropdown((e) => {
+    new import_obsidian16.Setting(containerEl).setName("\u65F6\u95F4\u6BB5\u89C6\u56FE\u8D77\u59CB\u65F6\u95F4").setDesc("\u81EA\u5B9A\u4E49\u8BBE\u7F6E\u65F6\u95F4\u6BB5\u89C6\u56FE\u7684\u8D77\u59CB\u65F6\u95F4\uFF08\u4FDD\u630124\u5C0F\u65F6\u523B\u5EA6\uFF09").addDropdown((e) => {
       for (let t = 0; t < 24; t++) {
         var i = t.toString().padStart(2, "0") + ":00";
         e.addOption(t.toString(), i);
@@ -8932,7 +9142,7 @@ var UISettingsView = class extends AbstractSettingsView {
       cls: "setting-item-description",
       text: "\u8BBE\u7F6E\u77ED\u4F11\u606F\u548C\u957F\u4F11\u606F\u7684\u9ED8\u8BA4\u65F6\u957F\u3002\u4FEE\u6539\u540E\u4F1A\u5E94\u7528\u5230\u540E\u7EED\u4F11\u606F\u9636\u6BB5\uFF1B\u82E5\u5F53\u524D\u505C\u7559\u5728\u672A\u5F00\u59CB\u7684\u4F11\u606F\u9636\u6BB5\uFF0C\u4E5F\u4F1A\u540C\u6B65\u66F4\u65B0\u663E\u793A\u3002"
     });
-    new import_obsidian15.Setting(containerEl).setName("\u77ED\u4F11\u606F\u65F6\u957F").setDesc("\u6BCF\u4E2A\u4E13\u6CE8\u756A\u8304\u7ED3\u675F\u540E\u7684\u77ED\u4F11\u606F\u65F6\u957F\uFF08\u5206\u949F\uFF09").addSlider(
+    new import_obsidian16.Setting(containerEl).setName("\u77ED\u4F11\u606F\u65F6\u957F").setDesc("\u6BCF\u4E2A\u4E13\u6CE8\u756A\u8304\u7ED3\u675F\u540E\u7684\u77ED\u4F11\u606F\u65F6\u957F\uFF08\u5206\u949F\uFF09").addSlider(
       (t) => {
         var _a;
         return t.setLimits(1, 15, 1).setValue(((_a = this.plugin.settings.pomodoroSettings) == null ? void 0 : _a.shortBreakMinutes) || 5).setDynamicTooltip().onChange(async (value) => {
@@ -8950,7 +9160,7 @@ var UISettingsView = class extends AbstractSettingsView {
         });
       }
     );
-    new import_obsidian15.Setting(containerEl).setName("\u957F\u4F11\u606F\u65F6\u957F").setDesc("\u6BCF 4 \u4E2A\u4E13\u6CE8\u756A\u8304\u7ED3\u675F\u540E\u7684\u957F\u4F11\u606F\u65F6\u957F\uFF08\u5206\u949F\uFF09").addSlider(
+    new import_obsidian16.Setting(containerEl).setName("\u957F\u4F11\u606F\u65F6\u957F").setDesc("\u6BCF 4 \u4E2A\u4E13\u6CE8\u756A\u8304\u7ED3\u675F\u540E\u7684\u957F\u4F11\u606F\u65F6\u957F\uFF08\u5206\u949F\uFF09").addSlider(
       (t) => {
         var _a;
         return t.setLimits(15, 30, 1).setValue(((_a = this.plugin.settings.pomodoroSettings) == null ? void 0 : _a.longBreakMinutes) || 15).setDynamicTooltip().onChange(async (value) => {
@@ -8982,7 +9192,7 @@ var UISettingsView = class extends AbstractSettingsView {
 };
 
 // src/settings/views/advanced-settings-view.ts
-var import_obsidian16 = require("obsidian");
+var import_obsidian17 = require("obsidian");
 var AdvancedSettingsView = class extends AbstractSettingsView {
   constructor(app, plugin) {
     super(app, plugin);
@@ -8992,11 +9202,11 @@ var AdvancedSettingsView = class extends AbstractSettingsView {
     const cleanInfo = containerEl.createDiv();
     cleanInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #6c757d;";
     cleanInfo.innerHTML = "<strong>\u8BF4\u660E\uFF1A</strong>\u542F\u7528\u81EA\u52A8\u6E05\u7406\u529F\u80FD\u540E\uFF0C\u63D2\u4EF6\u4F1A\u5728\u6BCF\u6B21\u542F\u52A8\u65F6\uFF08\u5EF6\u8FDF30\u79D2\uFF09\u81EA\u52A8\u6E05\u7406\u6307\u5B9A\u65F6\u95F4\u4E4B\u524D\u7684\u5DF2\u5B8C\u6210\u4EFB\u52A1\u6570\u636E\uFF0C\u4EE5\u4FDD\u6301\u6570\u636E\u6587\u4EF6\u7684\u6574\u6D01\u3002\u6B64\u64CD\u4F5C\u4EC5\u6E05\u7406\u672C\u5730\u6570\u636E\uFF0C\u4E0D\u4F1A\u5F71\u54CD\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u6570\u636E\u3002";
-    new import_obsidian16.Setting(containerEl).setName("\u81EA\u52A8\u6E05\u7406\u5DF2\u5B8C\u6210\u4EFB\u52A1").setDesc("\u542F\u7528\u540E\u4F1A\u5728\u63D2\u4EF6\u542F\u52A8\u65F6\u81EA\u52A8\u6E05\u7406\u6307\u5B9A\u65F6\u95F4\u4E4B\u524D\u7684\u5DF2\u5B8C\u6210\u4EFB\u52A1\u6570\u636E").addToggle((t) => t.setValue(this.plugin.settings.autoCleanCompletedTasks).onChange(async (t2) => {
+    new import_obsidian17.Setting(containerEl).setName("\u81EA\u52A8\u6E05\u7406\u5DF2\u5B8C\u6210\u4EFB\u52A1").setDesc("\u542F\u7528\u540E\u4F1A\u5728\u63D2\u4EF6\u542F\u52A8\u65F6\u81EA\u52A8\u6E05\u7406\u6307\u5B9A\u65F6\u95F4\u4E4B\u524D\u7684\u5DF2\u5B8C\u6210\u4EFB\u52A1\u6570\u636E").addToggle((t) => t.setValue(this.plugin.settings.autoCleanCompletedTasks).onChange(async (t2) => {
       this.plugin.settings.autoCleanCompletedTasks = t2;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian16.Setting(containerEl).setName("\u6E05\u7406\u95F4\u9694").setDesc("\u81EA\u52A8\u6E05\u7406\u5DF2\u5B8C\u6210\u4EFB\u52A1\u7684\u65F6\u95F4\u95F4\u9694\uFF08\u6708\u6570\uFF09").addDropdown((e) => {
+    new import_obsidian17.Setting(containerEl).setName("\u6E05\u7406\u95F4\u9694").setDesc("\u81EA\u52A8\u6E05\u7406\u5DF2\u5B8C\u6210\u4EFB\u52A1\u7684\u65F6\u95F4\u95F4\u9694\uFF08\u6708\u6570\uFF09").addDropdown((e) => {
       for (let t = 1; t <= 12; t++)
         e.addOption(t.toString(), t + "\u4E2A\u6708");
       e.setValue(this.plugin.settings.autoCleanInterval.toString()).onChange(async (t) => {
@@ -9008,7 +9218,7 @@ var AdvancedSettingsView = class extends AbstractSettingsView {
     const resetInfo = containerEl.createDiv();
     resetInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #856404; border: 1px solid #ffeaa7;";
     resetInfo.innerHTML = "<strong>\u26A0\uFE0F \u8B66\u544A\uFF1A</strong>\u6B64\u64CD\u4F5C\u5C06\u5B8C\u5168\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E\uFF0C\u5E76\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u91CD\u65B0\u83B7\u53D6\u6700\u65B0\u6570\u636E\u3002\u6B64\u64CD\u4F5C\u4E0D\u53EF\u9006\uFF0C\u5EFA\u8BAE\u5907\u4EFD\u4ED3\u5E93\u540E\u4F7F\u7528\u3002(\u9002\u7528\u4E8EObsidian\u672C\u5730\u4EFB\u52A1\u6570\u636E\u5DF2\u7ECF\u7834\u574F\u3001\u5F02\u5E38\u7B49\u60C5\u51B5\uFF09";
-    new import_obsidian16.Setting(containerEl).setName("\u91CD\u7F6E\u4EFB\u52A1\u6570\u636E").setDesc("\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E,\u5E76\u91CD\u65B0\u4ECE\u4E91\u7AEF\u83B7\u53D6\u4EFB\u52A1\u5230\u4F60\u7684Obsidian").addButton((t) => t.setButtonText("\u91CD\u7F6E\u6570\u636E").setWarning().onClick(async () => {
+    new import_obsidian17.Setting(containerEl).setName("\u91CD\u7F6E\u4EFB\u52A1\u6570\u636E").setDesc("\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E,\u5E76\u91CD\u65B0\u4ECE\u4E91\u7AEF\u83B7\u53D6\u4EFB\u52A1\u5230\u4F60\u7684Obsidian").addButton((t) => t.setButtonText("\u91CD\u7F6E\u6570\u636E").setWarning().onClick(async () => {
       if (this.plugin.settings.accessToken) {
         if (confirm('\u786E\u5B9A\u8981\u91CD\u7F6E\u4EFB\u52A1\u6570\u636E\u5417\uFF1F\n\n\u6B64\u64CD\u4F5C\u5C06\uFF1A\n\u2022 \u5B8C\u5168\u6E05\u7A7A\u672C\u5730\u4EFB\u52A1\u6570\u636E\n\u2022 \u91CD\u65B0\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u83B7\u53D6\u6570\u636E\n\u2022 \u6B64\u64CD\u4F5C\u4E0D\u53EF\u9006\n\n\u70B9\u51FB"\u786E\u5B9A"\u7EE7\u7EED\uFF0C\u70B9\u51FB"\u53D6\u6D88"\u653E\u5F03\u64CD\u4F5C\u3002')) {
           this.plugin.settings.tasks = [];
@@ -9016,14 +9226,14 @@ var AdvancedSettingsView = class extends AbstractSettingsView {
           await this.plugin.syncManager.syncFromDidaList();
         }
       } else {
-        new import_obsidian16.Notice("\u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
+        new import_obsidian17.Notice("\u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
       }
     }));
   }
 };
 
 // src/settings/views/mcp-settings-view.ts
-var import_obsidian17 = require("obsidian");
+var import_obsidian18 = require("obsidian");
 var McpSettingsView = class extends AbstractSettingsView {
   constructor(app, plugin) {
     super(app, plugin);
@@ -9044,12 +9254,12 @@ var McpSettingsView = class extends AbstractSettingsView {
     const restartMcpServer = async () => {
       try {
         await this.plugin.mcpServerManager.restart();
-        new import_obsidian17.Notice(this.plugin.settings.enableMcpServer ? "MCP \u670D\u52A1\u5DF2\u66F4\u65B0" : "MCP \u670D\u52A1\u5DF2\u5173\u95ED");
+        new import_obsidian18.Notice(this.plugin.settings.enableMcpServer ? "MCP \u670D\u52A1\u5DF2\u66F4\u65B0" : "MCP \u670D\u52A1\u5DF2\u5173\u95ED");
       } catch (e) {
         this.plugin.mcpServerManager.notifyStartupError(e);
       }
     };
-    new import_obsidian17.Setting(containerEl).setName("\u542F\u7528 MCP \u670D\u52A1").setDesc("\u9ED8\u8BA4\u5173\u95ED\u3002\u542F\u7528\u540E\u5141\u8BB8\u672C\u673A AI \u63D2\u4EF6\u901A\u8FC7 MCP \u64CD\u4F5C DidaSync\u3002").addToggle((t) => t.setValue(this.plugin.settings.enableMcpServer).onChange(async (value) => {
+    new import_obsidian18.Setting(containerEl).setName("\u542F\u7528 MCP \u670D\u52A1").setDesc("\u9ED8\u8BA4\u5173\u95ED\u3002\u542F\u7528\u540E\u5141\u8BB8\u672C\u673A AI \u63D2\u4EF6\u901A\u8FC7 MCP \u64CD\u4F5C DidaSync\u3002").addToggle((t) => t.setValue(this.plugin.settings.enableMcpServer).onChange(async (value) => {
       this.plugin.settings.enableMcpServer = value;
       if (value && !this.plugin.settings.mcpToken)
         this.plugin.settings.mcpToken = this.plugin.mcpServerManager.generateToken();
@@ -9058,24 +9268,24 @@ var McpSettingsView = class extends AbstractSettingsView {
       containerEl.empty();
       this.render(containerEl);
     }));
-    new import_obsidian17.Setting(containerEl).setName("MCP \u7AEF\u53E3").setDesc("AI \u63D2\u4EF6\u8FDE\u63A5\u7684\u672C\u673A HTTP \u7AEF\u53E3\u3002\u9ED8\u8BA4 35829\u3002").addText((t) => t.setPlaceholder("35829").setValue((this.plugin.settings.mcpPort || 35829).toString()).onChange(async (value) => {
+    new import_obsidian18.Setting(containerEl).setName("MCP \u7AEF\u53E3").setDesc("AI \u63D2\u4EF6\u8FDE\u63A5\u7684\u672C\u673A HTTP \u7AEF\u53E3\u3002\u9ED8\u8BA4 35829\u3002").addText((t) => t.setPlaceholder("35829").setValue((this.plugin.settings.mcpPort || 35829).toString()).onChange(async (value) => {
       const port = parseInt(value) || 35829;
       this.plugin.settings.mcpPort = port;
       await this.plugin.saveSettings();
       if (this.plugin.settings.enableMcpServer)
         await restartMcpServer();
     }));
-    new import_obsidian17.Setting(containerEl).setName("\u53EA\u8BFB\u6A21\u5F0F").setDesc("\u542F\u7528\u540E MCP \u53EA\u80FD\u8BFB\u53D6\u4EFB\u52A1\uFF0C\u4E0D\u80FD\u521B\u5EFA\u3001\u66F4\u65B0\u3001\u5B8C\u6210\u3001\u5220\u9664\u3001\u6392\u7A0B\u6216\u540C\u6B65\u3002").addToggle((t) => t.setValue(this.plugin.settings.mcpReadOnly).onChange(async (value) => {
+    new import_obsidian18.Setting(containerEl).setName("\u53EA\u8BFB\u6A21\u5F0F").setDesc("\u542F\u7528\u540E MCP \u53EA\u80FD\u8BFB\u53D6\u4EFB\u52A1\uFF0C\u4E0D\u80FD\u521B\u5EFA\u3001\u66F4\u65B0\u3001\u5B8C\u6210\u3001\u5220\u9664\u3001\u6392\u7A0B\u6216\u540C\u6B65\u3002").addToggle((t) => t.setValue(this.plugin.settings.mcpReadOnly).onChange(async (value) => {
       this.plugin.settings.mcpReadOnly = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian17.Setting(containerEl).setName("MCP Token").setDesc(this.plugin.settings.mcpToken ? "\u7528\u4E8E AI \u63D2\u4EF6\u9274\u6743\uFF0C\u8BF7\u52FF\u516C\u5F00\u3002" : "\u542F\u7528 MCP \u670D\u52A1\u65F6\u4F1A\u81EA\u52A8\u751F\u6210\u3002").addButton((t) => t.setButtonText("\u590D\u5236").onClick(() => {
+    new import_obsidian18.Setting(containerEl).setName("MCP Token").setDesc(this.plugin.settings.mcpToken ? "\u7528\u4E8E AI \u63D2\u4EF6\u9274\u6743\uFF0C\u8BF7\u52FF\u516C\u5F00\u3002" : "\u542F\u7528 MCP \u670D\u52A1\u65F6\u4F1A\u81EA\u52A8\u751F\u6210\u3002").addButton((t) => t.setButtonText("\u590D\u5236").onClick(() => {
       navigator.clipboard.writeText(this.plugin.settings.mcpToken || "");
-      new import_obsidian17.Notice("MCP Token \u5DF2\u590D\u5236");
+      new import_obsidian18.Notice("MCP Token \u5DF2\u590D\u5236");
     })).addButton((t) => t.setButtonText("\u91CD\u65B0\u751F\u6210").setWarning().onClick(async () => {
       this.plugin.settings.mcpToken = this.plugin.mcpServerManager.generateToken();
       await this.plugin.saveSettings();
-      new import_obsidian17.Notice("MCP Token \u5DF2\u91CD\u65B0\u751F\u6210");
+      new import_obsidian18.Notice("MCP Token \u5DF2\u91CD\u65B0\u751F\u6210");
       containerEl.empty();
       this.render(containerEl);
     }));
@@ -9087,13 +9297,13 @@ var McpSettingsView = class extends AbstractSettingsView {
     configPre.setText(configText());
     configDiv.createEl("button", { text: "\u590D\u5236\u914D\u7F6E", cls: "mod-small" }).onclick = () => {
       navigator.clipboard.writeText(configText());
-      new import_obsidian17.Notice("MCP \u914D\u7F6E\u5DF2\u590D\u5236");
+      new import_obsidian18.Notice("MCP \u914D\u7F6E\u5DF2\u590D\u5236");
     };
   }
 };
 
 // src/settings/DidaSyncSettingTab.ts
-var DidaSyncSettingTab = class extends import_obsidian18.PluginSettingTab {
+var DidaSyncSettingTab = class extends import_obsidian19.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.activeTab = "oauth";
@@ -9775,13 +9985,13 @@ var AUTO_SYNC_EDIT_PAUSE_MAX_MS = 36e4;
 var AUTO_SYNC_EDIT_RECHECK_MS = 6e4;
 var DIDA_LUCIDE_ICON_NAMES = [];
 try {
-  const iconIds = typeof import_obsidian19.getIconIds === "function" ? (0, import_obsidian19.getIconIds)() : null;
+  const iconIds = typeof import_obsidian20.getIconIds === "function" ? (0, import_obsidian20.getIconIds)() : null;
   if (Array.isArray(iconIds) && iconIds.length > 0) {
     DIDA_LUCIDE_ICON_NAMES = iconIds.filter((id) => typeof id === "string" && id.startsWith("lucide-")).map((id) => id.substring("lucide-".length)).sort((a, b) => a.localeCompare(b));
   }
 } catch (e) {
 }
-var DidaSyncPlugin = class extends import_obsidian19.Plugin {
+var DidaSyncPlugin = class extends import_obsidian20.Plugin {
   constructor() {
     super(...arguments);
     this.currentTaskActionMenu = null;
@@ -9863,6 +10073,20 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
       editorCallback: (editor) => {
         const cursor = editor.getCursor();
         this.showTaskSuggestions(editor, cursor);
+      }
+    });
+    this.addCommand({
+      id: "fetch-completed-dida-tasks",
+      name: "\u83B7\u53D6\u6700\u8FD1 7 \u5929\u5DF2\u5B8C\u6210\u4EFB\u52A1",
+      callback: async () => {
+        await this.fetchCompletedTasks();
+        this.openTaskViewWithCache();
+        const leaves = this.app.workspace.getLeavesOfType(TASK_VIEW_TYPE);
+        leaves.forEach((leaf) => {
+          if (leaf.view instanceof TaskView && typeof leaf.view.showCompletedTasks === "function") {
+            leaf.view.showCompletedTasks();
+          }
+        });
       }
     });
     this.initializePluginFeatures();
@@ -10124,14 +10348,14 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
     const iconName = this.getProjectIconName(projectId, projectName);
     let rendered = false;
     try {
-      (0, import_obsidian19.setIcon)(container, iconName);
+      (0, import_obsidian20.setIcon)(container, iconName);
       rendered = !!container.querySelector("svg");
     } catch (e) {
     }
     if (!rendered) {
       container.empty();
       try {
-        (0, import_obsidian19.setIcon)(container, this.getProjectDefaultIconName(projectName));
+        (0, import_obsidian20.setIcon)(container, this.getProjectDefaultIconName(projectName));
       } catch (e) {
       }
     }
@@ -10153,7 +10377,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
   openProjectContextMenu(project, event) {
     if (!project || !project.name)
       return;
-    const menu = new import_obsidian19.Menu();
+    const menu = new import_obsidian20.Menu();
     menu.setUseNativeMenu(false);
     menu.addItem((item) => {
       item.setTitle("\u8BBE\u7F6E\u9879\u76EE\u56FE\u6807").setIcon("folder").onClick(() => this.openProjectIconPicker(project));
@@ -10179,7 +10403,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
   openProjectDeleteModal(project) {
     const state = this.getProjectDeleteState(project);
     if (state.disabled) {
-      new import_obsidian19.Notice(state.reason);
+      new import_obsidian20.Notice(state.reason);
       return;
     }
     new ProjectDeleteConfirmModal(this.app, project, () => {
@@ -10191,14 +10415,14 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
       try {
         await this.createProject(name);
       } catch (e) {
-        new import_obsidian19.Notice((e == null ? void 0 : e.message) || "\u65B0\u589E\u9879\u76EE\u6807\u9898\u5931\u8D25");
+        new import_obsidian20.Notice((e == null ? void 0 : e.message) || "\u65B0\u589E\u9879\u76EE\u6807\u9898\u5931\u8D25");
       }
     }, 0);
   }
   async createProject(name) {
     const trimmed = (name || "").trim();
     if (!trimmed) {
-      new import_obsidian19.Notice("\u9879\u76EE\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+      new import_obsidian20.Notice("\u9879\u76EE\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
       return;
     }
     if (this.findProjectByName(trimmed))
@@ -10214,16 +10438,16 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
     if (this.settings.accessToken)
       this.syncCreatedProjectInBackground(project);
     else
-      new import_obsidian19.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u65B0\u589E\uFF0C\u5F53\u524D\u672A\u8BA4\u8BC1\uFF0C\u6682\u672A\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355");
+      new import_obsidian20.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u65B0\u589E\uFF0C\u5F53\u524D\u672A\u8BA4\u8BC1\uFF0C\u6682\u672A\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355");
   }
   syncCreatedProjectInBackground(project) {
     setTimeout(async () => {
       try {
         await this.ensureRemoteProjectExists(project);
         this.refreshTaskView();
-        new import_obsidian19.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355");
+        new import_obsidian20.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355");
       } catch (e) {
-        new import_obsidian19.Notice((e == null ? void 0 : e.message) || "\u9879\u76EE\u6807\u9898\u5DF2\u65B0\u589E\uFF0C\u4F46\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\u5931\u8D25");
+        new import_obsidian20.Notice((e == null ? void 0 : e.message) || "\u9879\u76EE\u6807\u9898\u5DF2\u65B0\u589E\uFF0C\u4F46\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\u5931\u8D25");
       }
     }, 0);
   }
@@ -10356,7 +10580,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
       try {
         await this.deleteProject(project);
       } catch (e) {
-        new import_obsidian19.Notice((e == null ? void 0 : e.message) || "\u5220\u9664\u9879\u76EE\u6807\u9898\u5931\u8D25");
+        new import_obsidian20.Notice((e == null ? void 0 : e.message) || "\u5220\u9664\u9879\u76EE\u6807\u9898\u5931\u8D25");
       }
     }, 0);
   }
@@ -10385,7 +10609,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
         this.refreshTaskView();
         throw e;
       }
-      new import_obsidian19.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u540C\u6B65\u4ECE\u6EF4\u7B54\u6E05\u5355\u5220\u9664");
+      new import_obsidian20.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u540C\u6B65\u4ECE\u6EF4\u7B54\u6E05\u5355\u5220\u9664");
       return;
     }
     if (!this.settings.accessToken && project.id && !isTemporary && !this.isInboxProject(project.id, project.name)) {
@@ -10393,7 +10617,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
       this.refreshTaskView();
       throw new Error("\u8BF7\u5148\u5B8C\u6210OAuth\u8BA4\u8BC1\u540E\u518D\u5220\u9664\u6EF4\u7B54\u9879\u76EE\u6807\u9898");
     }
-    new import_obsidian19.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u5220\u9664");
+    new import_obsidian20.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u5220\u9664");
   }
   async applyLocalProjectDelete(project) {
     const id = typeof project.id === "string" ? project.id.trim() : "";
@@ -10443,7 +10667,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
       try {
         await this.renameProject(project, name);
       } catch (e) {
-        new import_obsidian19.Notice((e == null ? void 0 : e.message) || "\u4FEE\u6539\u9879\u76EE\u6807\u9898\u5931\u8D25");
+        new import_obsidian20.Notice((e == null ? void 0 : e.message) || "\u4FEE\u6539\u9879\u76EE\u6807\u9898\u5931\u8D25");
       }
     }, 0);
   }
@@ -10452,7 +10676,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
       return;
     const next = (name || "").trim();
     if (!next) {
-      new import_obsidian19.Notice("\u9879\u76EE\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+      new import_obsidian20.Notice("\u9879\u76EE\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
       return;
     }
     if (next === project.name)
@@ -10476,9 +10700,9 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
         this.refreshTaskView();
         throw e;
       }
-      new import_obsidian19.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355");
+      new import_obsidian20.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355");
     } else {
-      new import_obsidian19.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u66F4\u65B0");
+      new import_obsidian20.Notice("\u9879\u76EE\u6807\u9898\u5DF2\u66F4\u65B0");
     }
   }
   async renameRemoteProject(projectId, name) {
@@ -10545,6 +10769,141 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
     return Array.from(map.values()).sort(
       (a, b) => a.name === "\u6536\u96C6\u7BB1" ? -1 : b.name === "\u6536\u96C6\u7BB1" ? 1 : a.name.localeCompare(b.name)
     );
+  }
+  findProjectById(projectId) {
+    const target = typeof projectId === "string" ? projectId.trim() : "";
+    if (!target)
+      return null;
+    return this.getAvailableProjectConfigs().find((entry) => (entry == null ? void 0 : entry.id) === target) || null;
+  }
+  getProjectDisplayInfo(projectId, fallbackName) {
+    const normalizedId = typeof projectId === "string" && projectId.trim() ? projectId.trim() : "inbox";
+    const project = this.findProjectById(normalizedId);
+    const cached = (this.settings.projects || []).find((item) => item.id === normalizedId);
+    const name = (project == null ? void 0 : project.name) || (cached == null ? void 0 : cached.name) || fallbackName || (normalizedId === "inbox" ? "\u6536\u96C6\u7BB1" : normalizedId);
+    return {
+      id: normalizedId,
+      name,
+      color: cached == null ? void 0 : cached.color,
+      closed: cached == null ? void 0 : cached.closed,
+      viewMode: cached == null ? void 0 : cached.viewMode,
+      kind: cached == null ? void 0 : cached.kind,
+      permission: cached == null ? void 0 : cached.permission,
+      isLocalOnly: (project == null ? void 0 : project.isLocalOnly) === true
+    };
+  }
+  formatDidaDateTime(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    const h = String(date.getHours()).padStart(2, "0");
+    const min = String(date.getMinutes()).padStart(2, "0");
+    const s = String(date.getSeconds()).padStart(2, "0");
+    const ms = String(date.getMilliseconds()).padStart(3, "0");
+    const offset = date.getTimezoneOffset();
+    const oh = Math.abs(Math.floor(offset / 60));
+    const om = Math.abs(offset % 60);
+    const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
+    return `${y}-${m}-${d}T${h}:${min}:${s}.${ms}${tz}`;
+  }
+  buildDefaultCompletedTaskQuery() {
+    const end = new Date();
+    const start = new Date(end);
+    start.setDate(end.getDate() - 6);
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+    return {
+      startDate: this.formatDidaDateTime(start),
+      endDate: this.formatDidaDateTime(end)
+    };
+  }
+  normalizeRemoteTask(task, project = null) {
+    var _a, _b;
+    let content = task.content || "";
+    let desc = task.desc || "";
+    if (task.items && Array.isArray(task.items) && task.items.length > 0) {
+      const merged = content || desc || "";
+      content = merged;
+      desc = merged;
+    }
+    const display = this.getProjectDisplayInfo(task.projectId || (project == null ? void 0 : project.id) || "inbox", task.projectName || (project == null ? void 0 : project.name));
+    return {
+      id: task.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title: task.title || "",
+      content,
+      desc,
+      didaId: task.id,
+      projectId: display.id,
+      projectName: display.name,
+      createdAt: task.createdTime || new Date().toISOString(),
+      updatedAt: task.modifiedTime || task.updatedAt || new Date().toISOString(),
+      dueDate: task.dueDate || null,
+      startDate: task.startDate || null,
+      etag: task.etag || null,
+      isAllDay: task.isAllDay === true,
+      kind: task.kind || "TEXT",
+      reminders: task.reminders || [],
+      repeatFlag: task.repeatFlag || null,
+      status: task.status || 0,
+      completed: task.status === 2,
+      completedTime: task.completedTime || null,
+      projectColor: task.projectColor || (project == null ? void 0 : project.color) || display.color,
+      projectClosed: (_b = (_a = task.projectClosed) != null ? _a : project == null ? void 0 : project.closed) != null ? _b : display.closed,
+      projectViewMode: task.projectViewMode || (project == null ? void 0 : project.viewMode) || display.viewMode,
+      projectKind: task.projectKind || (project == null ? void 0 : project.kind) || display.kind,
+      projectPermission: task.projectPermission || (project == null ? void 0 : project.permission) || display.permission,
+      parentId: task.parentId || null,
+      items: task.items && Array.isArray(task.items) ? task.items.slice() : []
+    };
+  }
+  async fetchCompletedTasks(query = {}) {
+    if (!this.settings.accessToken)
+      throw new Error("\u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
+    const finalQuery = {
+      ...this.buildDefaultCompletedTaskQuery(),
+      ...query || {}
+    };
+    const remoteTasks = await this.apiClient.getCompletedTasks(finalQuery);
+    this.settings.completedTasks = Array.isArray(remoteTasks) ? remoteTasks.map((task) => this.normalizeRemoteTask(task)) : [];
+    this.settings.completedTasksLastFetchedAt = new Date().toISOString();
+    this.settings.completedTasksQuery = finalQuery;
+    await this.saveSettings();
+    this.refreshTaskView();
+    new import_obsidian20.Notice(`\u5DF2\u83B7\u53D6 ${this.settings.completedTasks.length} \u4E2A\u5DF2\u5B8C\u6210\u4EFB\u52A1`);
+    return this.settings.completedTasks;
+  }
+  async moveTaskToProject(task, targetProjectId) {
+    if (!task)
+      throw new Error("\u4EFB\u52A1\u4E0D\u5B58\u5728");
+    const sourceProjectId = task.projectId || "inbox";
+    const target = this.findProjectById(targetProjectId);
+    if (!target || !target.id)
+      throw new Error("\u76EE\u6807\u9879\u76EE\u4E0D\u5B58\u5728");
+    if (target.isLocalOnly)
+      throw new Error("\u76EE\u6807\u9879\u76EE\u5C1A\u672A\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u65E0\u6CD5\u79FB\u52A8");
+    if (sourceProjectId === target.id)
+      return task;
+    if (task.didaId && this.settings.accessToken) {
+      await this.apiClient.moveTask(sourceProjectId, target.id, task.didaId);
+    }
+    const display = this.getProjectDisplayInfo(target.id, target.name);
+    task.projectId = display.id;
+    task.projectName = display.name;
+    task.projectColor = display.color;
+    task.projectClosed = display.closed;
+    task.projectViewMode = display.viewMode;
+    task.projectKind = display.kind;
+    task.projectPermission = display.permission;
+    task.updatedAt = new Date().toISOString();
+    await this.saveSettings();
+    this.refreshTaskView();
+    return task;
+  }
+  openMoveTaskModal(task) {
+    new ProjectMoveModal(this.app, this, task, async (targetProjectId) => {
+      await this.moveTaskToProject(task, targetProjectId);
+      new import_obsidian20.Notice(`\u4EFB\u52A1\u5DF2\u79FB\u52A8\u5230 ${this.getProjectDisplayInfo(targetProjectId).name}`);
+    }).open();
   }
   getLucideIconNames() {
     return DIDA_LUCIDE_ICON_NAMES.slice();
@@ -10683,13 +11042,13 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
       this.settings.tasks = [];
       await this.saveSettings();
       this.refreshTaskView();
-      new import_obsidian19.Notice(`\u5DF2\u6E05\u7A7A ${count} \u4E2A\u672C\u5730\u4EFB\u52A1\u6570\u636E`);
+      new import_obsidian20.Notice(`\u5DF2\u6E05\u7A7A ${count} \u4E2A\u672C\u5730\u4EFB\u52A1\u6570\u636E`);
       setTimeout(async () => {
         try {
-          new import_obsidian19.Notice("\u6B63\u5728\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u83B7\u53D6\u6700\u65B0\u6570\u636E...");
+          new import_obsidian20.Notice("\u6B63\u5728\u4ECE\u6EF4\u7B54\u6E05\u5355\u4E91\u7AEF\u83B7\u53D6\u6700\u65B0\u6570\u636E...");
           await this.syncManager.syncFromDidaList();
           const newCount = this.settings.tasks.length;
-          new import_obsidian19.Notice(`\u91CD\u7F6E\u5B8C\u6210\uFF01\u5DF2\u4ECE\u4E91\u7AEF\u83B7\u53D6 ${newCount} \u4E2A\u4EFB\u52A1\u6570\u636E`);
+          new import_obsidian20.Notice(`\u91CD\u7F6E\u5B8C\u6210\uFF01\u5DF2\u4ECE\u4E91\u7AEF\u83B7\u53D6 ${newCount} \u4E2A\u4EFB\u52A1\u6570\u636E`);
         } catch (e) {
         }
       }, 1e3);
@@ -10813,7 +11172,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
   }
   async checkPluginStatusAndNotify() {
     if (!this.settings.accessToken) {
-      new import_obsidian19.Notice("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6EDida Sync\u63D2\u4EF6");
+      new import_obsidian20.Notice("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6EDida Sync\u63D2\u4EF6");
       return false;
     }
     return true;
@@ -10910,7 +11269,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
     if (this.isPluginActivated) {
       try {
         if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
-          new import_obsidian19.Notice("\u5F53\u524D\u5904\u4E8E\u79BB\u7EBF\u72B6\u6001\uFF0C\u65F6\u95F4\u7EBF\u89C6\u56FE\u4E0D\u53EF\u7528");
+          new import_obsidian20.Notice("\u5F53\u524D\u5904\u4E8E\u79BB\u7EBF\u72B6\u6001\uFF0C\u65F6\u95F4\u7EBF\u89C6\u56FE\u4E0D\u53EF\u7528");
           return;
         }
       } catch (e) {
@@ -11460,7 +11819,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
             const linkRegex = /\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([^)]+)\)/;
             const linkMatch = content.match(linkRegex);
             if (linkMatch) {
-              new import_obsidian19.Notice("\u2139\uFE0F \u4EFB\u52A1\u5DF2\u540C\u6B65\uFF0C\u65E0\u9700\u518D\u6B21\u540C\u6B65", 3e3);
+              new import_obsidian20.Notice("\u2139\uFE0F \u4EFB\u52A1\u5DF2\u540C\u6B65\uFF0C\u65E0\u9700\u518D\u6B21\u540C\u6B65", 3e3);
             } else {
               let title = content;
               title = title.replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "").trim();
@@ -11502,21 +11861,21 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
                   };
                   this.settings.tasks.push(task);
                   await this.saveSettings();
-                  new import_obsidian19.Notice("\u2705 \u4EFB\u52A1\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355", 3e3);
+                  new import_obsidian20.Notice("\u2705 \u4EFB\u52A1\u5DF2\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355", 3e3);
                   this.refreshTaskView();
                 } else {
-                  new import_obsidian19.Notice("\u274C \u540C\u6B65\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5");
+                  new import_obsidian20.Notice("\u274C \u540C\u6B65\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5");
                 }
               }
             }
           } else {
-            new import_obsidian19.Notice("\u274C \u4EFB\u52A1\u5185\u5BB9\u4E0D\u80FD\u4E3A\u7A7A");
+            new import_obsidian20.Notice("\u274C \u4EFB\u52A1\u5185\u5BB9\u4E0D\u80FD\u4E3A\u7A7A");
           }
         } else {
-          new import_obsidian19.Notice("\u274C \u65E0\u6CD5\u8BC6\u522B\u4EFB\u52A1\u683C\u5F0F");
+          new import_obsidian20.Notice("\u274C \u65E0\u6CD5\u8BC6\u522B\u4EFB\u52A1\u683C\u5F0F");
         }
       } else {
-        new import_obsidian19.Notice("\u274C \u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
+        new import_obsidian20.Notice("\u274C \u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
       }
     } catch (e) {
       let msg = "\u540C\u6B65\u5931\u8D25";
@@ -11528,7 +11887,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
         msg = "\u672A\u627E\u5230";
       else if (e.message)
         msg = "\u540C\u6B65\u5931\u8D25: " + e.message;
-      new import_obsidian19.Notice("\u274C " + msg, 5e3);
+      new import_obsidian20.Notice("\u274C " + msg, 5e3);
     }
   }
   async createTaskDirectly(title) {
@@ -11606,10 +11965,10 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
             this.refreshTaskView();
           }
         } else {
-          new import_obsidian19.Notice("\u8BF7\u5148\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u518D\u8BBE\u7F6E\u5230\u671F\u65E5\u671F");
+          new import_obsidian20.Notice("\u8BF7\u5148\u540C\u6B65\u5230\u6EF4\u7B54\u6E05\u5355\uFF0C\u518D\u8BBE\u7F6E\u5230\u671F\u65E5\u671F");
         }
       } else {
-        new import_obsidian19.Notice("\u65E0\u6CD5\u8BC6\u522B\u4EFB\u52A1\u683C\u5F0F");
+        new import_obsidian20.Notice("\u65E0\u6CD5\u8BC6\u522B\u4EFB\u52A1\u683C\u5F0F");
       }
     } catch (e) {
       let msg = "\u6DFB\u52A0\u65E5\u671F\u5931\u8D25";
@@ -11621,7 +11980,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
         msg = "\u672A\u627E\u5230";
       else if (e.message)
         msg = "\u6DFB\u52A0\u65E5\u671F\u5931\u8D25: " + e.message;
-      new import_obsidian19.Notice("\u274C " + msg);
+      new import_obsidian20.Notice("\u274C " + msg);
     }
   }
   async handleDateChange(didaId, newDate, newTitle) {
@@ -11687,7 +12046,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
         msg = "\u672A\u627E\u5230";
       else if (e.message)
         msg = "\u540C\u6B65\u65E5\u671F\u53D8\u66F4\u5931\u8D25: " + e.message;
-      new import_obsidian19.Notice("\u274C " + msg);
+      new import_obsidian20.Notice("\u274C " + msg);
     }
   }
   async handleTitleChange(didaId, newTitle) {
@@ -11700,7 +12059,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
         await this.saveSettings();
         await this.updateTaskInDidaList(task);
         this.refreshTaskView();
-        new import_obsidian19.Notice("\u2705 \u5DF2\u540C\u6B65\u6807\u9898\u53D8\u66F4\u5230\u6EF4\u7B54\u6E05\u5355");
+        new import_obsidian20.Notice("\u2705 \u5DF2\u540C\u6B65\u6807\u9898\u53D8\u66F4\u5230\u6EF4\u7B54\u6E05\u5355");
       }
     } catch (e) {
       let msg = "\u540C\u6B65\u6807\u9898\u53D8\u66F4\u5931\u8D25";
@@ -11712,7 +12071,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
         msg = "\u672A\u627E\u5230";
       else if (e.message)
         msg = "\u540C\u6B65\u6807\u9898\u53D8\u66F4\u5931\u8D25: " + e.message;
-      new import_obsidian19.Notice("\u274C " + msg);
+      new import_obsidian20.Notice("\u274C " + msg);
     }
   }
   handleTaskLinkClick(evt) {
@@ -11856,7 +12215,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
     }, 100);
   }
   showFileSelectionModal(files, didaId) {
-    const modal = new import_obsidian19.Modal(this.app);
+    const modal = new import_obsidian20.Modal(this.app);
     modal.titleEl.setText("\u9009\u62E9\u5305\u542B\u4EFB\u52A1\u94FE\u63A5\u7684\u6587\u4EF6");
     const container = modal.contentEl.createDiv();
     container.createEl("p", { text: `\u627E\u5230 ${files.length} \u4E2A\u5305\u542B\u4EFB\u52A1\u94FE\u63A5\u7684\u6587\u4EF6:` });
@@ -11904,7 +12263,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
         this.showTaskDetailsInView(task);
       });
     } else {
-      new import_obsidian19.Notice("\u8BE5\u4EFB\u52A1\u5DF2\u5B8C\u6210");
+      new import_obsidian20.Notice("\u8BE5\u4EFB\u52A1\u5DF2\u5B8C\u6210");
     }
   }
   showTaskDetailsInViewOptimized(task) {
@@ -12127,7 +12486,7 @@ var DidaSyncPlugin = class extends import_obsidian19.Plugin {
           }
         }
       } else {
-        new import_obsidian19.Notice("\u4EFB\u52A1\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+        new import_obsidian20.Notice("\u4EFB\u52A1\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
       }
     }
   }

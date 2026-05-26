@@ -9,6 +9,7 @@ export const TASK_VIEW_TYPE = "dida-task-view";
 export class TaskView extends ItemView {
     plugin: DidaSyncPlugin;
     searchQuery: string;
+    taskListMode: "active" | "completed";
     isComposing: boolean;
     viewMode: string;
     debouncedSearch: (query: string) => void;
@@ -34,6 +35,7 @@ export class TaskView extends ItemView {
         super(leaf);
         this.plugin = plugin;
         this.searchQuery = "";
+        this.taskListMode = "active";
         this.isComposing = false;
         this.viewMode = "task";
         this.isPomodoroVisible = false;
@@ -115,6 +117,41 @@ export class TaskView extends ItemView {
             totalFocusSessions: (settings.totalFocusSessions || 0) + 1,
             totalFocusMinutes: (settings.totalFocusMinutes || 0) + minutes
         });
+    }
+
+    getDisplayedTasks() {
+        const source = this.taskListMode === "completed"
+            ? (this.plugin.settings.completedTasks || [])
+            : (this.plugin.settings.tasks || []);
+        return this.taskListMode === "completed"
+            ? source.filter((task) => task && task.status === 2)
+            : source.filter((task) => task && task.status !== 2);
+    }
+
+    async showCompletedTasks() {
+        this.taskListMode = "completed";
+        if ((this.plugin.settings.completedTasks || []).length === 0) {
+            try {
+                await this.plugin.fetchCompletedTasks();
+            } catch (e: any) {
+                new Notice(e?.message || "获取已完成任务失败");
+            }
+        }
+        await this.renderTaskList({ preserveSearch: true });
+    }
+
+    async refreshCompletedTasks() {
+        try {
+            await this.plugin.fetchCompletedTasks(this.plugin.settings.completedTasksQuery || {});
+            if (this.taskListMode === "completed") await this.renderTaskList({ preserveSearch: true });
+        } catch (e: any) {
+            new Notice(e?.message || "刷新已完成任务失败");
+        }
+    }
+
+    async showActiveTasks() {
+        this.taskListMode = "active";
+        await this.renderTaskList({ preserveSearch: true });
     }
 
     getPomodoroTrendData(period: "week" | "month" | "year" = this.pomodoroTrendPeriod) {
@@ -1153,6 +1190,32 @@ export class TaskView extends ItemView {
             }
 
             if (this.viewMode === "task") {
+                const modeTabs = header.createDiv("dida-task-mode-tabs");
+                const activeTab = modeTabs.createEl("button", {
+                    cls: `dida-task-mode-tab${this.taskListMode === "active" ? " is-active" : ""}`,
+                    text: "待办"
+                });
+                activeTab.onclick = async () => {
+                    await this.showActiveTasks();
+                };
+                const completedTab = modeTabs.createEl("button", {
+                    cls: `dida-task-mode-tab${this.taskListMode === "completed" ? " is-active" : ""}`,
+                    text: "已完成"
+                });
+                completedTab.onclick = async () => {
+                    await this.showCompletedTasks();
+                };
+
+                if (this.taskListMode === "completed") {
+                    const completedRefreshBtn = header.createEl("button", {
+                        cls: "dida-completed-refresh-btn"
+                    });
+                    completedRefreshBtn.textContent = "刷新已完成";
+                    completedRefreshBtn.onclick = async () => {
+                        await this.refreshCompletedTasks();
+                    };
+                }
+
                 const searchContainer = header.createDiv("dida-search-container");
                 searchContainer.style.position = "relative";
 
@@ -1315,10 +1378,10 @@ export class TaskView extends ItemView {
                 }
             } catch (e) { }
 
-            const tasks = this.plugin.settings.tasks || [];
+            const tasks = this.getDisplayedTasks();
             if (tasks.length === 0 && this.plugin.getProjectCatalog().length === 0) {
                 taskListContainer.createEl("p", {
-                    text: "暂无任务，请先添加一些任务",
+                    text: this.taskListMode === "completed" ? "暂无已完成任务，请先刷新" : "暂无任务，请先添加一些任务",
                     cls: "dida-empty-state"
                 });
             } else {
@@ -1423,7 +1486,7 @@ export class TaskView extends ItemView {
 
                 if (projectMap.size === 0) {
                     taskListContainer.createEl("p", {
-                        text: "暂无任务，请先添加一些任务",
+                        text: this.taskListMode === "completed" ? "暂无符合条件的已完成任务" : "暂无任务，请先添加一些任务",
                         cls: "dida-empty-state"
                     });
                     return;
@@ -1453,7 +1516,7 @@ export class TaskView extends ItemView {
 
                     const archiveIcon = projectInfo.isArchived ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-archive-icon lucide-archive" style="margin-left: 5px;"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M9 15h6"/></svg>' : "";
 
-                    const tasksInProject = this.plugin.settings.tasks.filter(t => {
+                    const tasksInProject = tasks.filter(t => {
                         if (t.parentId) return false;
                         let pName = "本地任务";
                         if (t.projectName && t.projectId) {
@@ -1562,12 +1625,13 @@ export class TaskView extends ItemView {
 
                         const checkbox = leftContent.createEl("input", { type: "checkbox" });
                         checkbox.checked = task.status === 2;
+                        if (this.taskListMode === "completed") checkbox.disabled = true;
 
                         const toggleTaskDebounced = debounce(() => {
                             this.toggleTask(task.originalIndex);
                         }, 200);
 
-                        checkbox.onchange = toggleTaskDebounced;
+                        if (this.taskListMode !== "completed") checkbox.onchange = toggleTaskDebounced;
 
                         const titleSpan = leftContent.createEl("span", {
                             cls: task.status === 2 ? "dida-task-completed dida-task-title-clickable" : "dida-task-title dida-task-title-clickable"
@@ -1636,7 +1700,17 @@ export class TaskView extends ItemView {
                             cls: "dida-task-due-date"
                         });
 
-                        if (task.startDate) {
+                        if (this.taskListMode === "completed" && task.completedTime) {
+                            try {
+                                const completedDate = new Date(task.completedTime);
+                                const month = completedDate.getMonth() + 1;
+                                const day = completedDate.getDate();
+                                dateSpan.textContent = `完成 ${month}/${day}`;
+                                dateSpan.classList.add("today");
+                            } catch (e) {
+                                dateSpan.textContent = "已完成";
+                            }
+                        } else if (task.startDate) {
                             try {
                                 const date = new Date(task.startDate);
                                 const month = date.getMonth() + 1;
@@ -1657,32 +1731,51 @@ export class TaskView extends ItemView {
                             dateSpan.classList.add("no-date");
                         }
 
-                        dateSpan.style.cursor = "pointer";
-                        dateSpan.title = "点击设置开始时间";
-                        dateSpan.onclick = (e) => {
-                            e.stopPropagation();
-                            new DatePickerModal(this.app, task.startDate, (date: Date | null, isAllDay: boolean, endDate?: Date) => {
-                                if (date) {
-                                    this.updateTaskStartDate(task.originalIndex, date, isAllDay);
-                                    if (endDate && !isAllDay) {
-                                        this.updateTaskDueDate(task.originalIndex, endDate, false);
+                        if (this.taskListMode !== "completed") {
+                            dateSpan.style.cursor = "pointer";
+                            dateSpan.title = "点击设置开始时间";
+                            dateSpan.onclick = (e) => {
+                                e.stopPropagation();
+                                new DatePickerModal(this.app, task.startDate, (date: Date | null, isAllDay: boolean, endDate?: Date) => {
+                                    if (date) {
+                                        this.updateTaskStartDate(task.originalIndex, date, isAllDay);
+                                        if (endDate && !isAllDay) {
+                                            this.updateTaskDueDate(task.originalIndex, endDate, false);
+                                        }
                                     }
-                                }
-                            }, e.currentTarget as HTMLElement, this.plugin, task.originalIndex).open();
-                        };
+                                }, e.currentTarget as HTMLElement, this.plugin, task.originalIndex).open();
+                            };
+                        }
+
+                        if (this.taskListMode !== "completed") {
+                            const moveBtn = rightButtons.createEl("button", {
+                                cls: "dida-task-move"
+                            });
+                            moveBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9V5h4"/><path d="M3 3l6 6"/><path d="M19 15v4h-4"/><path d="M21 21l-6-6"/><path d="M5 15v4h4"/><path d="M3 21l6-6"/><path d="M19 9V5h-4"/><path d="M21 3l-6 6"/></svg>';
+                            moveBtn.title = "移动到其他项目";
+                            moveBtn.onclick = (e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                this.plugin.openMoveTaskModal(task);
+                            };
+                        }
 
                         // Delete button
                         const deleteBtn = rightButtons.createEl("button", {
                             cls: "dida-task-delete"
                         });
                         deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
-                        deleteBtn.onclick = (e) => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            if (window.confirm("确定要删除这个任务吗？")) {
-                                this.deleteTask(task.originalIndex);
-                            }
-                        };
+                        if (this.taskListMode === "completed") {
+                            deleteBtn.style.display = "none";
+                        } else {
+                            deleteBtn.onclick = (e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                if (window.confirm("确定要删除这个任务吗？")) {
+                                    this.deleteTask(task.originalIndex);
+                                }
+                            };
+                        }
 
                         // Sync status
                         const syncStatusSpan = rightButtons.createEl("span", {

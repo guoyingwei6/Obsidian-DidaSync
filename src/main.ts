@@ -10,11 +10,12 @@ import { AddTaskToProjectModal } from './modals/AddTaskToProjectModal';
 import { ProjectCreateModal } from './modals/ProjectCreateModal';
 import { ProjectDeleteConfirmModal } from './modals/ProjectDeleteConfirmModal';
 import { ProjectIconPickerModal } from './modals/ProjectIconPickerModal';
+import { ProjectMoveModal } from './modals/ProjectMoveModal';
 import { ProjectRenameModal } from './modals/ProjectRenameModal';
 import { TaskSuggestionPopup } from './modals/TaskSuggestionPopup';
 import { TimelineViewModal } from './modals/TimelineViewModal';
 import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
-import { DEFAULT_SETTINGS, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry } from './types';
+import { CompletedTasksQuery, DEFAULT_SETTINGS, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry } from './types';
 import { normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes } from './utils';
 import { DidaTimeBlockView, TIME_BLOCK_VIEW_TYPE } from './views/DidaTimeBlockView';
 import { TaskActionMenu } from './views/TaskActionMenu';
@@ -132,6 +133,21 @@ export default class DidaSyncPlugin extends Plugin {
             editorCallback: (editor: Editor) => {
                 const cursor = editor.getCursor();
                 this.showTaskSuggestions(editor, cursor);
+            }
+        });
+
+        this.addCommand({
+            id: 'fetch-completed-dida-tasks',
+            name: '获取最近 7 天已完成任务',
+            callback: async () => {
+                await this.fetchCompletedTasks();
+                this.openTaskViewWithCache();
+                const leaves = this.app.workspace.getLeavesOfType(TASK_VIEW_TYPE);
+                leaves.forEach((leaf) => {
+                    if (leaf.view instanceof TaskView && typeof (leaf.view as any).showCompletedTasks === "function") {
+                        (leaf.view as any).showCompletedTasks();
+                    }
+                });
             }
         });
 
@@ -816,6 +832,146 @@ export default class DidaSyncPlugin extends Plugin {
         return Array.from(map.values()).sort((a, b) =>
             a.name === "收集箱" ? -1 : b.name === "收集箱" ? 1 : a.name.localeCompare(b.name)
         );
+    }
+
+    findProjectById(projectId: string) {
+        const target = typeof projectId === "string" ? projectId.trim() : "";
+        if (!target) return null;
+        return this.getAvailableProjectConfigs().find((entry) => entry?.id === target) || null;
+    }
+
+    getProjectDisplayInfo(projectId: string, fallbackName?: string) {
+        const normalizedId = typeof projectId === "string" && projectId.trim() ? projectId.trim() : "inbox";
+        const project = this.findProjectById(normalizedId);
+        const cached = (this.settings.projects || []).find((item) => item.id === normalizedId);
+        const name = project?.name || cached?.name || fallbackName || (normalizedId === "inbox" ? "收集箱" : normalizedId);
+        return {
+            id: normalizedId,
+            name,
+            color: cached?.color,
+            closed: cached?.closed,
+            viewMode: cached?.viewMode,
+            kind: cached?.kind,
+            permission: cached?.permission,
+            isLocalOnly: project?.isLocalOnly === true
+        };
+    }
+
+    formatDidaDateTime(date: Date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, "0");
+        const d = String(date.getDate()).padStart(2, "0");
+        const h = String(date.getHours()).padStart(2, "0");
+        const min = String(date.getMinutes()).padStart(2, "0");
+        const s = String(date.getSeconds()).padStart(2, "0");
+        const ms = String(date.getMilliseconds()).padStart(3, "0");
+        const offset = date.getTimezoneOffset();
+        const oh = Math.abs(Math.floor(offset / 60));
+        const om = Math.abs(offset % 60);
+        const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
+        return `${y}-${m}-${d}T${h}:${min}:${s}.${ms}${tz}`;
+    }
+
+    buildDefaultCompletedTaskQuery(): CompletedTasksQuery {
+        const end = new Date();
+        const start = new Date(end);
+        start.setDate(end.getDate() - 6);
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        return {
+            startDate: this.formatDidaDateTime(start),
+            endDate: this.formatDidaDateTime(end)
+        };
+    }
+
+    normalizeRemoteTask(task: any, project: any = null): DidaTask {
+        let content = task.content || "";
+        let desc = task.desc || "";
+        if (task.items && Array.isArray(task.items) && task.items.length > 0) {
+            const merged = content || desc || "";
+            content = merged;
+            desc = merged;
+        }
+        const display = this.getProjectDisplayInfo(task.projectId || project?.id || "inbox", task.projectName || project?.name);
+        return {
+            id: task.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            title: task.title || "",
+            content,
+            desc,
+            didaId: task.id,
+            projectId: display.id,
+            projectName: display.name,
+            createdAt: task.createdTime || new Date().toISOString(),
+            updatedAt: task.modifiedTime || task.updatedAt || new Date().toISOString(),
+            dueDate: task.dueDate || null,
+            startDate: task.startDate || null,
+            etag: task.etag || null,
+            isAllDay: task.isAllDay === true,
+            kind: task.kind || "TEXT",
+            reminders: task.reminders || [],
+            repeatFlag: task.repeatFlag || null,
+            status: task.status || 0,
+            completed: task.status === 2,
+            completedTime: task.completedTime || null,
+            projectColor: task.projectColor || project?.color || display.color,
+            projectClosed: task.projectClosed ?? project?.closed ?? display.closed,
+            projectViewMode: task.projectViewMode || project?.viewMode || display.viewMode,
+            projectKind: task.projectKind || project?.kind || display.kind,
+            projectPermission: task.projectPermission || project?.permission || display.permission,
+            parentId: task.parentId || null,
+            items: task.items && Array.isArray(task.items) ? task.items.slice() : []
+        };
+    }
+
+    async fetchCompletedTasks(query: CompletedTasksQuery = {}) {
+        if (!this.settings.accessToken) throw new Error("请先进行OAuth认证");
+        const finalQuery = {
+            ...this.buildDefaultCompletedTaskQuery(),
+            ...(query || {})
+        };
+        const remoteTasks = await this.apiClient.getCompletedTasks(finalQuery);
+        this.settings.completedTasks = Array.isArray(remoteTasks)
+            ? remoteTasks.map((task) => this.normalizeRemoteTask(task))
+            : [];
+        this.settings.completedTasksLastFetchedAt = new Date().toISOString();
+        this.settings.completedTasksQuery = finalQuery;
+        await this.saveSettings();
+        this.refreshTaskView();
+        new Notice(`已获取 ${this.settings.completedTasks.length} 个已完成任务`);
+        return this.settings.completedTasks;
+    }
+
+    async moveTaskToProject(task: DidaTask, targetProjectId: string) {
+        if (!task) throw new Error("任务不存在");
+        const sourceProjectId = task.projectId || "inbox";
+        const target = this.findProjectById(targetProjectId);
+        if (!target || !target.id) throw new Error("目标项目不存在");
+        if (target.isLocalOnly) throw new Error("目标项目尚未同步到滴答清单，无法移动");
+        if (sourceProjectId === target.id) return task;
+
+        if (task.didaId && this.settings.accessToken) {
+            await this.apiClient.moveTask(sourceProjectId, target.id, task.didaId);
+        }
+
+        const display = this.getProjectDisplayInfo(target.id, target.name);
+        task.projectId = display.id;
+        task.projectName = display.name;
+        task.projectColor = display.color;
+        task.projectClosed = display.closed;
+        task.projectViewMode = display.viewMode;
+        task.projectKind = display.kind;
+        task.projectPermission = display.permission;
+        task.updatedAt = new Date().toISOString();
+        await this.saveSettings();
+        this.refreshTaskView();
+        return task;
+    }
+
+    openMoveTaskModal(task: DidaTask) {
+        new ProjectMoveModal(this.app, this, task, async (targetProjectId: string) => {
+            await this.moveTaskToProject(task, targetProjectId);
+            new Notice(`任务已移动到 ${this.getProjectDisplayInfo(targetProjectId).name}`);
+        }).open();
     }
 
     getLucideIconNames() {

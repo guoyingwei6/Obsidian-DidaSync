@@ -190,6 +190,28 @@
     position: relative;
 }
 
+.dida-task-mode-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 8px;
+}
+
+.dida-task-mode-tab,
+.dida-completed-refresh-btn {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 11px !important;
+    line-height: 1.2;
+}
+
+.dida-task-mode-tab.is-active {
+    background: var(--interactive-accent) !important;
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
 .dida-search-input {
     width: 100%;
     font-size: 10px !important;
@@ -218,6 +240,10 @@
 .dida-search-clear-btn:hover {
     background: var(--background-modifier-hover);
     color: var(--text-normal);
+}
+
+.dida-task-move {
+    color: var(--text-muted);
 }
 
 .dida-search-clear-btn svg {
