@@ -185,10 +185,14 @@ export class McpServerManager {
                     return this.toolResult(true, await this.completeTask(args));
                 case "dida_delete_task":
                     return this.toolResult(true, await this.deleteTask(args));
+                case "dida_move_task":
+                    return this.toolResult(true, await this.moveTask(args));
                 case "dida_sync_now":
                     return this.toolResult(true, await this.syncNow());
                 case "dida_list_projects":
                     return this.toolResult(true, this.listProjects());
+                case "dida_list_completed_tasks":
+                    return this.toolResult(true, await this.listCompletedTasks(args));
                 default:
                     return this.toolResult(false, null, "TOOL_NOT_FOUND", `Unknown tool: ${name}`);
             }
@@ -339,6 +343,37 @@ export class McpServerManager {
         if (index === -1) throw new Error("Task not found");
         await this.plugin.deleteTask(index);
         return this.serializeTask(task);
+    }
+
+    private async moveTask(args: any) {
+        const task = this.findTaskOrThrow(args);
+        const toProjectId = String(args?.toProjectId || "").trim();
+        if (!toProjectId) throw new Error("toProjectId is required");
+        await this.plugin.moveTaskToProject(task, toProjectId);
+        return this.serializeTask(task);
+    }
+
+    private async listCompletedTasks(args: any) {
+        const query: any = {};
+        if (Array.isArray(args?.projectIds) && args.projectIds.length > 0) query.projectIds = args.projectIds;
+        if (args?.startDate) query.startDate = args.startDate;
+        if (args?.endDate) query.endDate = args.endDate;
+
+        if (args?.refresh !== false || (this.plugin.settings.completedTasks || []).length === 0) {
+            await this.plugin.fetchCompletedTasks(query);
+        }
+
+        let tasks = [...(this.plugin.settings.completedTasks || [])];
+        const search = String(args?.query || "").trim().toLowerCase();
+        if (search) tasks = tasks.filter(t => [t.title, t.content, t.desc, t.projectName].some(v => String(v || "").toLowerCase().includes(search)));
+        if (Array.isArray(query.projectIds) && query.projectIds.length > 0) {
+            const projectIds = new Set(query.projectIds.map((id: any) => String(id)));
+            tasks = tasks.filter((task) => projectIds.has(String(task.projectId || "")));
+        }
+
+        const limit = Math.max(1, Math.min(parseInt(args?.limit || "100", 10), 500));
+        tasks.sort((a, b) => this.dateValue(b.completedTime || b.updatedAt || b.createdAt) - this.dateValue(a.completedTime || a.updatedAt || a.createdAt));
+        return tasks.slice(0, limit).map((task) => this.serializeTask(task));
     }
 
     private async syncNow() {
@@ -507,8 +542,42 @@ export class McpServerManager {
             },
             { name: "dida_complete_task", description: "Complete one task by id or didaId.", inputSchema: idInput },
             { name: "dida_delete_task", description: "Delete one task by id or didaId.", inputSchema: idInput },
+            {
+                name: "dida_move_task",
+                description: "Move one task to another project using the official Dida move API.",
+                inputSchema: {
+                    type: "object",
+                    required: ["toProjectId"],
+                    additionalProperties: false,
+                    properties: {
+                        ...idInput.properties,
+                        toProjectId: { type: "string", description: "Destination project id." }
+                    }
+                }
+            },
             { name: "dida_sync_now", description: "Run DidaSync two-way sync.", inputSchema: { type: "object", additionalProperties: false, properties: {} } },
-            { name: "dida_list_projects", description: "List cached Dida projects.", readOnly: true, inputSchema: { type: "object", additionalProperties: false, properties: {} } }
+            { name: "dida_list_projects", description: "List cached Dida projects.", readOnly: true, inputSchema: { type: "object", additionalProperties: false, properties: {} } },
+            {
+                name: "dida_list_completed_tasks",
+                description: "Fetch or read completed tasks from Dida within an optional time range.",
+                readOnly: true,
+                inputSchema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                        projectIds: {
+                            type: "array",
+                            items: { type: "string" },
+                            description: "Optional project ids."
+                        },
+                        startDate: { type: "string", description: "ISO datetime with timezone." },
+                        endDate: { type: "string", description: "ISO datetime with timezone." },
+                        query: { type: "string", description: "Optional text search over fetched completed tasks." },
+                        limit: { type: "number", minimum: 1, maximum: 500, description: "Default 100, max 500." },
+                        refresh: { type: "boolean", description: "Default true. Fetch latest from Dida before reading cache." }
+                    }
+                }
+            }
         ];
     }
 
