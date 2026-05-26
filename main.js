@@ -1041,16 +1041,7 @@ var McpServerManager = class {
     }
   }
   listTasks(args) {
-    let tasks = [...this.plugin.settings.tasks || []];
-    const completion = this.normalizeEnum(args == null ? void 0 : args.completion, ["active", "completed", "all"], "completion");
-    if (typeof (args == null ? void 0 : args.status) === "number") {
-      tasks = tasks.filter((t) => t.status === args.status);
-    } else if (completion === "completed") {
-      tasks = tasks.filter((t) => t.status === 2);
-    } else if (completion === "all" || (args == null ? void 0 : args.includeCompleted) === true) {
-    } else {
-      tasks = tasks.filter((t) => t.status !== 2);
-    }
+    let tasks = [...this.plugin.settings.tasks || []].filter((t) => t.status !== 2);
     const query = String((args == null ? void 0 : args.query) || "").trim().toLowerCase();
     if (query)
       tasks = tasks.filter((t) => [t.title, t.content, t.desc, t.projectName].some((v) => String(v || "").toLowerCase().includes(query)));
@@ -1090,7 +1081,7 @@ var McpServerManager = class {
     if (!query)
       throw new Error("query is required");
     const limit = Math.max(1, Math.min(parseInt((args == null ? void 0 : args.limit) || "50", 10), 200));
-    return (this.plugin.settings.tasks || []).filter((t) => [t.title, t.content, t.desc, t.projectName].some((v) => String(v || "").toLowerCase().includes(query))).slice(0, limit).map((t) => this.serializeTask(t));
+    return (this.plugin.settings.tasks || []).filter((t) => t.status !== 2).filter((t) => [t.title, t.content, t.desc, t.projectName].some((v) => String(v || "").toLowerCase().includes(query))).slice(0, limit).map((t) => this.serializeTask(t));
   }
   async createTask(args) {
     const title = String((args == null ? void 0 : args.title) || "").trim();
@@ -1292,15 +1283,12 @@ var McpServerManager = class {
     return [
       {
         name: "dida_list_tasks",
-        description: "List/filter cached Dida tasks. Default completion is active.",
+        description: "List/filter active cached Dida tasks only.",
         readOnly: true,
         inputSchema: {
           type: "object",
           additionalProperties: false,
           properties: {
-            completion: { type: "string", enum: ["active", "completed", "all"], description: "Default active." },
-            includeCompleted: { type: "boolean", description: "Legacy; prefer completion=all." },
-            status: { type: "number", enum: [0, 2], description: "0 active, 2 completed." },
             datePreset: { type: "string", enum: ["overdue", "today", "tomorrow", "this_week", "scheduled", "unscheduled"], description: "Shortcut date filter." },
             from: { type: "string", description: "Range start: YYYY-MM-DD or ISO datetime." },
             to: { type: "string", description: "Range end: YYYY-MM-DD or ISO datetime." },
@@ -1319,7 +1307,7 @@ var McpServerManager = class {
       { name: "dida_get_task", description: "Get one task by id or didaId.", readOnly: true, inputSchema: idInput },
       {
         name: "dida_search_tasks",
-        description: "Search cached tasks by text.",
+        description: "Search active cached tasks by text.",
         readOnly: true,
         inputSchema: {
           type: "object",
@@ -1397,7 +1385,7 @@ var McpServerManager = class {
       { name: "dida_list_projects", description: "List cached Dida projects.", readOnly: true, inputSchema: { type: "object", additionalProperties: false, properties: {} } },
       {
         name: "dida_list_completed_tasks",
-        description: "Fetch or read completed tasks from Dida within an optional time range.",
+        description: "Fetch or read completed tasks only, primarily filtered by completed time range.",
         readOnly: true,
         inputSchema: {
           type: "object",
@@ -3754,7 +3742,8 @@ var TaskView = class extends import_obsidian5.ItemView {
       container.empty();
       const header = container.createDiv("dida-task-header");
       header.createEl("h3").innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-check-big-icon lucide-circle-check-big"><path d="M21.801 10A10 10 0 1 1 17 3.335" stroke="#183f9bff"/><path d="m9 11 3 3L22 4" stroke="#ff9800"/></svg> \u6EF4\u7B54\u4EFB\u52A1\u6E05\u5355';
-      const viewToggleBtn = header.createEl("button", {
+      const headerControls = header.createDiv("dida-task-header-controls");
+      const viewToggleBtn = headerControls.createEl("button", {
         cls: "dida-timeline-btn dida-time-block-toggle-btn"
       });
       if (this.viewMode === "timeblock") {
@@ -3771,7 +3760,7 @@ var TaskView = class extends import_obsidian5.ItemView {
           this.toggleViewMode();
         }
       };
-      const pomodoroToggleBtn = header.createEl("button", {
+      const pomodoroToggleBtn = headerControls.createEl("button", {
         cls: "dida-timeline-btn dida-pomodoro-toggle-btn"
       });
       pomodoroToggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-star"><circle cx="12" cy="12" r="10"/><path d="M12 8.75 13.236 11.255 16 11.657 14 13.606 14.472 16.36 12 15.06 9.528 16.36 10 13.606 8 11.657 10.764 11.255z"/></svg>';
@@ -3785,7 +3774,7 @@ var TaskView = class extends import_obsidian5.ItemView {
         });
       }
       this.pomodoroToggleBtn = pomodoroToggleBtn;
-      const timelineBtn = header.createEl("button", {
+      const timelineBtn = headerControls.createEl("button", {
         cls: "dida-timeline-btn"
       });
       timelineBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-check-icon lucide-calendar-check"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/></svg>';
@@ -3796,7 +3785,7 @@ var TaskView = class extends import_obsidian5.ItemView {
           this.plugin.showTimelineView();
         }
       };
-      const syncBtn = header.createEl("button", {
+      const syncBtn = headerControls.createEl("button", {
         cls: "dida-sync-btn"
       });
       syncBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw-icon lucide-refresh-cw"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>';
@@ -3817,7 +3806,7 @@ var TaskView = class extends import_obsidian5.ItemView {
         return;
       }
       if (this.viewMode === "task") {
-        const searchContainer = header.createDiv("dida-search-container");
+        const searchContainer = headerControls.createDiv("dida-search-container");
         const searchInputWrap = searchContainer.createDiv("dida-search-input-wrap");
         searchInputWrap.style.position = "relative";
         const searchInput = searchInputWrap.createEl("input", {
@@ -3841,7 +3830,7 @@ var TaskView = class extends import_obsidian5.ItemView {
                     position: absolute;
                     top: 100%;
                     left: 0;
-                    width: 100px;
+                    width: 136px;
                     background: var(--background-primary);
                     border: 1px solid var(--background-modifier-border);
                     border-radius: 4px;
@@ -3877,6 +3866,24 @@ var TaskView = class extends import_obsidian5.ItemView {
             dateFilterClearBtn.style.display = "flex";
             this.renderTaskList({ preserveSearch: true });
           });
+        });
+        const completedOption = dateFilterDropdown.createDiv("dida-date-filter-option");
+        completedOption.textContent = "\u67E5\u770B\u5DF2\u5B8C\u6210\u4EFB\u52A1";
+        completedOption.style.cssText = `
+                    padding: 8px 12px;
+                    cursor: pointer;
+                    border-top: 1px solid var(--background-modifier-border);
+                    transition: background 0.2s;
+                `;
+        completedOption.addEventListener("mouseenter", () => {
+          completedOption.style.background = "var(--background-modifier-hover)";
+        });
+        completedOption.addEventListener("mouseleave", () => {
+          completedOption.style.background = "";
+        });
+        completedOption.addEventListener("click", () => {
+          dateFilterDropdown.style.display = "none";
+          this.plugin.showCompletedTasksModal();
         });
         const clearOption = dateFilterDropdown.createDiv("dida-date-filter-option");
         clearOption.textContent = "\u6E05\u9664\u7B5B\u9009";
@@ -3944,17 +3951,6 @@ var TaskView = class extends import_obsidian5.ItemView {
           dateFilterDropdown.style.display = "none";
           dateFilterClearBtn.style.display = "none";
           this.renderTaskList({ preserveSearch: true });
-        });
-        const completedEntryBtn = searchContainer.createEl("button", {
-          cls: "dida-completed-entry-btn",
-          attr: { "aria-label": "\u67E5\u770B\u5DF2\u5B8C\u6210\u4EFB\u52A1" }
-        });
-        completedEntryBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="M10 16l2 2 4-4"/><rect width="18" height="18" x="3" y="4" rx="2"/></svg><span>\u5DF2\u5B8C\u6210</span>';
-        completedEntryBtn.title = "\u67E5\u770B\u5DF2\u5B8C\u6210\u4EFB\u52A1";
-        completedEntryBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          dateFilterDropdown.style.display = "none";
-          this.plugin.showCompletedTasksModal();
         });
       }
       taskListContainer = container.createDiv("dida-task-list");
@@ -7510,11 +7506,9 @@ var CompletedTasksModal = class extends import_obsidian8.Modal {
     contentEl.createEl("h3", { text: "\u5DF2\u5B8C\u6210\u4EFB\u52A1" });
     const controls = contentEl.createDiv("dida-completed-controls");
     const startWrap = controls.createDiv("dida-completed-control");
-    startWrap.createEl("label", { text: "\u5F00\u59CB\u65E5\u671F" });
     this.startFieldEl = startWrap.createDiv("dida-completed-date-field");
     this.startFieldEl.addEventListener("click", () => this.openDatePicker("start"));
     const endWrap = controls.createDiv("dida-completed-control");
-    endWrap.createEl("label", { text: "\u7ED3\u675F\u65E5\u671F" });
     this.endFieldEl = endWrap.createDiv("dida-completed-date-field");
     this.endFieldEl.addEventListener("click", () => this.openDatePicker("end"));
     const actions = controls.createDiv("dida-completed-actions");
@@ -7555,13 +7549,13 @@ var CompletedTasksModal = class extends import_obsidian8.Modal {
   renderDateFields() {
     if (this.startFieldEl) {
       this.startFieldEl.empty();
-      this.startFieldEl.createSpan({ text: this.extractDateValue(this.currentQuery.startDate) || "\u9009\u62E9\u5F00\u59CB\u65E5\u671F" });
-      this.startFieldEl.createSpan({ cls: "dida-completed-date-field-icon", text: "\u{1F4C5}" });
+      this.startFieldEl.createSpan({ cls: "dida-completed-date-field-label", text: "\u5F00\u59CB\u65E5\u671F" });
+      this.startFieldEl.createSpan({ cls: "dida-completed-date-field-value", text: this.extractDateValue(this.currentQuery.startDate) || "\u9009\u62E9\u65E5\u671F" });
     }
     if (this.endFieldEl) {
       this.endFieldEl.empty();
-      this.endFieldEl.createSpan({ text: this.extractDateValue(this.currentQuery.endDate) || "\u9009\u62E9\u7ED3\u675F\u65E5\u671F" });
-      this.endFieldEl.createSpan({ cls: "dida-completed-date-field-icon", text: "\u{1F4C5}" });
+      this.endFieldEl.createSpan({ cls: "dida-completed-date-field-label", text: "\u7ED3\u675F\u65E5\u671F" });
+      this.endFieldEl.createSpan({ cls: "dida-completed-date-field-value", text: this.extractDateValue(this.currentQuery.endDate) || "\u9009\u62E9\u65E5\u671F" });
     }
   }
   openDatePicker(kind) {

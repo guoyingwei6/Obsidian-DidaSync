@@ -202,17 +202,7 @@ export class McpServerManager {
     }
 
     private listTasks(args: any) {
-        let tasks = [...(this.plugin.settings.tasks || [])];
-        const completion = this.normalizeEnum(args?.completion, ["active", "completed", "all"], "completion");
-        if (typeof args?.status === "number") {
-            tasks = tasks.filter(t => t.status === args.status);
-        } else if (completion === "completed") {
-            tasks = tasks.filter(t => t.status === 2);
-        } else if (completion === "all" || args?.includeCompleted === true) {
-            // Keep all tasks.
-        } else {
-            tasks = tasks.filter(t => t.status !== 2);
-        }
+        let tasks = [...(this.plugin.settings.tasks || [])].filter(t => t.status !== 2);
 
         const query = String(args?.query || "").trim().toLowerCase();
         if (query) tasks = tasks.filter(t => [t.title, t.content, t.desc, t.projectName].some(v => String(v || "").toLowerCase().includes(query)));
@@ -250,6 +240,7 @@ export class McpServerManager {
         if (!query) throw new Error("query is required");
         const limit = Math.max(1, Math.min(parseInt(args?.limit || "50", 10), 200));
         return (this.plugin.settings.tasks || [])
+            .filter(t => t.status !== 2)
             .filter(t => [t.title, t.content, t.desc, t.projectName].some(v => String(v || "").toLowerCase().includes(query)))
             .slice(0, limit)
             .map(t => this.serializeTask(t));
@@ -454,15 +445,12 @@ export class McpServerManager {
         return [
             {
                 name: "dida_list_tasks",
-                description: "List/filter cached Dida tasks. Default completion is active.",
+                description: "List/filter active cached Dida tasks only.",
                 readOnly: true,
                 inputSchema: {
                     type: "object",
                     additionalProperties: false,
                     properties: {
-                        completion: { type: "string", enum: ["active", "completed", "all"], description: "Default active." },
-                        includeCompleted: { type: "boolean", description: "Legacy; prefer completion=all." },
-                        status: { type: "number", enum: [0, 2], description: "0 active, 2 completed." },
                         datePreset: { type: "string", enum: ["overdue", "today", "tomorrow", "this_week", "scheduled", "unscheduled"], description: "Shortcut date filter." },
                         from: { type: "string", description: "Range start: YYYY-MM-DD or ISO datetime." },
                         to: { type: "string", description: "Range end: YYYY-MM-DD or ISO datetime." },
@@ -481,7 +469,7 @@ export class McpServerManager {
             { name: "dida_get_task", description: "Get one task by id or didaId.", readOnly: true, inputSchema: idInput },
             {
                 name: "dida_search_tasks",
-                description: "Search cached tasks by text.",
+                description: "Search active cached tasks by text.",
                 readOnly: true,
                 inputSchema: {
                     type: "object",
@@ -559,7 +547,7 @@ export class McpServerManager {
             { name: "dida_list_projects", description: "List cached Dida projects.", readOnly: true, inputSchema: { type: "object", additionalProperties: false, properties: {} } },
             {
                 name: "dida_list_completed_tasks",
-                description: "Fetch or read completed tasks from Dida within an optional time range.",
+                description: "Fetch or read completed tasks only, primarily filtered by completed time range.",
                 readOnly: true,
                 inputSchema: {
                     type: "object",
