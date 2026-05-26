@@ -13,6 +13,8 @@ export interface DidaTask {
     id: string;
     title: string;
     content: string;
+    completed?: boolean;
+    isFloating?: boolean;
     desc?: string;
     isAllDay?: boolean;
     startDate?: string; // ISO String
@@ -46,6 +48,12 @@ export interface DidaTask {
     // Native Sync fields
     hasLink?: boolean; // If linked to a markdown file
     linkPath?: string;
+}
+
+export interface CompletedTasksQuery {
+    projectIds?: string[];
+    startDate?: string;
+    endDate?: string;
 }
 
 export interface DidaProject {
@@ -134,6 +142,10 @@ export interface DidaSyncSettings {
             date?: string;
         }
     };
+
+    completedTasks: DidaTask[];
+    completedTasksLastFetchedAt: string;
+    completedTasksQuery: CompletedTasksQuery;
 }
 
 export const DEFAULT_SETTINGS: DidaSyncSettings = {
@@ -174,7 +186,10 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
         totalFocusMinutes: 0
     },
     reverseCompletionMeta: {},
-    syncConsistencyMeta: {}
+    syncConsistencyMeta: {},
+    completedTasks: [],
+    completedTasksLastFetchedAt: "",
+    completedTasksQuery: {}
 };
 
 export const OAUTH_CONFIG = {

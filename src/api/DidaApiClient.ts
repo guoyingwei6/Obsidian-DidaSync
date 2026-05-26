@@ -453,4 +453,58 @@ export class DidaApiClient {
         });
         if (!res.ok) throw new Error("Failed to complete task");
     }
+
+    async moveTask(fromProjectId: string, toProjectId: string, taskId: string): Promise<any> {
+        return this.moveTasks([{ fromProjectId, toProjectId, taskId }]);
+    }
+
+    async moveTasks(operations: Array<{ fromProjectId: string; toProjectId: string; taskId: string }>): Promise<any[]> {
+        if (!Array.isArray(operations) || operations.length === 0) throw new Error("Move operations are required");
+        const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/move", {
+            method: "POST",
+            body: JSON.stringify(operations)
+        });
+        if (res.ok) return await res.json();
+        throw await res.text();
+    }
+
+    async getCompletedTasks(filters: {
+        projectIds?: string[];
+        startDate?: string;
+        endDate?: string;
+    } = {}): Promise<any[]> {
+        const payload: any = {};
+        if (Array.isArray(filters.projectIds) && filters.projectIds.length > 0) payload.projectIds = filters.projectIds;
+        if (filters.startDate) payload.startDate = filters.startDate;
+        if (filters.endDate) payload.endDate = filters.endDate;
+        const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/completed", {
+            method: "POST",
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) return await res.json();
+        throw await res.text();
+    }
+
+    async filterTasks(filters: {
+        projectIds?: string[];
+        startDate?: string;
+        endDate?: string;
+        priority?: number[];
+        tag?: string[];
+        status?: number[];
+    } = {}): Promise<any[]> {
+        const payload: any = {};
+        if (Array.isArray(filters.projectIds) && filters.projectIds.length > 0) payload.projectIds = filters.projectIds;
+        if (filters.startDate) payload.startDate = filters.startDate;
+        if (filters.endDate) payload.endDate = filters.endDate;
+        if (Array.isArray(filters.priority) && filters.priority.length > 0) payload.priority = filters.priority;
+        if (Array.isArray(filters.tag) && filters.tag.length > 0) payload.tag = filters.tag;
+        if (Array.isArray(filters.status) && filters.status.length > 0) payload.status = filters.status;
+        const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/filter", {
+            method: "POST",
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) return await res.json();
+        throw await res.text();
+    }
 }
