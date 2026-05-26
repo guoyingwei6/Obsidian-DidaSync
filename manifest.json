@@ -1,10 +1,10 @@
 {
 	"id": "Obsidian-DidaSync",
-	"name": "Obsidian-DidaSync",
+	"name": "Didasync",
 	"minAppVersion": "0.15.0",
 	"description": "与滴答清单双向同步任务的插件",
 	"author": "CYZice",
 	"authorUrl": "https://github.com/CYZice",
 	"isDesktopOnly": true,
-	"version": "1.4.0"
+	"version": "1.4.2"
 }
