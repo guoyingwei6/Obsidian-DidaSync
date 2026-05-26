@@ -7606,15 +7606,34 @@ var CompletedTasksModal = class extends import_obsidian8.Modal {
     }
     tasks.slice().sort((a, b) => new Date(b.completedTime || 0).getTime() - new Date(a.completedTime || 0).getTime()).forEach((task) => {
       const item = this.resultEl.createDiv("dida-completed-item");
-      const titleRow = item.createDiv("dida-completed-item-title");
+      const main = item.createDiv("dida-completed-item-main");
+      const titleRow = main.createDiv("dida-completed-item-title");
       titleRow.textContent = task.title || "\u672A\u547D\u540D\u4EFB\u52A1";
-      const meta = item.createDiv("dida-completed-item-meta");
+      const meta = main.createDiv("dida-completed-item-meta");
       const parts = [
         task.projectName || (task.projectId === "inbox" ? "\u6536\u96C6\u7BB1" : task.projectId),
         task.completedTime ? `\u5B8C\u6210\u4E8E ${this.extractDateValue(task.completedTime)}` : "",
         task.dueDate ? `\u539F\u8BA1\u5212 ${this.extractDateValue(task.dueDate)}` : ""
       ].filter(Boolean);
       meta.textContent = parts.join(" \xB7 ");
+      const actionBtn = item.createEl("button", {
+        text: "\u6062\u590D",
+        cls: "dida-completed-restore-btn"
+      });
+      actionBtn.addEventListener("click", async () => {
+        actionBtn.disabled = true;
+        try {
+          await this.plugin.restoreCompletedTask(task);
+          const nextTasks = (this.plugin.settings.completedTasks || []).filter((item2) => item2.didaId !== task.didaId);
+          await this.renderResults(nextTasks);
+          if (this.loadingEl) {
+            this.loadingEl.textContent = `\u5171 ${nextTasks.length} \u4E2A\u4EFB\u52A1`;
+          }
+        } catch (e) {
+          new import_obsidian8.Notice((e == null ? void 0 : e.message) || "\u6062\u590D\u4EFB\u52A1\u5931\u8D25");
+          actionBtn.disabled = false;
+        }
+      });
     });
   }
   onClose() {
@@ -10993,6 +11012,72 @@ var DidaSyncPlugin = class extends import_obsidian20.Plugin {
   }
   showCompletedTasksModal() {
     new CompletedTasksModal(this.app, this).open();
+  }
+  async restoreCompletedTask(task) {
+    var _a, _b, _c, _d, _e;
+    if (!(task == null ? void 0 : task.didaId))
+      throw new Error("\u4EFB\u52A1\u7F3A\u5C11\u6EF4\u7B54\u6E05\u5355 ID\uFF0C\u65E0\u6CD5\u6062\u590D");
+    if (!this.settings.accessToken)
+      throw new Error("\u8BF7\u5148\u8FDB\u884COAuth\u8BA4\u8BC1");
+    const didaId = task.didaId;
+    const existingIndex = this.settings.tasks.findIndex((item) => item.didaId === didaId);
+    const existingTask = existingIndex >= 0 ? this.settings.tasks[existingIndex] : null;
+    const project = this.findProjectById(task.projectId || "inbox");
+    const display = this.getProjectDisplayInfo(task.projectId || (project == null ? void 0 : project.id) || "inbox", task.projectName || (project == null ? void 0 : project.name));
+    const now = new Date().toISOString();
+    const restoredTask = existingTask ? {
+      ...existingTask,
+      title: task.title || existingTask.title,
+      content: task.content || existingTask.content,
+      desc: task.desc || existingTask.desc,
+      dueDate: task.dueDate || existingTask.dueDate || null,
+      startDate: task.startDate || existingTask.startDate || null,
+      reminders: task.reminders || existingTask.reminders || [],
+      repeatFlag: task.repeatFlag || existingTask.repeatFlag || null,
+      items: task.items || existingTask.items || [],
+      isAllDay: (_b = (_a = task.isAllDay) != null ? _a : existingTask.isAllDay) != null ? _b : false,
+      status: 0,
+      completed: false,
+      completedTime: null,
+      updatedAt: now,
+      projectId: display.id,
+      projectName: display.name,
+      projectColor: task.projectColor || existingTask.projectColor || display.color,
+      projectClosed: (_d = (_c = task.projectClosed) != null ? _c : existingTask.projectClosed) != null ? _d : display.closed,
+      projectViewMode: task.projectViewMode || existingTask.projectViewMode || display.viewMode,
+      projectKind: task.projectKind || existingTask.projectKind || display.kind,
+      projectPermission: task.projectPermission || existingTask.projectPermission || display.permission
+    } : {
+      ...this.normalizeRemoteTask({
+        ...task,
+        id: didaId,
+        status: 0,
+        completedTime: null
+      }, project),
+      didaId,
+      status: 0,
+      completed: false,
+      completedTime: null,
+      updatedAt: now,
+      projectId: display.id,
+      projectName: display.name,
+      projectColor: task.projectColor || display.color,
+      projectClosed: (_e = task.projectClosed) != null ? _e : display.closed,
+      projectViewMode: task.projectViewMode || display.viewMode,
+      projectKind: task.projectKind || display.kind,
+      projectPermission: task.projectPermission || display.permission
+    };
+    await this.updateTaskInDidaList(restoredTask);
+    if (existingIndex >= 0) {
+      this.settings.tasks[existingIndex] = restoredTask;
+    } else {
+      this.settings.tasks.push(restoredTask);
+    }
+    this.settings.completedTasks = this.settings.completedTasks.filter((item) => item.didaId !== didaId);
+    await this.saveSettings();
+    this.refreshTaskView();
+    new import_obsidian20.Notice("\u4EFB\u52A1\u5DF2\u6062\u590D\u4E3A\u672A\u5B8C\u6210");
+    return restoredTask;
   }
   async moveTaskToProject(task, targetProjectId) {
     if (!task)
