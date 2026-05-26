@@ -22,8 +22,9 @@ export class DatePickerModal {
     closeDropdownsHandler: ((e: MouseEvent) => void) | null = null;
     escapeHandler: ((e: KeyboardEvent) => void) | null = null;
     repeatFlag?: string | null;
+    dateOnly: boolean;
 
-    constructor(app: App, currentDate: string | null, onDateSelect: (date: Date | null, isAllDay: boolean, endDate?: Date) => void, triggerElement: HTMLElement | null, plugin: DidaSyncPlugin | null = null, taskIndex: number | null = null) {
+    constructor(app: App, currentDate: string | null, onDateSelect: (date: Date | null, isAllDay: boolean, endDate?: Date) => void, triggerElement: HTMLElement | null, plugin: DidaSyncPlugin | null = null, taskIndex: number | null = null, options: { dateOnly?: boolean } = {}) {
         this.app = app;
         this.currentDate = currentDate ? new Date(currentDate) : null;
         this.onDateSelect = onDateSelect;
@@ -31,6 +32,7 @@ export class DatePickerModal {
         this.selectedDate = this.currentDate;
         this.plugin = plugin;
         this.taskIndex = taskIndex;
+        this.dateOnly = options.dateOnly === true;
 
         if (this.selectedDate) {
             this.isAllDay = 0 === this.selectedDate.getHours() && 0 === this.selectedDate.getMinutes();
@@ -312,6 +314,12 @@ export class DatePickerModal {
             endContainer.style.display = show ? "flex" : "none";
         };
         updateVisibility();
+        if (this.dateOnly) {
+            this.isAllDay = true;
+            timeContainer.style.display = "none";
+            endContainer.style.display = "none";
+            updateVisibility();
+        }
         allDayCheckbox.onchange = (e) => {
             if (!this.selectedDate) {
                 const d = new Date();
@@ -365,11 +373,18 @@ export class DatePickerModal {
         };
         const repeatBtn = buttons.createEl("button", { text: "重复设置" });
         repeatBtn.onclick = () => this.showRepeatSettings(repeatBtn);
+        if (this.dateOnly) repeatBtn.style.display = "none";
         buttons.createEl("button", { text: "取消" }).onclick = () => this.close();
         buttons.createEl("button", { text: "确认", cls: "mod-cta" }).onclick = () => {
             if (this.selectedDate) {
                 const startDate = new Date(this.selectedDate);
                 let endDate: Date | null = null;
+                if (this.dateOnly) {
+                    startDate.setHours(0, 0, 0, 0);
+                    this.onDateSelect(startDate, true);
+                    this.close();
+                    return;
+                }
                 if (!this.isAllDay && this.plugin && null !== this.taskIndex) {
                     const task = this.plugin.settings.tasks[this.taskIndex];
                     if (task) {

@@ -2108,7 +2108,7 @@ var CompactRepeatSettings = class {
 
 // src/modals/DatePickerModal.ts
 var DatePickerModal = class {
-  constructor(app, currentDate, onDateSelect, triggerElement, plugin = null, taskIndex = null) {
+  constructor(app, currentDate, onDateSelect, triggerElement, plugin = null, taskIndex = null, options = {}) {
     this.container = null;
     this.overlay = null;
     this.closeDropdownsHandler = null;
@@ -2120,6 +2120,7 @@ var DatePickerModal = class {
     this.selectedDate = this.currentDate;
     this.plugin = plugin;
     this.taskIndex = taskIndex;
+    this.dateOnly = options.dateOnly === true;
     if (this.selectedDate) {
       this.isAllDay = 0 === this.selectedDate.getHours() && 0 === this.selectedDate.getMinutes();
       this.selectedHour = this.selectedDate.getHours();
@@ -2396,6 +2397,12 @@ var DatePickerModal = class {
       endContainer.style.display = show ? "flex" : "none";
     };
     updateVisibility();
+    if (this.dateOnly) {
+      this.isAllDay = true;
+      timeContainer.style.display = "none";
+      endContainer.style.display = "none";
+      updateVisibility();
+    }
     allDayCheckbox.onchange = (e) => {
       if (!this.selectedDate) {
         const d = new Date();
@@ -2462,11 +2469,19 @@ var DatePickerModal = class {
     };
     const repeatBtn = buttons.createEl("button", { text: "\u91CD\u590D\u8BBE\u7F6E" });
     repeatBtn.onclick = () => this.showRepeatSettings(repeatBtn);
+    if (this.dateOnly)
+      repeatBtn.style.display = "none";
     buttons.createEl("button", { text: "\u53D6\u6D88" }).onclick = () => this.close();
     buttons.createEl("button", { text: "\u786E\u8BA4", cls: "mod-cta" }).onclick = () => {
       if (this.selectedDate) {
         const startDate = new Date(this.selectedDate);
         let endDate = null;
+        if (this.dateOnly) {
+          startDate.setHours(0, 0, 0, 0);
+          this.onDateSelect(startDate, true);
+          this.close();
+          return;
+        }
         if (!this.isAllDay && this.plugin && null !== this.taskIndex) {
           const task = this.plugin.settings.tasks[this.taskIndex];
           if (task) {
@@ -3792,14 +3807,6 @@ var TaskView = class extends import_obsidian5.ItemView {
           await this.checkPluginStatusAndNotify();
         }
       };
-      const completedBtn = header.createEl("button", {
-        cls: "dida-completed-entry-btn"
-      });
-      completedBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="M10 16l2 2 4-4"/><rect width="18" height="18" x="3" y="4" rx="2"/></svg>';
-      completedBtn.title = "\u67E5\u770B\u5DF2\u5B8C\u6210\u4EFB\u52A1";
-      completedBtn.onclick = () => {
-        this.plugin.showCompletedTasksModal();
-      };
       this.pomodoroHostEl = container.createDiv("dida-pomodoro-host");
       this.renderPomodoroPanel();
       if (this.pomodoroToggleBtn) {
@@ -3811,24 +3818,25 @@ var TaskView = class extends import_obsidian5.ItemView {
       }
       if (this.viewMode === "task") {
         const searchContainer = header.createDiv("dida-search-container");
-        searchContainer.style.position = "relative";
-        const searchInput = searchContainer.createEl("input", {
+        const searchInputWrap = searchContainer.createDiv("dida-search-input-wrap");
+        searchInputWrap.style.position = "relative";
+        const searchInput = searchInputWrap.createEl("input", {
           type: "text",
           cls: "dida-search-input",
           placeholder: "\u641C\u7D22\u4EFB\u52A1..."
         });
         searchInput.value = this.searchQuery;
-        const clearBtn = searchContainer.createEl("button", {
+        const clearBtn = searchInputWrap.createEl("button", {
           cls: "dida-search-clear-btn"
         });
         clearBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
         clearBtn.style.display = this.searchQuery ? "flex" : "none";
-        const dateFilterClearBtn = searchContainer.createEl("button", {
+        const dateFilterClearBtn = searchInputWrap.createEl("button", {
           cls: "dida-date-clear-btn"
         });
         dateFilterClearBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
         dateFilterClearBtn.style.display = this.dateFilter ? "flex" : "none";
-        const dateFilterDropdown = searchContainer.createDiv("dida-date-filter-dropdown");
+        const dateFilterDropdown = searchInputWrap.createDiv("dida-date-filter-dropdown");
         dateFilterDropdown.style.cssText = `
                     position: absolute;
                     top: 100%;
@@ -3892,7 +3900,7 @@ var TaskView = class extends import_obsidian5.ItemView {
           this.renderTaskList({ preserveSearch: true });
         });
         const handleClickOutside = (e) => {
-          if (!searchContainer.contains(e.target)) {
+          if (!searchInputWrap.contains(e.target)) {
             dateFilterDropdown.style.display = "none";
           }
         };
@@ -3936,6 +3944,17 @@ var TaskView = class extends import_obsidian5.ItemView {
           dateFilterDropdown.style.display = "none";
           dateFilterClearBtn.style.display = "none";
           this.renderTaskList({ preserveSearch: true });
+        });
+        const completedEntryBtn = searchContainer.createEl("button", {
+          cls: "dida-completed-entry-btn",
+          attr: { "aria-label": "\u67E5\u770B\u5DF2\u5B8C\u6210\u4EFB\u52A1" }
+        });
+        completedEntryBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="M10 16l2 2 4-4"/><rect width="18" height="18" x="3" y="4" rx="2"/></svg><span>\u5DF2\u5B8C\u6210</span>';
+        completedEntryBtn.title = "\u67E5\u770B\u5DF2\u5B8C\u6210\u4EFB\u52A1";
+        completedEntryBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          dateFilterDropdown.style.display = "none";
+          this.plugin.showCompletedTasksModal();
         });
       }
       taskListContainer = container.createDiv("dida-task-list");
@@ -7473,8 +7492,8 @@ var import_obsidian8 = require("obsidian");
 var CompletedTasksModal = class extends import_obsidian8.Modal {
   constructor(app, plugin) {
     super(app);
-    this.startInput = null;
-    this.endInput = null;
+    this.startFieldEl = null;
+    this.endFieldEl = null;
     this.resultEl = null;
     this.loadingEl = null;
     this.currentQuery = {};
@@ -7492,12 +7511,12 @@ var CompletedTasksModal = class extends import_obsidian8.Modal {
     const controls = contentEl.createDiv("dida-completed-controls");
     const startWrap = controls.createDiv("dida-completed-control");
     startWrap.createEl("label", { text: "\u5F00\u59CB\u65E5\u671F" });
-    this.startInput = startWrap.createEl("input", { type: "date" });
-    this.startInput.value = this.extractDateValue(this.currentQuery.startDate);
+    this.startFieldEl = startWrap.createDiv("dida-completed-date-field");
+    this.startFieldEl.addEventListener("click", () => this.openDatePicker("start"));
     const endWrap = controls.createDiv("dida-completed-control");
     endWrap.createEl("label", { text: "\u7ED3\u675F\u65E5\u671F" });
-    this.endInput = endWrap.createEl("input", { type: "date" });
-    this.endInput.value = this.extractDateValue(this.currentQuery.endDate);
+    this.endFieldEl = endWrap.createDiv("dida-completed-date-field");
+    this.endFieldEl.addEventListener("click", () => this.openDatePicker("end"));
     const actions = controls.createDiv("dida-completed-actions");
     const refreshBtn = actions.createEl("button", { text: "\u67E5\u8BE2" });
     refreshBtn.addClass("mod-cta");
@@ -7505,13 +7524,12 @@ var CompletedTasksModal = class extends import_obsidian8.Modal {
     const presetBtn = actions.createEl("button", { text: "\u6700\u8FD1 7 \u5929" });
     presetBtn.addEventListener("click", () => {
       const preset = this.plugin.buildDefaultCompletedTaskQuery();
-      if (this.startInput)
-        this.startInput.value = this.extractDateValue(preset.startDate);
-      if (this.endInput)
-        this.endInput.value = this.extractDateValue(preset.endDate);
+      this.currentQuery = preset;
+      this.renderDateFields();
     });
     this.loadingEl = contentEl.createDiv("dida-completed-loading");
     this.resultEl = contentEl.createDiv("dida-completed-results");
+    this.renderDateFields();
     void this.renderResults(this.plugin.settings.completedTasks || []);
   }
   extractDateValue(value) {
@@ -7520,16 +7538,54 @@ var CompletedTasksModal = class extends import_obsidian8.Modal {
     const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
     return match ? match[1] : "";
   }
+  formatDateOnly(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
   buildQueryFromInputs() {
-    var _a, _b;
     const query = {};
-    if ((_a = this.startInput) == null ? void 0 : _a.value) {
-      query.startDate = this.plugin.formatDidaDateTime(new Date(`${this.startInput.value}T00:00:00`));
-    }
-    if ((_b = this.endInput) == null ? void 0 : _b.value) {
-      query.endDate = this.plugin.formatDidaDateTime(new Date(`${this.endInput.value}T23:59:59.999`));
-    }
+    if (this.currentQuery.startDate)
+      query.startDate = this.currentQuery.startDate;
+    if (this.currentQuery.endDate)
+      query.endDate = this.currentQuery.endDate;
     return query;
+  }
+  renderDateFields() {
+    if (this.startFieldEl) {
+      this.startFieldEl.empty();
+      this.startFieldEl.createSpan({ text: this.extractDateValue(this.currentQuery.startDate) || "\u9009\u62E9\u5F00\u59CB\u65E5\u671F" });
+      this.startFieldEl.createSpan({ cls: "dida-completed-date-field-icon", text: "\u{1F4C5}" });
+    }
+    if (this.endFieldEl) {
+      this.endFieldEl.empty();
+      this.endFieldEl.createSpan({ text: this.extractDateValue(this.currentQuery.endDate) || "\u9009\u62E9\u7ED3\u675F\u65E5\u671F" });
+      this.endFieldEl.createSpan({ cls: "dida-completed-date-field-icon", text: "\u{1F4C5}" });
+    }
+  }
+  openDatePicker(kind) {
+    const fieldEl = kind === "start" ? this.startFieldEl : this.endFieldEl;
+    const currentValue = kind === "start" ? this.currentQuery.startDate : this.currentQuery.endDate;
+    new DatePickerModal(
+      this.app,
+      currentValue || null,
+      (date) => {
+        if (!date)
+          return;
+        const dateOnly = this.formatDateOnly(date);
+        if (kind === "start") {
+          this.currentQuery.startDate = this.plugin.formatDidaDateTime(new Date(`${dateOnly}T00:00:00`));
+        } else {
+          this.currentQuery.endDate = this.plugin.formatDidaDateTime(new Date(`${dateOnly}T23:59:59.999`));
+        }
+        this.renderDateFields();
+      },
+      fieldEl,
+      null,
+      null,
+      { dateOnly: true }
+    ).open();
   }
   async runQuery() {
     if (!this.loadingEl)

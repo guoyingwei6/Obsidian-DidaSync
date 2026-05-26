@@ -1,11 +1,12 @@
 import { Modal, Notice } from "obsidian";
 import DidaSyncPlugin from "../main";
+import { DatePickerModal } from "./DatePickerModal";
 import { DidaTask } from "../types";
 
 export class CompletedTasksModal extends Modal {
     plugin: DidaSyncPlugin;
-    startInput: HTMLInputElement | null = null;
-    endInput: HTMLInputElement | null = null;
+    startFieldEl: HTMLElement | null = null;
+    endFieldEl: HTMLElement | null = null;
     resultEl: HTMLElement | null = null;
     loadingEl: HTMLElement | null = null;
     currentQuery: any = {};
@@ -28,13 +29,13 @@ export class CompletedTasksModal extends Modal {
         const controls = contentEl.createDiv("dida-completed-controls");
         const startWrap = controls.createDiv("dida-completed-control");
         startWrap.createEl("label", { text: "开始日期" });
-        this.startInput = startWrap.createEl("input", { type: "date" });
-        this.startInput.value = this.extractDateValue(this.currentQuery.startDate);
+        this.startFieldEl = startWrap.createDiv("dida-completed-date-field");
+        this.startFieldEl.addEventListener("click", () => this.openDatePicker("start"));
 
         const endWrap = controls.createDiv("dida-completed-control");
         endWrap.createEl("label", { text: "结束日期" });
-        this.endInput = endWrap.createEl("input", { type: "date" });
-        this.endInput.value = this.extractDateValue(this.currentQuery.endDate);
+        this.endFieldEl = endWrap.createDiv("dida-completed-date-field");
+        this.endFieldEl.addEventListener("click", () => this.openDatePicker("end"));
 
         const actions = controls.createDiv("dida-completed-actions");
         const refreshBtn = actions.createEl("button", { text: "查询" });
@@ -44,12 +45,13 @@ export class CompletedTasksModal extends Modal {
         const presetBtn = actions.createEl("button", { text: "最近 7 天" });
         presetBtn.addEventListener("click", () => {
             const preset = this.plugin.buildDefaultCompletedTaskQuery();
-            if (this.startInput) this.startInput.value = this.extractDateValue(preset.startDate);
-            if (this.endInput) this.endInput.value = this.extractDateValue(preset.endDate);
+            this.currentQuery = preset;
+            this.renderDateFields();
         });
 
         this.loadingEl = contentEl.createDiv("dida-completed-loading");
         this.resultEl = contentEl.createDiv("dida-completed-results");
+        this.renderDateFields();
         void this.renderResults(this.plugin.settings.completedTasks || []);
     }
 
@@ -59,15 +61,54 @@ export class CompletedTasksModal extends Modal {
         return match ? match[1] : "";
     }
 
+    formatDateOnly(date: Date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, "0");
+        const d = String(date.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
+    }
+
     buildQueryFromInputs() {
         const query: any = {};
-        if (this.startInput?.value) {
-            query.startDate = this.plugin.formatDidaDateTime(new Date(`${this.startInput.value}T00:00:00`));
-        }
-        if (this.endInput?.value) {
-            query.endDate = this.plugin.formatDidaDateTime(new Date(`${this.endInput.value}T23:59:59.999`));
-        }
+        if (this.currentQuery.startDate) query.startDate = this.currentQuery.startDate;
+        if (this.currentQuery.endDate) query.endDate = this.currentQuery.endDate;
         return query;
+    }
+
+    renderDateFields() {
+        if (this.startFieldEl) {
+            this.startFieldEl.empty();
+            this.startFieldEl.createSpan({ text: this.extractDateValue(this.currentQuery.startDate) || "选择开始日期" });
+            this.startFieldEl.createSpan({ cls: "dida-completed-date-field-icon", text: "📅" });
+        }
+        if (this.endFieldEl) {
+            this.endFieldEl.empty();
+            this.endFieldEl.createSpan({ text: this.extractDateValue(this.currentQuery.endDate) || "选择结束日期" });
+            this.endFieldEl.createSpan({ cls: "dida-completed-date-field-icon", text: "📅" });
+        }
+    }
+
+    openDatePicker(kind: "start" | "end") {
+        const fieldEl = kind === "start" ? this.startFieldEl : this.endFieldEl;
+        const currentValue = kind === "start" ? this.currentQuery.startDate : this.currentQuery.endDate;
+        new DatePickerModal(
+            this.app,
+            currentValue || null,
+            (date) => {
+                if (!date) return;
+                const dateOnly = this.formatDateOnly(date);
+                if (kind === "start") {
+                    this.currentQuery.startDate = this.plugin.formatDidaDateTime(new Date(`${dateOnly}T00:00:00`));
+                } else {
+                    this.currentQuery.endDate = this.plugin.formatDidaDateTime(new Date(`${dateOnly}T23:59:59.999`));
+                }
+                this.renderDateFields();
+            },
+            fieldEl,
+            null,
+            null,
+            { dateOnly: true }
+        ).open();
     }
 
     async runQuery() {

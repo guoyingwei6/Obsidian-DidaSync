@@ -187,11 +187,16 @@
     gap: 8px;
     margin: 5px 0;
     padding: 0;
+    width: 100%;
+}
+
+.dida-search-input-wrap {
     position: relative;
+    flex: 1;
 }
 
 .dida-search-input {
-    width: 100%;
+    flex: 1;
     font-size: 10px !important;
     height: 25px !important;
 }
@@ -225,6 +230,21 @@
     height: 14px;
 }
 
+.dida-completed-entry-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px !important;
+    border: 1px solid var(--background-modifier-border) !important;
+    border-radius: 999px;
+    white-space: nowrap;
+    font-size: 11px !important;
+}
+
+.dida-completed-entry-btn span {
+    line-height: 1;
+}
+
 .dida-completed-modal {
     min-width: 560px;
     max-width: 760px;
@@ -244,13 +264,30 @@
     gap: 6px;
 }
 
-.dida-completed-control input {
-    min-width: 160px;
-}
-
 .dida-completed-actions {
     display: flex;
     gap: 8px;
+}
+
+.dida-completed-date-field {
+    min-width: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+}
+
+.dida-completed-date-field:hover {
+    background: var(--background-modifier-hover);
+}
+
+.dida-completed-date-field-icon {
+    opacity: 0.7;
 }
 
 .dida-completed-loading {
