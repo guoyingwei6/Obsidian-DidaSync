@@ -1080,9 +1080,10 @@ export class TaskView extends ItemView {
             container.empty();
             const header = container.createDiv("dida-task-header");
             header.createEl("h3").innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-check-big-icon lucide-circle-check-big"><path d="M21.801 10A10 10 0 1 1 17 3.335" stroke="#183f9bff"/><path d="m9 11 3 3L22 4" stroke="#ff9800"/></svg> 滴答任务清单';
+            const headerControls = header.createDiv("dida-task-header-controls");
 
             // View toggle button
-            const viewToggleBtn = header.createEl("button", {
+            const viewToggleBtn = headerControls.createEl("button", {
                 cls: "dida-timeline-btn dida-time-block-toggle-btn"
             });
 
@@ -1101,7 +1102,7 @@ export class TaskView extends ItemView {
                 }
             };
 
-            const pomodoroToggleBtn = header.createEl("button", {
+            const pomodoroToggleBtn = headerControls.createEl("button", {
                 cls: "dida-timeline-btn dida-pomodoro-toggle-btn"
             });
             pomodoroToggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-star"><circle cx="12" cy="12" r="10"/><path d="M12 8.75 13.236 11.255 16 11.657 14 13.606 14.472 16.36 12 15.06 9.528 16.36 10 13.606 8 11.657 10.764 11.255z"/></svg>';
@@ -1117,7 +1118,7 @@ export class TaskView extends ItemView {
             this.pomodoroToggleBtn = pomodoroToggleBtn;
 
             // Timeline view button
-            const timelineBtn = header.createEl("button", {
+            const timelineBtn = headerControls.createEl("button", {
                 cls: "dida-timeline-btn"
             });
             timelineBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-check-icon lucide-calendar-check"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/></svg>';
@@ -1130,7 +1131,7 @@ export class TaskView extends ItemView {
             };
 
             // Sync button
-            const syncBtn = header.createEl("button", {
+            const syncBtn = headerControls.createEl("button", {
                 cls: "dida-sync-btn"
             });
             syncBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw-icon lucide-refresh-cw"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>';
@@ -1153,7 +1154,7 @@ export class TaskView extends ItemView {
             }
 
             if (this.viewMode === "task") {
-                const searchContainer = header.createDiv("dida-search-container");
+                const searchContainer = headerControls.createDiv("dida-search-container");
                 const searchInputWrap = searchContainer.createDiv("dida-search-input-wrap");
                 searchInputWrap.style.position = "relative";
 
@@ -1181,7 +1182,7 @@ export class TaskView extends ItemView {
                     position: absolute;
                     top: 100%;
                     left: 0;
-                    width: 100px;
+                    width: 136px;
                     background: var(--background-primary);
                     border: 1px solid var(--background-modifier-border);
                     border-radius: 4px;
@@ -1219,6 +1220,25 @@ export class TaskView extends ItemView {
                         dateFilterClearBtn.style.display = "flex";
                         this.renderTaskList({ preserveSearch: true });
                     });
+                });
+
+                const completedOption = dateFilterDropdown.createDiv("dida-date-filter-option");
+                completedOption.textContent = "查看已完成任务";
+                completedOption.style.cssText = `
+                    padding: 8px 12px;
+                    cursor: pointer;
+                    border-top: 1px solid var(--background-modifier-border);
+                    transition: background 0.2s;
+                `;
+                completedOption.addEventListener("mouseenter", () => {
+                    completedOption.style.background = "var(--background-modifier-hover)";
+                });
+                completedOption.addEventListener("mouseleave", () => {
+                    completedOption.style.background = "";
+                });
+                completedOption.addEventListener("click", () => {
+                    dateFilterDropdown.style.display = "none";
+                    this.plugin.showCompletedTasksModal();
                 });
 
                 const clearOption = dateFilterDropdown.createDiv("dida-date-filter-option");
@@ -1297,17 +1317,6 @@ export class TaskView extends ItemView {
                     this.renderTaskList({ preserveSearch: true });
                 });
 
-                const completedEntryBtn = searchContainer.createEl("button", {
-                    cls: "dida-completed-entry-btn",
-                    attr: { "aria-label": "查看已完成任务" }
-                });
-                completedEntryBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="M10 16l2 2 4-4"/><rect width="18" height="18" x="3" y="4" rx="2"/></svg><span>已完成</span>';
-                completedEntryBtn.title = "查看已完成任务";
-                completedEntryBtn.addEventListener("click", (e) => {
-                    e.stopPropagation();
-                    dateFilterDropdown.style.display = "none";
-                    this.plugin.showCompletedTasksModal();
-                });
             }
 
             taskListContainer = container.createDiv("dida-task-list");

@@ -164,12 +164,24 @@
     margin-bottom: 2px;
     padding-bottom: 2px;
     border-bottom: 1px solid var(--background-modifier-border);
+    gap: 16px;
 }
 
 .dida-task-header h3 {
-    margin: 0px;
+    margin: 0;
     margin-left: 5px !important;
-    flex-grow: 1;
+    flex: 0 0 auto;
+    text-align: left;
+}
+
+.dida-task-header-controls {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .dida-task-header button {
@@ -188,6 +200,7 @@
     margin: 5px 0;
     padding: 0;
     width: 100%;
+    max-width: 340px;
 }
 
 .dida-search-input-wrap {
@@ -230,21 +243,6 @@
     height: 14px;
 }
 
-.dida-completed-entry-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px !important;
-    border: 1px solid var(--background-modifier-border) !important;
-    border-radius: 999px;
-    white-space: nowrap;
-    font-size: 11px !important;
-}
-
-.dida-completed-entry-btn span {
-    line-height: 1;
-}
-
 .dida-completed-modal {
     min-width: 560px;
     max-width: 760px;
@@ -252,16 +250,14 @@
 
 .dida-completed-controls {
     display: flex;
-    align-items: end;
+    align-items: center;
     gap: 12px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     margin-bottom: 14px;
 }
 
 .dida-completed-control {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
 }
 
 .dida-completed-actions {
@@ -269,16 +265,22 @@
     gap: 8px;
 }
 
+.dida-completed-actions button {
+    height: 40px;
+}
+
 .dida-completed-date-field {
     min-width: 180px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 12px;
     border: 1px solid var(--background-modifier-border);
     background: var(--background-primary);
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: 0 12px;
+    height: 40px;
+    box-sizing: border-box;
     cursor: pointer;
 }
 
@@ -286,8 +288,16 @@
     background: var(--background-modifier-hover);
 }
 
-.dida-completed-date-field-icon {
-    opacity: 0.7;
+.dida-completed-date-field-label {
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.dida-completed-date-field-value {
+    color: var(--text-normal);
+    font-size: 12px;
+    white-space: nowrap;
 }
 
 .dida-completed-loading {

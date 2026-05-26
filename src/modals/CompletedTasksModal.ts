@@ -28,12 +28,10 @@ export class CompletedTasksModal extends Modal {
 
         const controls = contentEl.createDiv("dida-completed-controls");
         const startWrap = controls.createDiv("dida-completed-control");
-        startWrap.createEl("label", { text: "开始日期" });
         this.startFieldEl = startWrap.createDiv("dida-completed-date-field");
         this.startFieldEl.addEventListener("click", () => this.openDatePicker("start"));
 
         const endWrap = controls.createDiv("dida-completed-control");
-        endWrap.createEl("label", { text: "结束日期" });
         this.endFieldEl = endWrap.createDiv("dida-completed-date-field");
         this.endFieldEl.addEventListener("click", () => this.openDatePicker("end"));
 
@@ -78,13 +76,13 @@ export class CompletedTasksModal extends Modal {
     renderDateFields() {
         if (this.startFieldEl) {
             this.startFieldEl.empty();
-            this.startFieldEl.createSpan({ text: this.extractDateValue(this.currentQuery.startDate) || "选择开始日期" });
-            this.startFieldEl.createSpan({ cls: "dida-completed-date-field-icon", text: "📅" });
+            this.startFieldEl.createSpan({ cls: "dida-completed-date-field-label", text: "开始日期" });
+            this.startFieldEl.createSpan({ cls: "dida-completed-date-field-value", text: this.extractDateValue(this.currentQuery.startDate) || "选择日期" });
         }
         if (this.endFieldEl) {
             this.endFieldEl.empty();
-            this.endFieldEl.createSpan({ text: this.extractDateValue(this.currentQuery.endDate) || "选择结束日期" });
-            this.endFieldEl.createSpan({ cls: "dida-completed-date-field-icon", text: "📅" });
+            this.endFieldEl.createSpan({ cls: "dida-completed-date-field-label", text: "结束日期" });
+            this.endFieldEl.createSpan({ cls: "dida-completed-date-field-value", text: this.extractDateValue(this.currentQuery.endDate) || "选择日期" });
         }
     }
 
