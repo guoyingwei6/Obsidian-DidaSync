@@ -1,4 +1,4 @@
-<h1 align="center">Obsidian-DidaSync</h1>
+<h1 align="center">Didasync</h1>
 
 <p align="center"><b>Two-way Sync Between Obsidian and TickTick/Dida365.</b></p>
 
@@ -44,7 +44,7 @@ A powerful task synchronization plugin for Obsidian that brings your TickTick/Di
 
 ### 🔄 Two-way Sync
 
-Obsidian-DidaSync ensures your tasks are always up-to-date, whether you're in Obsidian or TickTick.
+Didasync ensures your tasks are always up-to-date, whether you're in Obsidian or TickTick.
 
 | Native Task Sync | Quick Task Creation |
 |:--:|:--:|
@@ -60,7 +60,7 @@ Obsidian-DidaSync ensures your tasks are always up-to-date, whether you're in Ob
 
 ### 🤖 MCP / AI Plugin Integration
 
-Obsidian-DidaSync can expose a local HTTP MCP server on desktop, allowing MCP-compatible AI plugins to manage tasks through structured tools.
+Didasync can expose a local HTTP MCP server on desktop, allowing MCP-compatible AI plugins to manage tasks through structured tools.
 
 ## Features
 
@@ -78,14 +78,14 @@ Obsidian-DidaSync can expose a local HTTP MCP server on desktop, allowing MCP-co
 
 ## Quick Start
 
-1. Open **Obsidian Settings** → **Community Plugins** → **Browse** → Search **"Obsidian-DidaSync"**
+1. Open **Obsidian Settings** → **Community Plugins** → **Browse** → Search **"Didasync"**
 2. Install and enable the plugin
 3. Use secure and convenient OAuth authorization in the plugin settings to connect your TickTick/Dida365 account with one click (no tedious API Key configuration required)
 4. Open the sidebar or use the ribbon icons to start syncing your tasks!
 
 ## MCP / AI Plugin Usage
 
-Enable **Settings → Obsidian-DidaSync → Advanced/Reset → MCP Service**, then add this configuration to an MCP-compatible AI plugin:
+Enable **Settings → Didasync → Advanced/Reset → MCP Service**, then add this configuration to an MCP-compatible AI plugin:
 
 ```json
 {
@@ -108,12 +108,20 @@ See Quick Start above.
 ### Manual Installation
 
 1. Go to [Releases](https://github.com/CYZice/Obsidian-DidaSync/releases) and download the latest `main.js`, `manifest.json`, and `styles.css`
-2. Create a folder: `<vault>/.obsidian/plugins/Obsidian-DidaSync/`
+2. Create a folder: `<vault>/.obsidian/plugins/Didasync/`
 3. Copy the files into that folder and enable the plugin in Obsidian Settings
+
+## Release And Privacy Notes
+
+- The plugin requires a user-provided TickTick/Dida365 account and OAuth authorization.
+- The plugin makes network requests to TickTick/Dida365 APIs to read, create, update, complete, delete, and sync tasks.
+- The plugin does not include telemetry or ads by default.
+- When MCP service is enabled, the plugin starts a local HTTP server bound to `127.0.0.1` and protects it with your configured token.
+- OAuth tokens, MCP tokens, and plugin settings are stored locally using Obsidian's plugin data storage.
 
 ## Support
 
-If you find Obsidian-DidaSync helpful, please consider starring the repository or reporting issues to help improve it!
+If you find Didasync helpful, please consider starring the repository or reporting issues to help improve it!
 
 <p align="center">
 

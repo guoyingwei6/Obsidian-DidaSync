@@ -294,7 +294,7 @@ export class DidaApiClient {
                 headers: {
                     Authorization: "Bearer " + this.settings.accessToken,
                     "Content-Type": "application/json",
-                    "User-Agent": "Obsidian-DidaSync-Plugin/1.0",
+                    "User-Agent": "Didasync-Plugin/1.0",
                     ...options.headers
                 }
             };
