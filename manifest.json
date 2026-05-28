@@ -2,7 +2,7 @@
 	"id": "didasync",
 	"name": "DidaSync",
 	"minAppVersion": "0.15.0",
-	"description": "Sync tasks between Obsidian and Dida365 or TickTick.",
+	"description": "Sync tasks between Dida365 or TickTick and your notes.",
 	"author": "CYZice",
 	"authorUrl": "https://github.com/CYZice",
 	"isDesktopOnly": true,

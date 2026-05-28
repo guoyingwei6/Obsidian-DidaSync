@@ -1,7 +1,7 @@
 {
     "name": "obsidian-didasync",
     "version": "1.4.3",
-    "description": "Sync tasks between Obsidian and Dida365 or TickTick.",
+    "description": "Sync tasks between Dida365 or TickTick and your notes.",
     "main": "main.js",
     "scripts": {
         "dev": "node esbuild.config.mjs",

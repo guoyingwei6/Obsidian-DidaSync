@@ -752,7 +752,7 @@
 }
 
 /* 收集箱项目特殊样式 */
-.dida-project-header:has(.dida-project-title:contains('📥')) {
+.dida-project-header.is-inbox {
     background-color: var(--background-modifier-hover);
     border-radius: 4px;
     padding: 8px;
@@ -837,7 +837,6 @@
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    display: block;
     margin-bottom: 4px;
     display: none;
 }
@@ -1570,7 +1569,6 @@
 
 .dida-project-title.archived span {
     text-decoration: line-through;
-    text-decoration-color: var(--text-muted);
 }
 
 .dida-project-title.archived .lucide-archive-icon {
