@@ -3006,7 +3006,8 @@ export class TaskView extends ItemView {
                 if (currentTask.items && currentTask.items.length > 0) {
                     currentTask.items.forEach((item: any, idx: number) => {
                         const itemDiv = checkList.createDiv("dida-task-item dida-check-item");
-                        const cb = itemDiv.createEl("input", { type: "checkbox", checked: item.status === 1 });
+                        const cb = itemDiv.createEl("input", { type: "checkbox" });
+                        cb.checked = item.status === 1;
 
                         const input = itemDiv.createEl("input", {
                             type: "text",
@@ -3077,7 +3078,8 @@ export class TaskView extends ItemView {
 
                 [...incomplete, ...complete].forEach(sub => {
                     const itemDiv = subtaskTab.createDiv("dida-task-item dida-subtask-item");
-                    const cb = itemDiv.createEl("input", { type: "checkbox", checked: sub.status === 2 });
+                    const cb = itemDiv.createEl("input", { type: "checkbox" });
+                    cb.checked = sub.status === 2;
 
                     const input = itemDiv.createEl("input", {
                         type: "text",
@@ -3535,7 +3537,7 @@ export class TaskView extends ItemView {
     }
 
     updateTaskRowSubtaskCount(taskItem: HTMLElement, task: any) {
-        const existing = taskItem.querySelector(".dida-subtask-count");
+        const existing = taskItem.querySelector(".dida-subtask-count") as HTMLSpanElement | null;
         if (task.items && task.items.length > 0) {
             const completedItems = task.items.filter((i: any) => i.status === 1).length;
             const span = existing || document.createElement("span");
@@ -3561,7 +3563,7 @@ export class TaskView extends ItemView {
     }
 
     updateTaskRowChildCount(taskItem: HTMLElement, task: any) {
-        const existing = taskItem.querySelector(".dida-child-task-count");
+        const existing = taskItem.querySelector(".dida-child-task-count") as HTMLSpanElement | null;
         const childTasks = this.plugin.settings.tasks.filter(t => t.parentId === task.didaId);
         if (task.didaId && childTasks.length > 0) {
             const completedChilds = childTasks.filter(t => t.status === 2).length;
