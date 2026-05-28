@@ -1,4 +1,4 @@
-import { Editor, EditorPosition, getIconIds, Menu, Modal, Notice, Plugin, setIcon, TFile, TFolder, normalizePath } from 'obsidian';
+import { Editor, EditorPosition, getIconIds, Menu, Modal, Notice, Plugin, setIcon, TFile, normalizePath } from 'obsidian';
 import { DidaApiClient } from './api/DidaApiClient';
 import { RRuleParser } from './core/RRuleParser';
 import { DailyNoteManager } from './managers/DailyNoteManager';
@@ -229,7 +229,6 @@ export default class DidaSyncPlugin extends Plugin {
         if (this.settings.mcpToken === undefined) this.settings.mcpToken = "";
         if (this.settings.mcpReadOnly === undefined) this.settings.mcpReadOnly = false;
         if (!this.settings.mcpSkillNotePath) this.settings.mcpSkillNotePath = DEFAULT_SETTINGS.mcpSkillNotePath;
-        if (!Array.isArray(this.settings.nativeTaskSyncFolders)) this.settings.nativeTaskSyncFolders = [];
         await this.saveSettings();
     }
 
@@ -266,48 +265,6 @@ export default class DidaSyncPlugin extends Plugin {
         }
 
         return normalizedPath;
-    }
-
-    getNativeTaskSyncFolders(): string[] {
-        const rawFolders = Array.isArray(this.settings.nativeTaskSyncFolders) ? this.settings.nativeTaskSyncFolders : [];
-        return Array.from(new Set(rawFolders
-            .map((folder) => normalizePath(String(folder || "").trim()))
-            .filter((folder) => folder && folder !== ".")));
-    }
-
-    isFileInNativeTaskScope(file: TFile): boolean {
-        const folders = this.getNativeTaskSyncFolders();
-        if (folders.length === 0) return false;
-        return folders.some((folder) => file.path === folder || file.path.startsWith(`${folder}/`));
-    }
-
-    getNativeTaskScanFiles(): TFile[] {
-        const folders = this.getNativeTaskSyncFolders();
-        if (folders.length === 0) return [];
-        const files = new Map<string, TFile>();
-        for (const folder of folders) {
-            const entry = this.app.vault.getAbstractFileByPath(folder);
-            if (entry instanceof TFile) {
-                if (entry.extension === "md") files.set(entry.path, entry);
-                continue;
-            }
-            if (entry instanceof TFolder) {
-                this.collectMarkdownFilesFromFolder(entry, files);
-            }
-        }
-        return Array.from(files.values());
-    }
-
-    private collectMarkdownFilesFromFolder(folder: TFolder, files: Map<string, TFile>) {
-        for (const child of folder.children) {
-            if (child instanceof TFile) {
-                if (child.extension === "md") files.set(child.path, child);
-                continue;
-            }
-            if (child instanceof TFolder) {
-                this.collectMarkdownFilesFromFolder(child, files);
-            }
-        }
     }
 
     normalizeProjectCatalogEntry(entry: any): ProjectCatalogEntry | null {
@@ -1292,7 +1249,7 @@ export default class DidaSyncPlugin extends Plugin {
         }));
 
         this.registerEvent(this.app.vault.on("modify", async (file) => {
-            if (!this._isUpdatingNativeTaskStatus && this.settings.enableNativeTaskSync && file instanceof TFile && file.extension === "md" && this.isFileInNativeTaskScope(file)) {
+            if (!this._isUpdatingNativeTaskStatus && this.settings.enableNativeTaskSync && file.extension === "md") {
                 const path = file.path;
                 if (!this._nativeTaskSyncTimeouts) this._nativeTaskSyncTimeouts = new Map();
                 if (this._nativeTaskSyncTimeouts.has(path)) {
@@ -2287,7 +2244,7 @@ export default class DidaSyncPlugin extends Plugin {
     // File Operations
     async findFilesWithDidaId(didaId: string): Promise<TFile[]> {
         const files: TFile[] = [];
-        for (const file of this.getNativeTaskScanFiles()) {
+        for (const file of this.app.vault.getMarkdownFiles()) {
             try {
                 const content = await this.app.vault.read(file);
                 const escaped = didaId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

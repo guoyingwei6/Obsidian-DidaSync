@@ -113,7 +113,6 @@ export interface DidaSyncSettings {
     autoCleanInterval: number; // in months
 
     enableNativeTaskSync: boolean;
-    nativeTaskSyncFolders: string[];
 
     // Daily Sync Settings
     dailySyncTargetBlockHeader: string;
@@ -171,7 +170,6 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     autoCleanCompletedTasks: false,
     autoCleanInterval: 1,
     enableNativeTaskSync: true,
-    nativeTaskSyncFolders: [],
     dailySyncTargetBlockHeader: "> [!todo]",
     projectCollapsedStates: {},
     projectOrder: [],
