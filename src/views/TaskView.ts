@@ -2478,7 +2478,11 @@ export class TaskView extends ItemView {
             hash = (hash << 5) - hash + text.charCodeAt(i);
             hash |= 0;
         }
-        return `hsl(${Math.abs(hash) % 360}, 35%, 90%)`;
+        const normalized = Math.abs(hash);
+        const hue = normalized % 360;
+        const saturation = 48 + ((normalized >> 3) % 18);
+        const lightness = 82 + ((normalized >> 7) % 8);
+        return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
     }
 
     renderTimeTaskBlock(container: HTMLElement, task: any, column: number) {
