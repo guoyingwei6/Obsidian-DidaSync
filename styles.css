@@ -752,7 +752,7 @@
 }
 
 /* 收集箱项目特殊样式 */
-.dida-project-header.is-inbox {
+.dida-project-header:has(.dida-project-title:contains('📥')) {
     background-color: var(--background-modifier-hover);
     border-radius: 4px;
     padding: 8px;

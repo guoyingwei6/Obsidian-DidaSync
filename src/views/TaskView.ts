@@ -1468,9 +1468,6 @@ export class TaskView extends ItemView {
                 for (const [projectName, projectTasks] of sortedProjects) {
                     const projectInfo = projectInfoMap.get(projectName) || { name: projectName, id: "inbox" };
                     const projectHeader = taskListContainer.createDiv("dida-project-header");
-                    if (this.plugin.isInboxProject(projectInfo.id, projectName)) {
-                        projectHeader.addClass("is-inbox");
-                    }
 
                     const titleEl = projectHeader.createEl("h4", {
                         cls: projectInfo.isArchived ? "dida-project-title archived" : "dida-project-title"
