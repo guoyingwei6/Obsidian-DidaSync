@@ -18,7 +18,10 @@ export class OAuthSettingsView extends AbstractSettingsView {
 
         const linkDiv = step1Div.createDiv();
         linkDiv.style.cssText = "display: flex; align-items: center; gap: 10px; background: transparent; padding: 8px; border-radius: 5px;";
-        linkDiv.createEl("code", { text: "https://developer.dida365.com/manage" });
+        const manageInput = linkDiv.createEl("input", { type: "text", value: "https://developer.dida365.com/manage" });
+        manageInput.readOnly = true;
+        manageInput.style.width = "100%";
+        manageInput.onclick = () => manageInput.select();
 
         const step2Div = oauthContainer.createDiv();
         step2Div.style.cssText = "margin: 10px 0;";
@@ -31,7 +34,10 @@ export class OAuthSettingsView extends AbstractSettingsView {
 
         const uriDiv = redirectDiv.createDiv();
         uriDiv.style.cssText = "display: flex; align-items: center; gap: 10px; margin: 5px 0;";
-        uriDiv.createEl("code", { text: `http://localhost:${this.plugin.settings.serverPort}/callback` });
+        const redirectInput = uriDiv.createEl("input", { type: "text", value: `http://localhost:${this.plugin.settings.serverPort}/callback` });
+        redirectInput.readOnly = true;
+        redirectInput.style.width = "100%";
+        redirectInput.onclick = () => redirectInput.select();
 
         new Setting(containerEl).setName("Client ID").setDesc("滴答清单应用的Client ID").addText(t => t.setPlaceholder("输入Client ID").setValue(this.plugin.settings.clientId).onChange(async t => {
             this.plugin.settings.clientId = t;
@@ -70,9 +76,10 @@ export class OAuthSettingsView extends AbstractSettingsView {
     }
 
     private updateRedirectUriDisplay(containerEl: HTMLElement, port: number) {
-        containerEl.querySelectorAll("code").forEach(e => {
-            if (e.textContent && e.textContent.includes("/callback")) {
-                e.textContent = `http://localhost:${port}/callback`;
+        containerEl.querySelectorAll('input[readonly]').forEach((e) => {
+            const input = e as HTMLInputElement;
+            if (input.value && input.value.includes("/callback")) {
+                input.value = `http://localhost:${port}/callback`;
             }
         });
     }

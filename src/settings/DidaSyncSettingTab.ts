@@ -28,11 +28,11 @@ export class DidaSyncSettingTab extends PluginSettingTab {
         const contentContainer = containerEl.createDiv({ cls: "dida-settings-content" });
 
         const tabs = [
-            { id: "oauth", name: "OAuth 配置", view: new OAuthSettingsView(this.app, this.plugin) },
-            { id: "sync", name: "同步设置", view: new SyncSettingsView(this.app, this.plugin) },
-            { id: "ui", name: "视图/界面", view: new UISettingsView(this.app, this.plugin) },
-            { id: "mcp", name: "MCP / AI", view: new McpSettingsView(this.app, this.plugin) },
-            { id: "advanced", name: "高级/重置", view: new AdvancedSettingsView(this.app, this.plugin) }
+            { id: "oauth", name: "OAuth", view: new OAuthSettingsView(this.app, this.plugin) },
+            { id: "sync", name: "同步", view: new SyncSettingsView(this.app, this.plugin) },
+            { id: "ui", name: "视图", view: new UISettingsView(this.app, this.plugin) },
+            { id: "mcp", name: "MCP", view: new McpSettingsView(this.app, this.plugin) },
+            { id: "advanced", name: "高级", view: new AdvancedSettingsView(this.app, this.plugin) }
         ];
 
         tabs.forEach(tab => {

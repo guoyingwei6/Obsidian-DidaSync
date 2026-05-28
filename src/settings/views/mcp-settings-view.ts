@@ -92,8 +92,10 @@ export class McpSettingsView extends AbstractSettingsView {
         const configDiv = containerEl.createDiv();
         configDiv.style.cssText = "margin: 10px 0;";
         configDiv.createEl("strong", { text: "AI 插件配置：" });
-        const configPre = configDiv.createEl("pre");
-        configPre.style.cssText = "white-space: pre-wrap; padding: 10px; border-radius: 5px; overflow-x: auto;";
-        configPre.setText(configText());
+        const configInput = configDiv.createEl("textarea");
+        configInput.style.cssText = "width: 100%; min-height: 220px; padding: 10px; border-radius: 8px; resize: vertical; box-sizing: border-box;";
+        configInput.readOnly = true;
+        configInput.value = configText();
+        configInput.onclick = () => configInput.select();
     }
 }
