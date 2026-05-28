@@ -2744,27 +2744,43 @@ label+.dida-project-select {
 
 .dida-time-block-all-day-grid {
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
 }
 
 /* 全天任务块布局：内容在左，删除按钮在右 */
 .dida-time-block-all-day {
     display: flex;
     align-items: center;
+    width: 100%;
 }
 
 .dida-time-block-all-day .dida-task-title {
     flex: 1;
     text-align: left;
-    max-width: calc(100% - 100px);
+    min-width: 0;
+    max-width: none;
+    font-size: 10px;
+    line-height: 1.25;
 }
 
 .dida-time-block-all-day .dida-task-delete {
-    margin-right: 5px;
+    margin-right: 2px;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.15s ease;
+}
+
+.dida-time-block-all-day .dida-task-due-date {
+    margin-left: auto;
+    margin-right: 6px;
+    font-size: 10px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 5px;
+    background: rgb(255 255 255 / 28%);
+    backdrop-filter: blur(6px);
 }
 
 .dida-time-block-all-day:hover .dida-task-delete {
@@ -3701,11 +3717,11 @@ label+.dida-project-select {
 .dida-time-block-all-day-grid {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
     max-width: 100%;
-    max-height: 120px;
-    overflow-y: auto;
-    padding-right: 4px;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
 }
 
 /* 拖拽手柄样式 */
@@ -3751,7 +3767,7 @@ label+.dida-project-select {
 .dida-time-block-item {
     background: var(--background-secondary);
     border-radius: 8px;
-    padding: 0px 8px;
+    padding: 0 8px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -3760,12 +3776,13 @@ label+.dida-project-select {
 
 
 .dida-time-block-all-day {
-    min-height: 28px;
+    min-height: 24px;
     cursor: grab;
-    padding: 6px 10px;
-    border-radius: 6px;
-    margin-bottom: 4px;
+    padding: 4px 8px;
+    border-radius: 7px;
+    margin-bottom: 0;
     color: var(--text-normal);
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 18%);
 }
 
 .theme-dark .dida-time-block-all-day {
@@ -3781,8 +3798,19 @@ label+.dida-project-select {
 }
 
 .dida-time-block-item input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.dida-time-block-all-day input[type="checkbox"] {
+    width: var(--checkbox-size);
+    height: var(--checkbox-size);
+    margin: 0 6px 0 0;
+    flex-shrink: 0;
+    border-radius: 50%;
+    transform: scale(0.8);
 }
 
 .dida-time-block-task-content input[type="checkbox"]:after {
@@ -3795,6 +3823,20 @@ label+.dida-project-select {
 .dida-time-block-item .dida-task-completed {
     opacity: 0.6;
     text-decoration: line-through;
+    font-size: 10px;
+}
+
+.dida-time-block-all-day .dida-task-delete {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    margin-left: 2px;
+    flex-shrink: 0;
+}
+
+.dida-time-block-all-day .dida-task-delete svg {
+    width: 12px;
+    height: 12px;
 }
 
 /* 时间网格 */

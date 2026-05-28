@@ -1,5 +1,6 @@
 import { App } from 'obsidian';
 import DidaSyncPlugin from '../main';
+import { resolveTaskIndex } from '../taskIndex';
 import { DidaTask } from '../types';
 import { debounce, translateRepeatFlag } from '../utils';
 import { TASK_VIEW_TYPE } from '../views/TaskView';
@@ -724,14 +725,8 @@ export class TimelineViewModal {
         }
 
         const details = item.createDiv("dida-task-details");
-        let currentTask: any = null;
-        if (task.originalIndex !== undefined && this.plugin.settings.tasks[task.originalIndex]) {
-            currentTask = this.plugin.settings.tasks[task.originalIndex];
-        } else if (task.didaId) {
-            currentTask = this.plugin.settings.tasks.find(t => t.didaId === task.didaId);
-        } else if (task.id) {
-            currentTask = this.plugin.settings.tasks.find(t => t.id === task.id);
-        }
+        const taskIndex = resolveTaskIndex(this.plugin.settings.tasks, task, (task as any).originalIndex);
+        const currentTask: any = taskIndex !== -1 ? this.plugin.settings.tasks[taskIndex] : null;
 
         if (currentTask) {
             currentTask.content = typeof currentTask.content === "string" ? currentTask.content : (currentTask.content || "");

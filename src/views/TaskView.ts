@@ -63,6 +63,14 @@ export class TaskView extends ItemView {
         }, 300);
     }
 
+    private resolveTaskOriginalIndex(task: { id?: string; didaId?: string | null; originalIndex?: number }) {
+        return resolveTaskIndex(
+            this.plugin.settings.tasks,
+            task,
+            typeof task.originalIndex === "number" ? task.originalIndex : undefined
+        );
+    }
+
     initializePomodoroState() {
         const settings = this.getPomodoroSettings();
         this.pomodoroState = {
@@ -1338,7 +1346,9 @@ export class TaskView extends ItemView {
                 }
             } catch (e) { }
 
-            const tasks = (this.plugin.settings.tasks || []).filter((task) => task && task.status !== 2);
+            const tasks = (this.plugin.settings.tasks || [])
+                .map((task, index) => task ? { ...task, originalIndex: index } : task)
+                .filter((task) => task && task.status !== 2);
             if (tasks.length === 0 && this.plugin.getProjectCatalog().length === 0) {
                 taskListContainer.createEl("p", {
                     text: "暂无任务，请先添加一些任务",
@@ -1369,7 +1379,7 @@ export class TaskView extends ItemView {
                     });
                 }
 
-                tasks.forEach((task, index) => {
+                tasks.forEach((task) => {
                     if (!task.parentId && task.status !== 2) {
                         task.content = typeof task.content === "string" ? task.content : (task.content || "");
                         let projectName = "本地任务";
@@ -1436,10 +1446,7 @@ export class TaskView extends ItemView {
                                     isLocalOnly: !projectId || projectId === "local"
                                 });
                             }
-                            projectMap.get(projectName).push({
-                                ...task,
-                                originalIndex: index
-                            });
+                            projectMap.get(projectName).push(task);
                         }
                     }
                 });
@@ -1638,7 +1645,12 @@ export class TaskView extends ItemView {
                         checkbox.checked = task.status === 2;
 
                         const toggleTaskDebounced = debounce(() => {
-                            this.toggleTask(task.originalIndex);
+                            const idx = this.resolveTaskOriginalIndex(task);
+                            if (idx === -1) {
+                                new Notice("未找到对应任务，无法切换完成状态");
+                                return;
+                            }
+                            this.toggleTask(idx);
                         }, 200);
 
                         checkbox.onchange = toggleTaskDebounced;
@@ -1735,7 +1747,7 @@ export class TaskView extends ItemView {
                         dateSpan.title = "点击设置开始时间";
                         dateSpan.onclick = (e) => {
                             e.stopPropagation();
-                            const idx = resolveTaskIndex(this.plugin.settings.tasks, task, task.originalIndex);
+                            const idx = this.resolveTaskOriginalIndex(task);
                             if (idx === -1) {
                                 new Notice("未找到对应任务，无法更新时间");
                                 return;
@@ -1759,7 +1771,12 @@ export class TaskView extends ItemView {
                             e.stopPropagation();
                             e.preventDefault();
                             if (window.confirm("确定要删除这个任务吗？")) {
-                                this.deleteTask(task.originalIndex);
+                                const idx = this.resolveTaskOriginalIndex(task);
+                                if (idx === -1) {
+                                    new Notice("未找到对应任务，无法删除");
+                                    return;
+                                }
+                                this.deleteTask(idx);
                             }
                         };
 
@@ -1994,13 +2011,12 @@ export class TaskView extends ItemView {
             const checkbox = item.createEl("input", { type: "checkbox" });
             checkbox.checked = task.status === 2;
             checkbox.onchange = async () => {
-                await this.plugin.toggleTask(task.originalIndex); // Need originalIndex here?
-                // getTasksForDate returns copies or references?
-                // Source uses findIndex by didaId or id.
-                const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
+                const idx = this.resolveTaskOriginalIndex(task);
                 if (idx !== -1) {
                     await this.plugin.toggleTask(idx);
                     this.renderTaskList();
+                } else {
+                    new Notice("未找到对应任务，无法切换完成状态");
                 }
             };
 
@@ -2951,14 +2967,8 @@ export class TaskView extends ItemView {
         taskItem.setAttribute("draggable", "false");
         this.lastOpenTaskItem = taskItem;
 
-        let currentTask = null;
-        if (task.originalIndex !== undefined && this.plugin.settings.tasks[task.originalIndex]) {
-            currentTask = this.plugin.settings.tasks[task.originalIndex];
-        } else if (task.didaId) {
-            currentTask = this.plugin.settings.tasks.find(t => t.didaId === task.didaId);
-        } else if (task.id) {
-            currentTask = this.plugin.settings.tasks.find(t => t.id === task.id);
-        }
+        const taskIndex = this.resolveTaskOriginalIndex(task);
+        const currentTask = taskIndex !== -1 ? this.plugin.settings.tasks[taskIndex] : null;
 
         if (currentTask) {
             currentTask.content = typeof currentTask.content === "string" ? currentTask.content : (currentTask.content || "");
@@ -3027,12 +3037,12 @@ export class TaskView extends ItemView {
                                 input.classList.remove("dida-task-completed");
                                 input.classList.add("dida-task-title-input");
                             }
-                            this.updateSubtask(task.originalIndex, idx, item);
+                            this.updateSubtask(taskIndex, idx, item);
                         };
 
                         input.onchange = () => {
                             item.title = input.value;
-                            this.updateSubtask(task.originalIndex, idx, item);
+                            this.updateSubtask(taskIndex, idx, item);
                         };
 
                         const delBtn = itemDiv.createEl("button", { cls: "dida-task-delete" });
@@ -3041,7 +3051,7 @@ export class TaskView extends ItemView {
                             e.stopPropagation();
                             e.preventDefault();
                             currentTask.items.splice(idx, 1);
-                            this.updateTaskSubtasksImmediate(task.originalIndex, currentTask.items);
+                            this.updateTaskSubtasksImmediate(taskIndex, currentTask.items);
                             renderCheckItems();
                         };
                     });
@@ -3063,7 +3073,7 @@ export class TaskView extends ItemView {
                     status: 0,
                     sortOrder: currentTask.items.length
                 });
-                this.updateTaskSubtasks(task.originalIndex, currentTask.items);
+                this.updateTaskSubtasks(taskIndex, currentTask.items);
                 renderCheckItems();
             };
 
@@ -3207,7 +3217,7 @@ export class TaskView extends ItemView {
             }
 
             const save = async () => {
-                await this.saveTaskDetails(task.originalIndex, titleInput.value, contentTextarea.value, contentField);
+                await this.saveTaskDetails(taskIndex, titleInput.value, contentTextarea.value, contentField);
                 const mainRow = taskItem.querySelector(".dida-task-main-row");
                 if (mainRow) {
                     const titleEl = mainRow.querySelector(".dida-task-title, .dida-task-completed");
