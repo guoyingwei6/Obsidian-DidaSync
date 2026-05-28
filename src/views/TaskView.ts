@@ -3369,7 +3369,7 @@ export class TaskView extends ItemView {
     async updateNativeTaskDueDate(task: DidaTask, oldDueDate: string | null | undefined, newDueDate: string | null | undefined) {
         try {
             this.plugin._isUpdatingNativeTaskStatus = true;
-            for (const file of this.app.vault.getMarkdownFiles()) {
+            for (const file of this.plugin.getNativeTaskScanFiles()) {
                 try {
                     const lines = (await this.app.vault.read(file)).split("\n");
                     let updated = false;
@@ -3412,7 +3412,7 @@ export class TaskView extends ItemView {
     async updateNativeTaskTitle(task: DidaTask, oldTitle: string, newTitle: string) {
         try {
             this.plugin._isUpdatingNativeTaskStatus = true;
-            for (const file of this.app.vault.getMarkdownFiles()) {
+            for (const file of this.plugin.getNativeTaskScanFiles()) {
                 try {
                     const lines = (await this.app.vault.read(file)).split("\n");
                     let updated = false;
@@ -3448,7 +3448,7 @@ export class TaskView extends ItemView {
     async updateNativeTaskStatus(task: DidaTask, completed: boolean) {
         try {
             this.plugin._isUpdatingNativeTaskStatus = true;
-            for (const file of this.app.vault.getMarkdownFiles()) {
+            for (const file of this.plugin.getNativeTaskScanFiles()) {
                 try {
                     const lines = (await this.app.vault.read(file)).split("\n");
                     let updated = false;

@@ -41,6 +41,20 @@ export class SyncSettingsView extends AbstractSettingsView {
             await this.plugin.saveSettings();
         }));
 
+        new Setting(containerEl)
+            .setName("原生任务扫描目录")
+            .setDesc("填写一个或多个 vault 相对目录，使用英文逗号分隔。只会在这些目录中查找和回写已关联的原生任务；留空则关闭跨文件扫描。")
+            .addText(text => text
+                .setPlaceholder("Tasks, Daily")
+                .setValue((this.plugin.settings.nativeTaskSyncFolders || []).join(", "))
+                .onChange(async (value) => {
+                    this.plugin.settings.nativeTaskSyncFolders = value
+                        .split(",")
+                        .map((item) => item.trim())
+                        .filter(Boolean);
+                    await this.plugin.saveSettings();
+                }));
+
         containerEl.createEl("h3", { text: "日记同步设置" });
         const dailyInfo = containerEl.createDiv();
         dailyInfo.style.cssText = "padding: 10px; border-radius: 5px; margin: 10px 0; color: #0066cc;";

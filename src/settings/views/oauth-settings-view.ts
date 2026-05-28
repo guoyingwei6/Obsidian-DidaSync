@@ -19,10 +19,6 @@ export class OAuthSettingsView extends AbstractSettingsView {
         const linkDiv = step1Div.createDiv();
         linkDiv.style.cssText = "display: flex; align-items: center; gap: 10px; background: transparent; padding: 8px; border-radius: 5px;";
         linkDiv.createEl("code", { text: "https://developer.dida365.com/manage" });
-        linkDiv.createEl("button", { text: "复制", cls: "mod-small" }).onclick = () => {
-            navigator.clipboard.writeText("https://developer.dida365.com/manage");
-            new Notice("开发者后台链接已复制到剪贴板");
-        };
 
         const step2Div = oauthContainer.createDiv();
         step2Div.style.cssText = "margin: 10px 0;";
@@ -36,10 +32,6 @@ export class OAuthSettingsView extends AbstractSettingsView {
         const uriDiv = redirectDiv.createDiv();
         uriDiv.style.cssText = "display: flex; align-items: center; gap: 10px; margin: 5px 0;";
         uriDiv.createEl("code", { text: `http://localhost:${this.plugin.settings.serverPort}/callback` });
-        uriDiv.createEl("button", { text: "复制", cls: "mod-small" }).onclick = () => {
-            navigator.clipboard.writeText(`http://localhost:${this.plugin.settings.serverPort}/callback`);
-            new Notice("重定向URI已复制到剪贴板");
-        };
 
         new Setting(containerEl).setName("Client ID").setDesc("滴答清单应用的Client ID").addText(t => t.setPlaceholder("输入Client ID").setValue(this.plugin.settings.clientId).onChange(async t => {
             this.plugin.settings.clientId = t;
@@ -81,17 +73,6 @@ export class OAuthSettingsView extends AbstractSettingsView {
         containerEl.querySelectorAll("code").forEach(e => {
             if (e.textContent && e.textContent.includes("/callback")) {
                 e.textContent = `http://localhost:${port}/callback`;
-            }
-        });
-        containerEl.querySelectorAll("button").forEach(btn => {
-            if (btn.textContent === "复制") {
-                const parent = btn.closest("div");
-                if (parent && parent.querySelector("code")?.textContent?.includes("/callback")) {
-                    btn.onclick = () => {
-                        navigator.clipboard.writeText(`http://localhost:${port}/callback`);
-                        new Notice("重定向URI已复制到剪贴板");
-                    };
-                }
             }
         });
     }

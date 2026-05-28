@@ -482,7 +482,7 @@ export class SyncManager {
         const remoteIds = new Set(tasks.map(t => t.id));
         let count = 0;
         try {
-            for (const file of this.plugin.app.vault.getMarkdownFiles()) {
+            for (const file of this.plugin.getNativeTaskScanFiles()) {
                 try {
                     const content = await this.plugin.app.vault.read(file);
                     const nativeTasks = this.plugin.nativeTaskSyncManager.detectNativeTasks(content, file.path).filter(t => t.hasLink && t.didaId && !t.isCompleted && !remoteIds.has(t.didaId));

@@ -52,16 +52,19 @@ export class McpSettingsView extends AbstractSettingsView {
             await this.plugin.saveSettings();
         }));
 
-        new Setting(containerEl).setName("MCP Token").setDesc(this.plugin.settings.mcpToken ? "用于 AI 插件鉴权，请勿公开。" : "启用 MCP 服务时会自动生成。").addButton(t => t.setButtonText("复制").onClick(() => {
-            navigator.clipboard.writeText(this.plugin.settings.mcpToken || "");
-            new Notice("MCP Token 已复制");
-        })).addButton(t => t.setButtonText("重新生成").setWarning().onClick(async () => {
+        new Setting(containerEl).setName("MCP Token").setDesc(this.plugin.settings.mcpToken ? "用于 AI 插件鉴权，请勿公开。可手动选择下面显示的 token 进行复制。" : "启用 MCP 服务时会自动生成。").addButton(t => t.setButtonText("重新生成").setWarning().onClick(async () => {
             this.plugin.settings.mcpToken = this.plugin.mcpServerManager.generateToken();
             await this.plugin.saveSettings();
             new Notice("MCP Token 已重新生成");
             containerEl.empty();
             this.render(containerEl);
         }));
+
+        if (this.plugin.settings.mcpToken) {
+            const tokenPre = containerEl.createEl("pre");
+            tokenPre.style.cssText = "white-space: pre-wrap; padding: 10px; border-radius: 5px; overflow-x: auto; user-select: text;";
+            tokenPre.setText(this.plugin.settings.mcpToken);
+        }
 
         new Setting(containerEl)
             .setName("Skill 文档路径")
@@ -92,9 +95,5 @@ export class McpSettingsView extends AbstractSettingsView {
         const configPre = configDiv.createEl("pre");
         configPre.style.cssText = "white-space: pre-wrap; padding: 10px; border-radius: 5px; overflow-x: auto;";
         configPre.setText(configText());
-        configDiv.createEl("button", { text: "复制配置", cls: "mod-small" }).onclick = () => {
-            navigator.clipboard.writeText(configText());
-            new Notice("MCP 配置已复制");
-        };
     }
 }
