@@ -63,6 +63,29 @@ export class McpSettingsView extends AbstractSettingsView {
             this.render(containerEl);
         }));
 
+        new Setting(containerEl)
+            .setName("Skill 文档路径")
+            .setDesc("一键导出时写入到当前 vault 的相对路径，默认会创建 dida 文件夹并写入 SKILL.md。")
+            .addText(t => t
+                .setPlaceholder("dida/SKILL.md")
+                .setValue(this.plugin.settings.mcpSkillNotePath || "dida/SKILL.md")
+                .onChange(async value => {
+                    this.plugin.settings.mcpSkillNotePath = value.trim() || "dida/SKILL.md";
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName("导出 Dida Skill 文档")
+            .setDesc("将内置的 Dida skill 文档一键写入本地 vault，方便在 Obsidian 中直接查看和给 AI 工具使用。")
+            .addButton(t => t.setButtonText("导出到 Vault").setCta().onClick(async () => {
+                try {
+                    const path = await this.plugin.exportMcpSkillDocument();
+                    new Notice(`Skill 文档已导出到 ${path}`);
+                } catch (e: any) {
+                    new Notice(`Skill 文档导出失败: ${e?.message || e}`);
+                }
+            }));
+
         const configDiv = containerEl.createDiv();
         configDiv.style.cssText = "margin: 10px 0;";
         configDiv.createEl("strong", { text: "AI 插件配置：" });

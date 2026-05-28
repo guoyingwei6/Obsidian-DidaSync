@@ -1,4 +1,4 @@
-import { Editor, EditorPosition, getIconIds, Menu, Modal, Notice, Plugin, setIcon, TFile } from 'obsidian';
+import { Editor, EditorPosition, getIconIds, Menu, Modal, Notice, Plugin, setIcon, TFile, normalizePath } from 'obsidian';
 import { DidaApiClient } from './api/DidaApiClient';
 import { RRuleParser } from './core/RRuleParser';
 import { DailyNoteManager } from './managers/DailyNoteManager';
@@ -6,6 +6,7 @@ import { McpServerManager } from './managers/McpServerManager';
 import { NativeTaskSyncManager } from './managers/NativeTaskSyncManager';
 import { RepeatTaskManager } from './managers/RepeatTaskManager';
 import { SyncManager } from './managers/SyncManager';
+import { DIDA_SKILL_DOC } from './skills/dida-skill-doc';
 import { AddTaskToProjectModal } from './modals/AddTaskToProjectModal';
 import { CompletedTasksModal } from './modals/CompletedTasksModal';
 import { ProjectCreateModal } from './modals/ProjectCreateModal';
@@ -227,11 +228,43 @@ export default class DidaSyncPlugin extends Plugin {
         if (this.settings.mcpPort === undefined) this.settings.mcpPort = 35829;
         if (this.settings.mcpToken === undefined) this.settings.mcpToken = "";
         if (this.settings.mcpReadOnly === undefined) this.settings.mcpReadOnly = false;
+        if (!this.settings.mcpSkillNotePath) this.settings.mcpSkillNotePath = DEFAULT_SETTINGS.mcpSkillNotePath;
         await this.saveSettings();
     }
 
     async saveSettings() {
         await this.saveData(this.settings);
+    }
+
+    async exportMcpSkillDocument() {
+        const normalizedPath = normalizePath((this.settings.mcpSkillNotePath || DEFAULT_SETTINGS.mcpSkillNotePath).trim());
+        if (!normalizedPath) {
+            throw new Error("Skill 文档路径不能为空");
+        }
+
+        const pathParts = normalizedPath.split("/").filter(Boolean);
+        if (pathParts.length === 0) {
+            throw new Error("Skill 文档路径无效");
+        }
+
+        const folderParts = pathParts.slice(0, -1);
+        let currentPath = "";
+        for (const part of folderParts) {
+            currentPath = currentPath ? `${currentPath}/${part}` : part;
+            const folderPath = normalizePath(currentPath);
+            if (!(await this.app.vault.adapter.exists(folderPath))) {
+                await this.app.vault.createFolder(folderPath);
+            }
+        }
+
+        const existingFile = this.app.vault.getAbstractFileByPath(normalizedPath);
+        if (existingFile instanceof TFile) {
+            await this.app.vault.modify(existingFile, DIDA_SKILL_DOC);
+        } else {
+            await this.app.vault.create(normalizedPath, DIDA_SKILL_DOC);
+        }
+
+        return normalizedPath;
     }
 
     normalizeProjectCatalogEntry(entry: any): ProjectCatalogEntry | null {

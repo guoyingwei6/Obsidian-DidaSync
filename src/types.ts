@@ -106,6 +106,7 @@ export interface DidaSyncSettings {
     mcpPort: number;
     mcpToken: string;
     mcpReadOnly: boolean;
+    mcpSkillNotePath: string;
     showArchivedProjects: boolean;
 
     autoCleanCompletedTasks: boolean;
@@ -164,6 +165,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     mcpPort: 35829,
     mcpToken: "",
     mcpReadOnly: false,
+    mcpSkillNotePath: "dida/SKILL.md",
     showArchivedProjects: false,
     autoCleanCompletedTasks: false,
     autoCleanInterval: 1,
