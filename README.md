@@ -202,9 +202,12 @@ This flow shows how a YOLO-style agent can use DidaSync MCP to read, plan, confi
 
 ## Installation
 
-### BRAT Installation
+### Official Community Plugins Installation
 
-Install the BRAT plugin from the Community Plugins directory, choose `Add beta plugin`, and paste this repository URL.
+1. Open `Settings -> Community plugins` in Obsidian.
+2. Turn off `Restricted mode` if needed, then click `Browse`.
+3. Search for `DidaSync`.
+4. Click `Install`, then enable the plugin.
 
 ### Manual Installation
 
