@@ -1,6 +1,7 @@
 ﻿import { ItemView, Notice, WorkspaceLeaf } from 'obsidian';
 import DidaSyncPlugin from '../main';
 import { DatePickerModal } from '../modals/DatePickerModal';
+import { resolveTaskIndex } from '../taskIndex';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
 import { debounce, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, translateRepeatFlag } from '../utils';
 
@@ -1734,14 +1735,19 @@ export class TaskView extends ItemView {
                         dateSpan.title = "点击设置开始时间";
                         dateSpan.onclick = (e) => {
                             e.stopPropagation();
+                            const idx = resolveTaskIndex(this.plugin.settings.tasks, task, task.originalIndex);
+                            if (idx === -1) {
+                                new Notice("未找到对应任务，无法更新时间");
+                                return;
+                            }
                             new DatePickerModal(this.app, task.startDate, (date: Date | null, isAllDay: boolean, endDate?: Date) => {
                                 if (date) {
-                                    this.updateTaskStartDate(task.originalIndex, date, isAllDay);
+                                    this.updateTaskStartDate(idx, date, isAllDay);
                                     if (endDate && !isAllDay) {
-                                        this.updateTaskDueDate(task.originalIndex, endDate, false);
+                                        this.updateTaskDueDate(idx, endDate, false);
                                     }
                                 }
-                            }, e.currentTarget as HTMLElement, this.plugin, task.originalIndex).open();
+                            }, e.currentTarget as HTMLElement, this.plugin, idx).open();
                         };
 
                         // Delete button
