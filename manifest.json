@@ -1,8 +1,8 @@
 {
-	"id": "Didasync",
-	"name": "Didasync",
+	"id": "didasync",
+	"name": "DidaSync",
 	"minAppVersion": "0.15.0",
-	"description": "与滴答清单双向同步任务的插件",
+	"description": "Sync tasks between Obsidian and Dida365 or TickTick.",
 	"author": "CYZice",
 	"authorUrl": "https://github.com/CYZice",
 	"isDesktopOnly": true,

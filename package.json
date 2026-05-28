@@ -1,7 +1,7 @@
 {
     "name": "obsidian-didasync",
     "version": "1.4.2",
-    "description": "与滴答清单双向同步任务的插件",
+    "description": "Sync tasks between Obsidian and Dida365 or TickTick.",
     "main": "main.js",
     "scripts": {
         "dev": "node esbuild.config.mjs",
