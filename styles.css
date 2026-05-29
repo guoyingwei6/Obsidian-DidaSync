@@ -566,6 +566,7 @@
     flex-grow: 1;
 }
 
+/* [Deprecated] 项目图标功能已移除，保留样式以保持向后兼容 */
 .dida-project-icon {
     display: inline-flex;
     align-items: center;
@@ -763,7 +764,7 @@
     cursor: pointer;
     padding: 4px 4px;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 14px;
     transition: background-color 0.2s ease;
     flex-grow: 1;
     flex-shrink: 1;

@@ -1503,8 +1503,6 @@ export class TaskView extends ItemView {
                     const subtaskCount = this.plugin.settings.tasks.filter(t => t.parentId && tasksInProject.some(p => p.didaId === t.parentId)).length;
                     const countText = subtaskCount > 0 ? `${projectName} (${projectTasks.length}+${subtaskCount})` : `${projectName} (${projectTasks.length})`;
 
-                    const iconEl = titleEl.createSpan({ cls: "dida-project-icon" });
-                    this.plugin.renderProjectIcon(iconEl, projectInfo.id, projectName);
                     titleEl.createEl("span", { text: countText });
                     if (projectInfo.isArchived) {
                         const archived = titleEl.createSpan({ cls: "dida-project-archived-icon" });

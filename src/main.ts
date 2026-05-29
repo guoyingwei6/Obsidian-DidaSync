@@ -400,6 +400,7 @@ export default class DidaSyncPlugin extends Plugin {
             : `name:${(projectName || "").trim()}`;
     }
 
+    // [Deprecated] 项目图标功能已移除，保留方法以保持向后兼容
     getProjectDefaultIconName(projectName: string) {
         return projectName === "收集箱" ? "inbox" : "list-checks";
     }
@@ -425,6 +426,7 @@ export default class DidaSyncPlugin extends Plugin {
         await this.saveSettings();
     }
 
+    // [Deprecated] 项目图标渲染功能已移除，保留方法以保持向后兼容
     renderProjectIcon(container: HTMLElement, projectId: string, projectName: string) {
         if (!container) return;
         container.empty();
