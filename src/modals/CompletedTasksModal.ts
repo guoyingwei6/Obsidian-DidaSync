@@ -138,23 +138,13 @@ export class CompletedTasksModal extends Modal {
             .sort((a, b) => new Date(b.completedTime || 0 as any).getTime() - new Date(a.completedTime || 0 as any).getTime())
             .forEach((task) => {
                 const item = this.resultEl!.createDiv("dida-completed-item");
-                const main = item.createDiv("dida-completed-item-main");
-                const titleRow = main.createDiv("dida-completed-item-title");
-                titleRow.textContent = task.title || "未命名任务";
-                const meta = main.createDiv("dida-completed-item-meta");
-                const parts = [
-                    task.projectName || (task.projectId === "inbox" ? "收集箱" : task.projectId),
-                    task.completedTime ? `完成于 ${this.extractDateValue(task.completedTime)}` : "",
-                    task.dueDate ? `原计划 ${this.extractDateValue(task.dueDate)}` : ""
-                ].filter(Boolean);
-                meta.textContent = parts.join(" · ");
 
-                const actionBtn = item.createEl("button", {
-                    text: "恢复",
-                    cls: "dida-completed-restore-btn"
-                });
-                actionBtn.addEventListener("click", async () => {
-                    actionBtn.disabled = true;
+                // Header: checkbox + title
+                const header = item.createDiv("dida-completed-item-header");
+                const checkbox = header.createDiv("dida-completed-checkbox checked");
+                checkbox.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+                checkbox.addEventListener("click", async () => {
+                    checkbox.style.opacity = "0.5";
                     try {
                         await this.plugin.restoreCompletedTask(task);
                         const nextTasks = (this.plugin.settings.completedTasks || []).filter((item) => item.didaId !== task.didaId);
@@ -164,9 +154,21 @@ export class CompletedTasksModal extends Modal {
                         }
                     } catch (e: any) {
                         new Notice(e?.message || "恢复任务失败");
-                        actionBtn.disabled = false;
+                        checkbox.style.opacity = "1";
                     }
                 });
+                const titleEl = header.createEl("span", {
+                    text: task.title || "未命名任务",
+                    cls: "dida-completed-item-title"
+                });
+
+                // Meta: completion time + original due date
+                const meta = item.createDiv("dida-completed-item-meta");
+                const parts = [
+                    task.completedTime ? `完成于 ${this.extractDateValue(task.completedTime)}` : "",
+                    task.dueDate ? `原计划 ${this.extractDateValue(task.dueDate)}` : ""
+                ].filter(Boolean);
+                meta.textContent = parts.join("  ·  ");
             });
     }
 

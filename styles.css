@@ -256,12 +256,16 @@
     max-width: 520px;
 }
 
+.dida-completed-modal h3 {
+    margin-top: 0;
+}
+
 .dida-completed-controls {
     display: flex;
     align-items: center;
     gap: 12px;
     flex-wrap: nowrap;
-    margin-bottom: 14px;
+    margin-bottom: 10px;
 }
 
 .dida-completed-control {
@@ -330,31 +334,56 @@
 
 .dida-completed-item {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 12px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 8px;
-    margin-bottom: 10px;
-    background: var(--background-secondary);
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 0;
 }
 
-.dida-completed-item-main {
-    min-width: 0;
-    flex: 1 1 auto;
+.dida-completed-item-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.dida-completed-checkbox {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid var(--interactive-accent);
+    background: var(--interactive-accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    cursor: pointer;
+    color: var(--text-on-accent);
+    transition: opacity 0.2s;
+}
+
+.dida-completed-checkbox:hover {
+    opacity: 0.8;
 }
 
 .dida-completed-item-title {
-    font-weight: 600;
-    margin-bottom: 4px;
+    font-size: 14px;
+    color: var(--text-muted);
+    text-decoration: line-through;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dida-completed-item-meta {
     font-size: 12px;
     color: var(--text-muted);
+    padding-left: 30px;
+    opacity: 0.7;
+}
 }
 
+/* [Deprecated] .dida-completed-restore-btn - 恢复按钮已移除，改用圆形勾选框 */
 .dida-completed-restore-btn {
     height: 32px;
     padding: 0 12px;
