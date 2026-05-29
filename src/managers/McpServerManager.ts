@@ -410,7 +410,7 @@ export class McpServerManager {
             const existing = projects.get(key);
             projects.set(key, {
                 id: id || existing?.id || "",
-                name: name || existing?.name || (id === "inbox" ? "鏀堕泦绠?" : id),
+                name: name || existing?.name || (id === "inbox" ? "收集箱" : id),
                 color: project.color ?? existing?.color,
                 sortOrder: project.sortOrder ?? existing?.sortOrder,
                 closed: project.closed ?? existing?.closed,
@@ -434,7 +434,7 @@ export class McpServerManager {
         for (const task of this.plugin.settings.tasks || []) {
             upsertProject({
                 id: task.projectId || "inbox",
-                name: task.projectName || (task.projectId === "inbox" ? "鏀堕泦绠?" : task.projectId),
+                name: task.projectName || (task.projectId === "inbox" ? "收集箱" : task.projectId),
                 color: task.projectColor,
                 closed: task.projectClosed,
                 viewMode: task.projectViewMode,
@@ -444,7 +444,7 @@ export class McpServerManager {
         }
 
         const hasInbox = Array.from(projects.values()).some((project) => this.plugin.isInboxProject(project.id, project.name));
-        if (!hasInbox) upsertProject({ id: "inbox", name: "鏀堕泦绠?" });
+        if (!hasInbox) upsertProject({ id: "inbox", name: "收集箱" });
 
         return Array.from(projects.values());
     }
