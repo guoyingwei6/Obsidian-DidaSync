@@ -1459,7 +1459,7 @@ export class TaskView extends ItemView {
                     return;
                 }
 
-                const sortedProjects = Array.from(projectMap.entries()).sort(([nameA], [nameB]) => {
+                const sortedProjects = Array.from(projectMap.entries()).sort(([nameA, tasksA], [nameB, tasksB]) => {
                     const indexA = projectOrder.indexOf(nameA);
                     const indexB = projectOrder.indexOf(nameB);
 
@@ -1470,6 +1470,10 @@ export class TaskView extends ItemView {
                     if (nameA === "收集箱") return -1;
                     if (nameB === "收集箱" || nameA === "本地任务") return 1;
                     if (nameB === "本地任务") return -1;
+
+                    const aHasTasks = tasksA.length > 0;
+                    const bHasTasks = tasksB.length > 0;
+                    if (aHasTasks !== bHasTasks) return aHasTasks ? -1 : 1;
                     return nameA.localeCompare(nameB);
                 });
 
