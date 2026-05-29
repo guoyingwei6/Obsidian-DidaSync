@@ -49,8 +49,9 @@ export class CompletedTasksModal extends Modal {
 
         this.loadingEl = contentEl.createDiv("dida-completed-loading");
         this.resultEl = contentEl.createDiv("dida-completed-results");
+        this.currentQuery = this.plugin.buildDefaultCompletedTaskQuery();
         this.renderDateFields();
-        void this.renderResults(this.plugin.settings.completedTasks || []);
+        void this.runQuery();
     }
 
     extractDateValue(value?: string) {
