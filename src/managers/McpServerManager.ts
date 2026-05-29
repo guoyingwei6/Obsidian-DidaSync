@@ -499,20 +499,19 @@ export class McpServerManager {
         return [
             {
                 name: "dida_list_tasks",
-                description: "List/filter active cached Dida tasks only.",
+                description: "List active cached tasks with structured filters such as date, project, or priority.",
                 readOnly: true,
                 inputSchema: {
                     type: "object",
                     additionalProperties: false,
                     properties: {
                         datePreset: { type: "string", enum: ["overdue", "today", "tomorrow", "this_week", "scheduled", "unscheduled"], description: "Shortcut date filter." },
-                        from: { type: "string", description: "Range start: YYYY-MM-DD or ISO datetime." },
-                        to: { type: "string", description: "Range end: YYYY-MM-DD or ISO datetime." },
+                        from: { type: "string", description: "Range start: YYYY-MM-DD for all-day, ISO datetime for timed tasks." },
+                        to: { type: "string", description: "Range end: YYYY-MM-DD for all-day, ISO datetime for timed tasks." },
                         dateField: { type: "string", enum: ["startDate", "dueDate", "either"], description: "Default either." },
-                        query: { type: "string", description: "Text search." },
-                        projectId: { type: "string", description: "Exact project id." },
-                        projectName: { type: "string", description: "Partial project name." },
-                        priority: { type: "number", description: "Exact priority." },
+                        projectId: { type: "string", description: "Exact project id. Defaults to inbox if omitted." },
+                        projectName: { type: "string", description: "Partial project name. Use when the user names a project." },
+                        priority: { type: "number", enum: [0, 1, 3, 5], description: "0 none, 1 low, 3 medium, 5 high." },
                         isAllDay: { type: "boolean", description: "Filter all-day status." },
                         sortBy: { type: "string", enum: ["date", "priority", "updatedAt", "createdAt", "title"], description: "Default date." },
                         sortDirection: { type: "string", enum: ["asc", "desc"], description: "Default asc." },
@@ -520,10 +519,10 @@ export class McpServerManager {
                     }
                 }
             },
-            { name: "dida_get_task", description: "Get one task by id or didaId.", readOnly: true, inputSchema: idInput },
+            { name: "dida_get_task", description: "Get one active cached task after locating its id.", readOnly: true, inputSchema: idInput },
             {
                 name: "dida_search_tasks",
-                description: "Search active cached tasks by text.",
+                description: "Full-text search active cached tasks by title, notes, or project name.",
                 readOnly: true,
                 inputSchema: {
                     type: "object",
@@ -537,7 +536,7 @@ export class McpServerManager {
             },
             {
                 name: "dida_create_task",
-                description: "Create a Dida task.",
+                description: "Create a new active task when the user asks to add, record, or remind something.",
                 inputSchema: {
                     type: "object",
                     required: ["title"],
@@ -547,16 +546,16 @@ export class McpServerManager {
             },
             {
                 name: "dida_update_task",
-                description: "Update one task. Requires id or didaId.",
+                description: "Update fields of one existing task after locating its id. Do not use for moving if dida_move_task applies.",
                 inputSchema: {
                     type: "object",
                     additionalProperties: false,
-                    properties: { ...idInput.properties, ...this.taskMutationProperties(false), status: { type: "number", enum: [0, 2], description: "0 active, 2 completed." } }
+                    properties: { ...idInput.properties, ...this.taskMutationProperties(false), status: { type: "number", enum: [0, 2], description: "0 active, 2 completed. Mainly for restoring completed tasks or manual status correction." } }
                 }
             },
             {
                 name: "dida_schedule_tasks",
-                description: "Batch update task dates for planning/time blocking.",
+                description: "Batch set start/due dates for existing tasks. Use for daily planning and time blocking.",
                 inputSchema: {
                     type: "object",
                     required: ["items"],
@@ -572,8 +571,8 @@ export class McpServerManager {
                                 properties: {
                                     id: idInput.properties.id,
                                     didaId: idInput.properties.didaId,
-                                    startDate: { type: "string", description: "YYYY-MM-DD or ISO datetime." },
-                                    dueDate: { type: "string", description: "YYYY-MM-DD or ISO datetime; >= startDate." },
+                                    startDate: { type: "string", description: "YYYY-MM-DD for all-day, ISO datetime for timed tasks." },
+                                    dueDate: { type: "string", description: "YYYY-MM-DD for all-day, ISO datetime for timed tasks. Must be >= startDate." },
                                     isAllDay: { type: "boolean", description: "true for all-day." }
                                 }
                             }
@@ -582,11 +581,11 @@ export class McpServerManager {
                     }
                 }
             },
-            { name: "dida_complete_task", description: "Complete one task by id or didaId.", inputSchema: idInput },
-            { name: "dida_delete_task", description: "Delete one task by id or didaId.", inputSchema: idInput },
+            { name: "dida_complete_task", description: "Mark one active task complete. Prefer this over update_task.status=2.", inputSchema: idInput },
+            { name: "dida_delete_task", description: "Delete one task. Use only when the user explicitly asks to delete/remove it.", inputSchema: idInput },
             {
                 name: "dida_move_task",
-                description: "Move one task to another project using the official Dida move API.",
+                description: "Move one existing task to another project by destination projectId.",
                 inputSchema: {
                     type: "object",
                     required: ["toProjectId"],
@@ -597,11 +596,11 @@ export class McpServerManager {
                     }
                 }
             },
-            { name: "dida_sync_now", description: "Run DidaSync two-way sync.", inputSchema: { type: "object", additionalProperties: false, properties: {} } },
-            { name: "dida_list_projects", description: "List cached Dida projects.", readOnly: true, inputSchema: { type: "object", additionalProperties: false, properties: {} } },
+            { name: "dida_sync_now", description: "Run two-way sync when fresh Dida data is needed before reading or after writes.", inputSchema: { type: "object", additionalProperties: false, properties: {} } },
+            { name: "dida_list_projects", description: "List projects and resolve exact projectId before creating, updating, or moving tasks.", readOnly: true, inputSchema: { type: "object", additionalProperties: false, properties: {} } },
             {
                 name: "dida_list_completed_tasks",
-                description: "Fetch or read completed tasks only, primarily filtered by completed time range.",
+                description: "Read completed tasks for review, summaries, and progress reports over a completed-time range.",
                 readOnly: true,
                 inputSchema: {
                     type: "object",
@@ -612,8 +611,8 @@ export class McpServerManager {
                             items: { type: "string" },
                             description: "Optional project ids."
                         },
-                        startDate: { type: "string", description: "ISO datetime with timezone." },
-                        endDate: { type: "string", description: "ISO datetime with timezone." },
+                        startDate: { type: "string", description: "Completed-time range start. ISO datetime with timezone." },
+                        endDate: { type: "string", description: "Completed-time range end. ISO datetime with timezone." },
                         query: { type: "string", description: "Optional text search over fetched completed tasks." },
                         limit: { type: "number", minimum: 1, maximum: 500, description: "Default 100, max 500." },
                         refresh: { type: "boolean", description: "Default true. Fetch latest from Dida before reading cache." }
@@ -624,17 +623,18 @@ export class McpServerManager {
     }
 
     private taskMutationProperties(includeRequestId: boolean) {
+        const commonDate = "YYYY-MM-DD for all-day, ISO datetime for timed tasks.";
         const properties: any = {
             title: { type: "string", description: "Task title." },
-            content: { type: "string", description: "Task body." },
+            content: { type: "string", description: "Main note/body of the task." },
             desc: { type: "string", description: "Task description." },
-            projectId: { type: "string", description: "Project id; inbox for 收集箱." },
-            projectName: { type: "string", description: "Project name." },
-            dueDate: { type: "string", description: "YYYY-MM-DD or ISO datetime." },
-            startDate: { type: "string", description: "YYYY-MM-DD or ISO datetime." },
+            projectId: { type: "string", description: "Exact project id. Defaults to inbox if omitted." },
+            projectName: { type: "string", description: "Partial project name. Use when the user names a project and projectId is unknown." },
+            dueDate: { type: "string", description: commonDate },
+            startDate: { type: "string", description: commonDate },
             isAllDay: { type: "boolean", description: "true for date-only tasks." },
-            priority: { type: "number", description: "0 none, 1 low, 3 medium, 5 high." },
-            sync: { type: "boolean", description: "Default true." }
+            priority: { type: "number", enum: [0, 1, 3, 5], description: "0 none, 1 low, 3 medium, 5 high." },
+            sync: { type: "boolean", description: "Optional. Default true." }
         };
         if (includeRequestId) properties.requestId = { type: "string", description: "Idempotency key for retries." };
         return properties;
