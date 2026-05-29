@@ -75,6 +75,15 @@ DidaSync can expose a local HTTP MCP server on desktop so MCP-compatible AI tool
 | Token Authentication | Protects local task read and write operations with your configured token. |
 | AI Tool Access | Supports listing, reading, searching, creating, updating, scheduling, completing, deleting, and syncing tasks, plus project access. |
 
+### 🔐 Official OAuth 2.0 — No Password Required
+
+DidaSync connects via the official OAuth 2.0 flow. You authorize directly on Dida365/TickTick's page — no username or password ever touches the plugin.
+
+| OAuth Settings | Authorization Complete |
+|:--:|:--:|
+| ![OAuth Settings](./assets/OAuth_1.png) | ![Authenticated](./assets/OAuth_2.png) |
+| Enter your Client ID and Secret, set the callback port, then click **Start Authentication**. | Once authorized, your token is stored locally and syncing begins. |
+
 ## Features
 
 | Feature | Description | How To Use |
@@ -96,7 +105,7 @@ DidaSync can expose a local HTTP MCP server on desktop so MCP-compatible AI tool
 ## Quick Start
 
 1. [Install and enable the plugin](#installation).
-2. Open plugin settings and complete OAuth authorization for your Dida365 or TickTick account.
+2. Open plugin settings and click the **Authorize** button to start the official OAuth flow — you'll be redirected to Dida365 or TickTick's authorization page where you grant permission directly, no account credentials needed.
 3. Open the sidebar or use the ribbon icon to start syncing tasks.
 
 ## Common Workflows
@@ -139,6 +148,10 @@ You can drag tasks from the sidebar task list directly into any Obsidian editor:
 ```
 
 This lets you check the task inside the note and jump back to the linked Dida task.
+
+## OAuth Authentication
+
+DidaSync uses the official OAuth 2.0 flow — you authorize on Dida365/TickTick's page directly, and your token is stored locally. No username or password ever touches the plugin. The callback runs on localhost only and is never exposed to the network.
 
 ## OAuth Troubleshooting
 
@@ -217,9 +230,9 @@ This flow shows how a YOLO-style agent can use DidaSync MCP to read, plan, confi
 
 ## Release And Privacy Notes
 
-- The plugin requires a user-provided and authorized Dida365 or TickTick account.
+- DidaSync connects via **official OAuth 2.0** — no username or password is ever required or stored by the plugin.
 - The plugin makes network requests to official Dida365 or TickTick APIs to read, create, update, complete, delete, move, and sync tasks.
-- The plugin does not upload telemetry or include ads by default.
+- The plugin does not upload telemetry or include ads.
 - When MCP service is enabled, the plugin starts a local HTTP server bound to `127.0.0.1` and protects it with your configured token.
 - OAuth tokens, MCP tokens, and plugin settings are stored locally using Obsidian's plugin data storage.
 
