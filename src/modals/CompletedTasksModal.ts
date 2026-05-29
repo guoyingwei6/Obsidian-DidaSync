@@ -24,7 +24,7 @@ export class CompletedTasksModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
         contentEl.addClass("dida-completed-modal");
-        contentEl.createEl("h3", { text: "已完成" });
+        contentEl.createEl("h3", { text: "已完成任务" });
 
         const controls = contentEl.createDiv("dida-completed-controls");
         const startWrap = controls.createDiv("dida-completed-control");

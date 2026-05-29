@@ -252,8 +252,8 @@
 }
 
 .dida-completed-modal {
-    min-width: 560px;
-    max-width: 760px;
+    min-width: 400px;
+    max-width: 520px;
 }
 
 .dida-completed-controls {
@@ -316,6 +316,16 @@
 .dida-completed-results {
     max-height: 420px;
     overflow-y: auto;
+    width: 100%;
+}
+
+/* 隐藏已完成任务弹窗的滚动条 */
+.dida-completed-results::-webkit-scrollbar {
+    display: none;
+}
+.dida-completed-results {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
 
 .dida-completed-item {
