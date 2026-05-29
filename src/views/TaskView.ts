@@ -1191,7 +1191,7 @@ export class TaskView extends ItemView {
                     position: absolute;
                     top: 100%;
                     left: 0;
-                    width: 136px;
+                    width: 100%;
                     background: var(--background-primary);
                     border: 1px solid var(--background-modifier-border);
                     border-radius: 4px;
