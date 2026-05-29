@@ -90,7 +90,7 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.addCommand({
             id: 'open-dida-task-view',
-            name: '打开滴答任务清单',
+            name: '打开滴答清单',
             callback: () => {
                 this.openTaskViewWithCache();
             }

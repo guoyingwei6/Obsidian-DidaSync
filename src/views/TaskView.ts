@@ -997,7 +997,7 @@ export class TaskView extends ItemView {
     }
 
     getDisplayText() {
-        return "滴答任务清单";
+        return "滴答清单";
     }
 
     getIcon() {
@@ -1088,7 +1088,7 @@ export class TaskView extends ItemView {
         } else {
             container.empty();
             const header = container.createDiv("dida-task-header");
-            header.createEl("h3").innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-check-big-icon lucide-circle-check-big"><path d="M21.801 10A10 10 0 1 1 17 3.335" stroke="#183f9bff"/><path d="m9 11 3 3L22 4" stroke="#ff9800"/></svg> 滴答任务清单';
+            header.createEl("h3").innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-check-big-icon lucide-circle-check-big"><path d="M21.801 10A10 10 0 1 1 17 3.335" stroke="#183f9bff"/><path d="m9 11 3 3L22 4" stroke="#ff9800"/></svg> 滴答清单';
             const headerControls = header.createDiv("dida-task-header-controls");
 
             // View toggle button
