@@ -190,7 +190,7 @@ export class McpServerManager {
                 case "dida_sync_now":
                     return this.toolResult(true, await this.syncNow());
                 case "dida_list_projects":
-                    return this.toolResult(true, this.listProjects());
+                    return this.toolResult(true, this.listProjectsFromCatalog());
                 case "dida_list_completed_tasks":
                     return this.toolResult(true, await this.listCompletedTasks(args));
                 default:
@@ -392,6 +392,60 @@ export class McpServerManager {
                 });
             }
         }
+        return Array.from(projects.values());
+    }
+
+    private listProjectsFromCatalog(): DidaProject[] {
+        const projects = new Map<string, DidaProject>();
+        const makeKey = (id?: string, name?: string) => {
+            const normalizedId = String(id || "").trim();
+            if (normalizedId) return `id:${normalizedId}`;
+            return `name:${String(name || "").trim().toLowerCase()}`;
+        };
+        const upsertProject = (project: Partial<DidaProject> & { id?: string; name?: string }) => {
+            const id = String(project.id || "").trim();
+            const name = String(project.name || "").trim();
+            if (!id && !name) return;
+            const key = makeKey(id, name);
+            const existing = projects.get(key);
+            projects.set(key, {
+                id: id || existing?.id || "",
+                name: name || existing?.name || (id === "inbox" ? "鏀堕泦绠?" : id),
+                color: project.color ?? existing?.color,
+                sortOrder: project.sortOrder ?? existing?.sortOrder,
+                closed: project.closed ?? existing?.closed,
+                groupId: project.groupId ?? existing?.groupId,
+                viewMode: project.viewMode ?? existing?.viewMode,
+                permission: project.permission ?? existing?.permission,
+                kind: project.kind ?? existing?.kind
+            });
+        };
+
+        for (const project of this.plugin.getProjectCatalog()) {
+            upsertProject({
+                id: project.id,
+                name: project.name,
+                closed: project.isArchived
+            });
+        }
+        for (const project of this.plugin.settings.projects || []) {
+            upsertProject(project);
+        }
+        for (const task of this.plugin.settings.tasks || []) {
+            upsertProject({
+                id: task.projectId || "inbox",
+                name: task.projectName || (task.projectId === "inbox" ? "鏀堕泦绠?" : task.projectId),
+                color: task.projectColor,
+                closed: task.projectClosed,
+                viewMode: task.projectViewMode,
+                permission: task.projectPermission,
+                kind: task.projectKind
+            });
+        }
+
+        const hasInbox = Array.from(projects.values()).some((project) => this.plugin.isInboxProject(project.id, project.name));
+        if (!hasInbox) upsertProject({ id: "inbox", name: "鏀堕泦绠?" });
+
         return Array.from(projects.values());
     }
 
