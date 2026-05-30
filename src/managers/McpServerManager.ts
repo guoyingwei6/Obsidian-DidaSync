@@ -203,6 +203,8 @@ export class McpServerManager {
 
     private listTasks(args: any) {
         let tasks = [...(this.plugin.settings.tasks || [])].filter(t => t.status !== 2);
+        const priority = this.normalizePriority(args?.priority, false);
+        const isAllDay = this.normalizeBoolean(args?.isAllDay, "isAllDay", false);
 
         const query = String(args?.query || "").trim().toLowerCase();
         if (query) tasks = tasks.filter(t => [t.title, t.content, t.desc, t.projectName].some(v => String(v || "").toLowerCase().includes(query)));
@@ -211,8 +213,8 @@ export class McpServerManager {
             const projectName = String(args.projectName).trim().toLowerCase();
             tasks = tasks.filter(t => String(t.projectName || "").toLowerCase().includes(projectName));
         }
-        if (typeof args?.priority === "number") tasks = tasks.filter(t => Number(t.priority || 0) === Number(args.priority));
-        if (typeof args?.isAllDay === "boolean") tasks = tasks.filter(t => !!t.isAllDay === args.isAllDay);
+        if (priority !== undefined) tasks = tasks.filter(t => Number(t.priority || 0) === priority);
+        if (isAllDay !== undefined) tasks = tasks.filter(t => !!t.isAllDay === isAllDay);
 
         const datePreset = this.normalizeEnum(args?.datePreset, ["overdue", "today", "tomorrow", "this_week", "scheduled", "unscheduled"], "datePreset");
         const dateField = this.normalizeEnum(args?.dateField, ["startDate", "dueDate", "either"], "dateField") || "either";
@@ -249,6 +251,7 @@ export class McpServerManager {
     private async createTask(args: any) {
         const title = String(args?.title || "").trim();
         if (!title) throw new Error("title is required");
+        const sync = this.normalizeBoolean(args?.sync, "sync", false);
         this.validateTaskDates(args);
         if (args?.requestId && this.recentCreateRequests.has(args.requestId)) {
             return this.serializeTask(this.recentCreateRequests.get(args.requestId)!);
@@ -258,11 +261,11 @@ export class McpServerManager {
             title,
             args?.projectName || "收集箱",
             args?.projectId || "inbox",
-            args?.sync !== false,
+            sync !== false,
             args?.dueDate || null
         );
         this.applyTaskPatch(task, args, false);
-        if (args?.sync !== false && this.plugin.settings.accessToken && task.didaId) {
+        if (sync !== false && this.plugin.settings.accessToken && task.didaId) {
             await this.plugin.updateTaskInDidaList(task);
         }
         await this.plugin.saveSettings();
@@ -273,10 +276,11 @@ export class McpServerManager {
 
     private async updateTask(args: any) {
         const task = this.findTaskOrThrow(args);
+        const sync = this.normalizeBoolean(args?.sync, "sync", false);
         this.validateTaskDates(args);
         this.applyTaskPatch(task, args, true);
         await this.plugin.saveSettings();
-        if (this.plugin.settings.accessToken && task.didaId && args?.sync !== false) {
+        if (this.plugin.settings.accessToken && task.didaId && sync !== false) {
             await this.plugin.updateTaskInDidaList(task);
         }
         this.plugin.refreshTaskView();
@@ -287,7 +291,7 @@ export class McpServerManager {
         if (!Array.isArray(args?.items) || args.items.length === 0) throw new Error("items is required and must be a non-empty array");
         const updated: any[] = [];
         const errors: any[] = [];
-        const shouldSync = args?.sync !== false;
+        const shouldSync = this.normalizeBoolean(args?.sync, "sync", false) !== false;
 
         for (const [index, item] of args.items.entries()) {
             try {
@@ -346,11 +350,12 @@ export class McpServerManager {
 
     private async listCompletedTasks(args: any) {
         const query: any = {};
+        const refresh = this.normalizeBoolean(args?.refresh, "refresh", false);
         if (Array.isArray(args?.projectIds) && args.projectIds.length > 0) query.projectIds = args.projectIds;
         if (args?.startDate) query.startDate = args.startDate;
         if (args?.endDate) query.endDate = args.endDate;
 
-        if (args?.refresh !== false || (this.plugin.settings.completedTasks || []).length === 0) {
+        if (refresh !== false || (this.plugin.settings.completedTasks || []).length === 0) {
             await this.plugin.fetchCompletedTasks(query);
         }
 
@@ -450,11 +455,12 @@ export class McpServerManager {
     }
 
     private applyTaskPatch(task: DidaTask, args: any, allowStatus: boolean) {
-        for (const key of ["title", "content", "desc", "dueDate", "startDate", "projectId", "projectName", "priority"] as const) {
+        for (const key of ["title", "content", "desc", "dueDate", "startDate", "projectId", "projectName"] as const) {
             if (args[key] !== undefined) (task as any)[key] = args[key];
         }
-        if (args.isAllDay !== undefined) task.isAllDay = !!args.isAllDay;
-        if (allowStatus && args.status !== undefined) task.status = Number(args.status);
+        if (args.priority !== undefined) task.priority = this.normalizePriority(args.priority, true) ?? 0;
+        if (args.isAllDay !== undefined) task.isAllDay = this.normalizeBoolean(args.isAllDay, "isAllDay", true) ?? false;
+        if (allowStatus && args.status !== undefined) task.status = this.normalizeStatus(args.status);
         task.updatedAt = new Date().toISOString();
     }
 
@@ -730,6 +736,32 @@ export class McpServerManager {
         if (value === null || value === "") return;
         const date = new Date(value);
         if (isNaN(date.getTime())) throw new Error(`${name} must be a valid date string, for example 2026-05-25 or 2026-05-25T09:00:00+08:00`);
+    }
+
+    private normalizeBoolean(value: any, name: string, strict: boolean) {
+        if (value === undefined) return undefined;
+        if (typeof value === "boolean") return value;
+        if (typeof value === "string") {
+            const normalized = value.trim().toLowerCase();
+            if (normalized === "true") return true;
+            if (normalized === "false") return false;
+        }
+        if (!strict) return undefined;
+        throw new Error(`${name} must be a boolean`);
+    }
+
+    private normalizePriority(value: any, strict: boolean) {
+        if (value === undefined || value === null || value === "") return undefined;
+        const numeric = typeof value === "number" ? value : Number(value);
+        if ([0, 1, 3, 5].includes(numeric)) return numeric;
+        if (!strict) return undefined;
+        throw new Error("priority must be one of: 0, 1, 3, 5");
+    }
+
+    private normalizeStatus(value: any) {
+        const numeric = typeof value === "number" ? value : Number(value);
+        if ([0, 2].includes(numeric)) return numeric;
+        throw new Error("status must be one of: 0, 2");
     }
 
     private toolResult(ok: boolean, data?: any, code?: string, message?: string) {
