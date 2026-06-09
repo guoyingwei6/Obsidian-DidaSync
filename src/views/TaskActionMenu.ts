@@ -1,4 +1,4 @@
-import { App, Editor, EditorPosition } from "obsidian";
+import { App, Editor, EditorPosition, Notice } from "obsidian";
 import { RRuleParser } from "../core/RRuleParser";
 import DidaSyncPlugin from "../main";
 import { makeLocalDateTime, parseTaskLine, tasksRepeatToRRule } from "../taskLineFormat";
@@ -523,6 +523,10 @@ export class TaskActionMenu {
         if (!match) return;
         const startDate = match[1];
         const dueDate = match[4] || startDate;
+        if (dueDate !== startDate) {
+            new Notice("Markdown 任务不显示开始日期，暂不支持跨日时间段");
+            return;
+        }
         const start = makeLocalDateTime(startDate, parseInt(match[2], 10), parseInt(match[3], 10));
         const due = makeLocalDateTime(dueDate, parseInt(match[5], 10), parseInt(match[6], 10));
         this.close();

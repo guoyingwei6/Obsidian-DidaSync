@@ -303,6 +303,15 @@ export class SyncManager {
                         if (remote.priority !== undefined && remote.priority !== local.priority) {
                             local.priority = remote.priority;
                             changed = true;
+                            if (local.didaId) {
+                                setTimeout(() => {
+                                    this.plugin.app.workspace.getLeavesOfType(TASK_VIEW_TYPE).forEach(leaf => {
+                                        if (leaf.view instanceof TaskView && (leaf.view as any).updateNativeTaskDueDate) {
+                                            (leaf.view as any).updateNativeTaskDueDate(local, local.dueDate, local.dueDate);
+                                        }
+                                    });
+                                }, 100);
+                            }
                         }
                         if (remote.status !== undefined && remote.status !== local.status) {
                             local.status = remote.status;
