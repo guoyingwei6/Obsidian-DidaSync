@@ -1,6 +1,7 @@
 import { App, Editor, EditorPosition } from "obsidian";
 import { RRuleParser } from "../core/RRuleParser";
 import DidaSyncPlugin from "../main";
+import { makeLocalDateTime, parseTaskLine, tasksRepeatToRRule } from "../taskLineFormat";
 
 export class TaskActionMenu {
     app: App;
@@ -68,16 +69,11 @@ export class TaskActionMenu {
             if (this.editor && this.cursor) {
                 var lineContent = this.editor.getLine(this.cursor.line);
                 if (lineContent) {
-                    var linkMatch = lineContent.match(/\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([a-f0-9]+)\)/);
-                    var taskMatch = lineContent.match(/^(\s*)-\s\[[ x]\]\s*(.+)$/);
-                    if (linkMatch && taskMatch) {
-                        var didaId = linkMatch[1];
-                        let title = taskMatch[2].trim();
-                        title = title.replace(/\s*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-f0-9]+\)\s*/g, "").trim();
-                        title = title.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
+                    const parsed = parseTaskLine(lineContent);
+                    if (parsed && parsed.didaId) {
                         return {
-                            didaId: didaId,
-                            title: title,
+                            didaId: parsed.didaId,
+                            title: parsed.title,
                             line: this.cursor.line
                         };
                     }
@@ -92,7 +88,7 @@ export class TaskActionMenu {
     isSamePosition(editor: Editor, cursor: EditorPosition) {
         if (!this.editor || !this.cursor || this.editor !== editor || this.cursor.line !== cursor.line) return false;
         const line = editor.getLine(cursor.line);
-        return !!line.match(/^(\s*)-\s\[\s\]\s(.*)$/);
+        return !!line.match(/^(\s*)-\s*\[\s\]\s*(.*)$/);
     }
 
     open() {
@@ -264,17 +260,14 @@ export class TaskActionMenu {
             if (this.plugin && this.plugin.settings && this.plugin.settings.enableNativeTaskSync && this.editor && this.cursor) {
                 const line = this.editor.getLine(this.cursor.line);
                 if (line) {
-                    const linkMatch = line.match(/\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([a-f0-9]+)\)/);
-                    if (linkMatch) {
-                        const didaId = linkMatch[1];
+                    const parsed = parseTaskLine(line);
+                    if (parsed && parsed.didaId) {
+                        const didaId = parsed.didaId;
                         const status = line.match(/^(\s*)-\s\[x\]/i) ? 2 : 0;
-                        const taskMatch = line.match(/^(\s*)-\s\[[ x]\]\s*(.+)$/);
-                        let title = taskMatch ? taskMatch[2].trim() : "";
-                        title = title.replace(/\s*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-f0-9]+\)\s*/g, "").trim();
-                        title = title.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
+                        let title = parsed.title;
                         const dateRegex = /^(\s*)-\s\[[ x]\]\s*(.+)📅\s*(\d{4}-\d{2}-\d{2})(.*)$/;
                         const dateMatch = line.match(dateRegex);
-                        const newTitle = dateMatch ? dateMatch[2].trim() : title;
+                        const newTitle = title;
                         const newDate = dateMatch ? dateMatch[3] : null;
                         let titleChanged = false;
                         let dateChanged = false;
@@ -347,14 +340,9 @@ export class TaskActionMenu {
             if (this.editor) {
                 const line = this.editor.getLine(lineNumber);
                 if (line) {
-                    const linkMatch = line.match(/\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([a-f0-9]+)\)/);
-                    const taskMatch = line.match(/^(\s*)-\s\[[ x]\]\s*(.+)$/);
-                    if (linkMatch && taskMatch) {
-                        const didaId = linkMatch[1];
-                        let title = taskMatch[2].trim();
-                        title = title.replace(/\s*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-f0-9]+\)\s*/g, "").trim();
-                        title = title.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
-                        return { didaId, title, line: lineNumber };
+                    const parsed = parseTaskLine(line);
+                    if (parsed && parsed.didaId) {
+                        return { didaId: parsed.didaId, title: parsed.title, line: lineNumber };
                     }
                 }
             }
@@ -398,6 +386,27 @@ export class TaskActionMenu {
             this.renderDateMenu();
         });
         this.menuItems.push(dateOption);
+
+        const rangeOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "⏱ 时间段" });
+        rangeOption.addEventListener("click", (e) => {
+            e.preventDefault(); e.stopPropagation();
+            this.showTimeRangePrompt();
+        });
+        this.menuItems.push(rangeOption);
+
+        const priorityOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "🔴 优先级" });
+        priorityOption.addEventListener("click", (e) => {
+            e.preventDefault(); e.stopPropagation();
+            this.renderPriorityMenu();
+        });
+        this.menuItems.push(priorityOption);
+
+        const repeatOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "🔁 重复" });
+        repeatOption.addEventListener("click", (e) => {
+            e.preventDefault(); e.stopPropagation();
+            this.renderRepeatMenu();
+        });
+        this.menuItems.push(repeatOption);
 
         this.updateSelectedItem();
     }
@@ -505,6 +514,82 @@ export class TaskActionMenu {
 
         this.updateSelectedItem();
         this.positionMenu();
+    }
+
+    showTimeRangePrompt() {
+        const input = window.prompt("请输入时间段：YYYY-MM-DD HH:mm - YYYY-MM-DD HH:mm\n例如：2026-06-09 09:00 - 2026-06-09 10:00");
+        if (!input) return;
+        const match = input.trim().match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})\s*-\s*(?:(\d{4}-\d{2}-\d{2})\s+)?(\d{1,2}):(\d{2})$/);
+        if (!match) return;
+        const startDate = match[1];
+        const dueDate = match[4] || startDate;
+        const start = makeLocalDateTime(startDate, parseInt(match[2], 10), parseInt(match[3], 10));
+        const due = makeLocalDateTime(dueDate, parseInt(match[5], 10), parseInt(match[6], 10));
+        this.close();
+        this.onAction("timeRange", { startDate: start, dueDate: due });
+    }
+
+    renderPriorityMenu() {
+        if (!this.menuElement) return;
+        this.menuElement.empty();
+        this.menuElement.removeClass("task-action-menu-with-calendar");
+        this.selectedIndex = 0;
+        this.menuItems = [];
+        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "选择优先级";
+        this.renderBackButton();
+        [
+            { label: "⚪ 无优先级", priority: 0 },
+            { label: "🔵 低优先级", priority: 1 },
+            { label: "🟡 中优先级", priority: 3 },
+            { label: "🔴 高优先级", priority: 5 }
+        ].forEach(item => {
+            const el = this.menuElement!.createEl("div", { cls: "task-action-menu-option", text: item.label });
+            el.addEventListener("click", (e) => {
+                e.preventDefault(); e.stopPropagation();
+                this.close();
+                this.onAction("priority", { priority: item.priority });
+            });
+            this.menuItems.push(el);
+        });
+        this.updateSelectedItem();
+        this.positionMenu();
+    }
+
+    renderRepeatMenu() {
+        if (!this.menuElement) return;
+        this.menuElement.empty();
+        this.menuElement.removeClass("task-action-menu-with-calendar");
+        this.selectedIndex = 0;
+        this.menuItems = [];
+        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "选择重复";
+        this.renderBackButton();
+        [
+            { label: "不重复", text: "" },
+            { label: "每天", text: "every day" },
+            { label: "每周", text: "every week" },
+            { label: "每月", text: "every month" },
+            { label: "每年", text: "every year" }
+        ].forEach(item => {
+            const el = this.menuElement!.createEl("div", { cls: "task-action-menu-option", text: item.label });
+            el.addEventListener("click", (e) => {
+                e.preventDefault(); e.stopPropagation();
+                this.close();
+                this.onAction("repeat", { repeatFlag: item.text ? tasksRepeatToRRule(item.text) : null });
+            });
+            this.menuItems.push(el);
+        });
+        this.updateSelectedItem();
+        this.positionMenu();
+    }
+
+    renderBackButton() {
+        if (!this.menuElement) return;
+        const backBtn = this.menuElement.createEl("div", { cls: "task-action-menu-back", text: "← 返回" });
+        backBtn.addEventListener("click", (e) => {
+            e.preventDefault(); e.stopPropagation();
+            this.renderMainMenu();
+        });
+        this.menuItems.push(backBtn);
     }
 
     renderSearchMenu() {

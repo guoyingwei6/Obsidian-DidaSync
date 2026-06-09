@@ -2,6 +2,7 @@
 import DidaSyncPlugin from '../main';
 import { DatePickerModal } from '../modals/DatePickerModal';
 import { resolveTaskIndex } from '../taskIndex';
+import { formatTaskLine, formatTaskLineFromTask } from '../taskLineFormat';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
 import { debounce, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, translateRepeatFlag } from '../utils';
 
@@ -1719,6 +1720,22 @@ export class TaskView extends ItemView {
                         this.updateTaskRowSubtaskCount(taskItem, task);
                         this.updateTaskRowChildCount(taskItem, task);
 
+                        const prioritySpan = rightButtons.createEl("span", {
+                            cls: "dida-task-priority"
+                        });
+                        prioritySpan.textContent = this.formatPriorityLabel(task.priority || 0);
+                        prioritySpan.title = "点击切换优先级";
+                        prioritySpan.style.cursor = "pointer";
+                        prioritySpan.onclick = async (e) => {
+                            e.stopPropagation();
+                            const idx = this.resolveTaskOriginalIndex(task);
+                            if (idx === -1) {
+                                new Notice("未找到对应任务，无法更新优先级");
+                                return;
+                            }
+                            await this.cycleTaskPriority(idx);
+                        };
+
                         // Due Date
                         const dateSpan = rightButtons.createEl("span", {
                             cls: "dida-task-due-date"
@@ -3360,6 +3377,33 @@ export class TaskView extends ItemView {
         }
     }
 
+    formatPriorityLabel(priority: number): string {
+        if (priority === 5) return "🔴";
+        if (priority === 3) return "🟡";
+        if (priority === 1) return "🔵";
+        return "⚪";
+    }
+
+    async cycleTaskPriority(index: number) {
+        const task = this.plugin.settings.tasks[index];
+        if (!task) return;
+        const current = task.priority || 0;
+        task.priority = current === 0 ? 1 : current === 1 ? 3 : current === 3 ? 5 : 0;
+        task.updatedAt = new Date().toISOString();
+        await this.plugin.saveSettings();
+        if (task.didaId) {
+            await this.updateNativeTaskDueDate(task, task.dueDate, task.dueDate);
+        }
+        this.renderTaskList();
+        if (this.plugin.settings.accessToken && task.didaId) {
+            setTimeout(async () => {
+                try {
+                    await this.plugin.updateTaskInDidaList(task);
+                } catch (e) { }
+            }, 0);
+        }
+    }
+
     async saveTaskDetails(index: number, title: string, content: string, contentField: string = "content") {
         const task = this.plugin.settings.tasks[index];
         if (task) {
@@ -3397,16 +3441,14 @@ export class TaskView extends ItemView {
                     for (let i = 0; i < lines.length; i++) {
                         const line = lines[i];
                         if (line.includes(`[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
-                            const formatted = this.convertDidaDateToNativeFormat(newDueDate || null);
-                            if (formatted) {
-                                const has = line.match(/📅\s*(\d{4}-\d{2}-\d{2})/);
-                                if (has) lines[i] = line.replace(/📅\s*\d{4}-\d{2}-\d{2}/, `📅 ${formatted} `);
-                                else lines[i] = line + ` 📅 ${formatted} `;
-                                updated = true;
-                            } else if (newDueDate == null && line.match(/📅\s*(\d{4}-\d{2}-\d{2})/)) {
-                                lines[i] = line.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
-                                updated = true;
-                            }
+                            lines[i] = formatTaskLine(line, {
+                                startDate: task.startDate || null,
+                                dueDate: newDueDate || null,
+                                isAllDay: task.isAllDay,
+                                priority: task.priority || 0,
+                                repeatFlag: task.repeatFlag || null
+                            });
+                            updated = lines[i] !== line;
                         }
                     }
                     if (updated) {
@@ -3444,12 +3486,9 @@ export class TaskView extends ItemView {
                             const linkMatch = line.match(/\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)/);
                             const dateMatch = line.match(/📅\s*\d{4}-\d{2}-\d{2}/);
                             if (prefixMatch) {
-                                const prefix = prefixMatch[1];
-                                const linkPart = linkMatch ? " " + linkMatch[0] : "";
-                                const datePart = dateMatch ? " " + dateMatch[0] : "";
-                                const textOnly = line.replace(/^\s*-\s*\[[ x]\]\s*/, "").replace(/\s*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)\s*/g, "").replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
+                                const textOnly = line.replace(/^\s*-\s*\[[ x]\]\s*/, "").replace(/\s*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)\s*/g, "").replace(/\s*\[[0-9]{1,2}:[0-9]{2}\s*-\s*[0-9]{1,2}:[0-9]{2}\]\s*/g, "").replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").replace(/\s*🔁\s*every[^📅🔴🟡🔵⚪]*/g, "").replace(/[🔴🟡🔵⚪]/g, "").trim();
                                 if (textOnly === oldTitle.trim()) {
-                                    lines[i] = `${prefix}${newTitle}${linkPart}${datePart}`;
+                                    lines[i] = formatTaskLine(line, { title: newTitle });
                                     updated = true;
                                 }
                             }
@@ -3681,10 +3720,7 @@ export class TaskView extends ItemView {
 
     _formatDidaTaskLineForDrag(task: DidaTask, indent: string): string {
         if (!task || !task.didaId) return "";
-        const checkbox = task.status === 2 ? "[x]" : "[ ]";
-        const title = (task.title || "").replace(/\r?\n/g, " ").trim() || "无标题任务";
-        const dateStr = this._formatDidaTaskDueDateForDrag(task);
-        return `${indent}- ${checkbox} ${title} [🔗Dida](obsidian://dida-task?didaId=${task.didaId})${dateStr}`;
+        return formatTaskLineFromTask(task, indent);
     }
 
     _formatDidaTaskDueDateForDrag(task: DidaTask): string {

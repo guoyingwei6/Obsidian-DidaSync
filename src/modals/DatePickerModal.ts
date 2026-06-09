@@ -536,6 +536,9 @@ export class DatePickerModal {
                         if (view && (view as any).updateTaskRowRepeatRule) {
                             (view as any).updateTaskRowRepeatRule(task);
                         }
+                        if (view && (view as any).updateNativeTaskDueDate) {
+                            (view as any).updateNativeTaskDueDate(task, task.dueDate, task.dueDate);
+                        }
                     } catch (e) { }
                     if (this.plugin.settings.accessToken && task.didaId) {
                         setTimeout(async () => {

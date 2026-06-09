@@ -1,4 +1,5 @@
 import DidaSyncPlugin from "../main";
+import { parseTaskLine } from "../taskLineFormat";
 
 export interface NativeTask {
     id: string;
@@ -11,6 +12,11 @@ export interface NativeTask {
     indent: string;
     hasLink: boolean;
     taskDate: string | null;
+    startDate: string | null;
+    dueDate: string | null;
+    isAllDay: boolean;
+    priority: number;
+    repeatFlag: string | null;
 }
 
 export class NativeTaskSyncManager {
@@ -66,35 +72,27 @@ export class NativeTaskSyncManager {
                     if (inlineCodeMatch && inlineCodeMatch[3].match(/^`[^`]*`$/)) continue;
                 }
                 
-                let match = line.match(/^(\s*)-\s*\[([ x])\]\s*(.*)$/);
-                if (match) {
-                    var [, indent, status, text] = match,
-                        isCompleted = "x" === status.toLowerCase(),
-                        linkMatch = text.match(/\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([a-zA-Z0-9]+)\)/),
-                        didaId = linkMatch ? linkMatch[1] : null,
-                        hasLink = !!didaId;
-                    
-                    let title = text.trim();
-                    title = title.replace(/\s*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)\s*/g, "").trim();
-                    
-                    var dateMatch = title.match(/📅\s*(\d{4}-\d{2}-\d{2})/),
-                        taskDate = dateMatch ? dateMatch[1] : null;
-                    
-                    title = title.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
-                    
-                    if (title && title.length !== 0) {
-                        var id = this.generateTaskId(filePath, i, title);
+                const parsed = parseTaskLine(line);
+                if (parsed) {
+                    const taskDate = parsed.dueDate ? parsed.dueDate.match(/(\d{4}-\d{2}-\d{2})/)?.[1] || null : null;
+                    if (parsed.title && parsed.title.length !== 0) {
+                        var id = this.generateTaskId(filePath, i, parsed.title);
                         tasks.push({
                             id: id,
-                            title: title,
-                            isCompleted: isCompleted,
-                            didaId: didaId,
+                            title: parsed.title,
+                            isCompleted: parsed.checkbox === "x",
+                            didaId: parsed.didaId,
                             filePath: filePath,
                             lineNumber: i,
                             originalLine: line,
-                            indent: indent,
-                            hasLink: hasLink,
-                            taskDate: taskDate
+                            indent: parsed.indent,
+                            hasLink: !!parsed.didaId,
+                            taskDate: taskDate,
+                            startDate: parsed.startDate,
+                            dueDate: parsed.dueDate,
+                            isAllDay: parsed.isAllDay,
+                            priority: parsed.priority,
+                            repeatFlag: parsed.repeatFlag
                         });
                     }
                 }

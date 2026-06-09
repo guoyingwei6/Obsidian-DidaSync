@@ -300,6 +300,10 @@ export class SyncManager {
                             local.repeatFlag = remote.repeatFlag;
                             changed = true;
                         }
+                        if (remote.priority !== undefined && remote.priority !== local.priority) {
+                            local.priority = remote.priority;
+                            changed = true;
+                        }
                         if (remote.status !== undefined && remote.status !== local.status) {
                             local.status = remote.status;
                             changed = true;
@@ -554,6 +558,7 @@ export class SyncManager {
             }
         }
         if (task.isAllDay !== undefined) payload.isAllDay = task.isAllDay;
+        if (task.priority !== undefined) payload.priority = task.priority;
         if (typeof task.repeatFlag === "string") {
             const rf = task.repeatFlag.trim();
             payload.repeatFlag = rf === "" ? "" : rf;
@@ -580,6 +585,7 @@ export class SyncManager {
                 if (data.items && Array.isArray(data.items) && data.items.length > 0) task.items = data.items;
                 task.reminders = data.reminders || [];
                 task.repeatFlag = data.repeatFlag || null;
+                task.priority = data.priority || 0;
                 await this.plugin.saveSettings();
                 return data;
             }
@@ -626,6 +632,7 @@ export class SyncManager {
                 payload.isAllDay = task.isAllDay;
                 if (task.isAllDay) payload.timeZone = "Asia/Shanghai";
             }
+            if (task.priority !== undefined) payload.priority = task.priority;
             if (task.parentId) payload.parentId = task.parentId;
             if (task.items && Array.isArray(task.items)) payload.items = task.items;
             if (task.reminders && Array.isArray(task.reminders)) payload.reminders = task.reminders;
@@ -665,6 +672,7 @@ export class SyncManager {
                     if (task.startDate && !task.dueDate) task.dueDate = task.startDate;
                 }
                 task.updatedAt = new Date().toISOString();
+                if (data.priority !== undefined) task.priority = data.priority;
                 await this.plugin.saveSettings();
             } catch (e) {
                 throw e;
@@ -708,6 +716,7 @@ export class SyncManager {
             kind: task.kind || "TEXT",
             reminders: task.reminders || [],
             repeatFlag: task.repeatFlag || null,
+            priority: task.priority || 0,
             status: task.status || 0,
             completedTime: null,
             projectColor: task.projectColor || project?.color,

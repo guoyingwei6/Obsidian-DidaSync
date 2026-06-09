@@ -17,6 +17,7 @@ import { TaskSuggestionPopup } from './modals/TaskSuggestionPopup';
 import { TimelineViewModal } from './modals/TimelineViewModal';
 import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
 import { CompletedTasksQuery, DEFAULT_SETTINGS, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry } from './types';
+import { applyParsedLineToTask, formatTaskLine, makeLocalDateTime, parseTaskLine, TaskLineMetadata } from './taskLineFormat';
 import { normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes } from './utils';
 import { DidaTimeBlockView, TIME_BLOCK_VIEW_TYPE } from './views/DidaTimeBlockView';
 import { TaskActionMenu } from './views/TaskActionMenu';
@@ -1534,6 +1535,7 @@ export default class DidaSyncPlugin extends Plugin {
             }
             if (task.startDate) payload.startDate = task.startDate;
             if (task.isAllDay !== undefined) payload.isAllDay = task.isAllDay;
+            if (task.priority !== undefined) payload.priority = task.priority;
             if (task.parentId) payload.parentId = task.parentId;
             if (task.items && Array.isArray(task.items)) payload.items = task.items;
             if (typeof task.repeatFlag === "string") {
@@ -1726,7 +1728,7 @@ export default class DidaSyncPlugin extends Plugin {
                         clearTimeout(this.taskActionMenuDebounceTimer);
                         this.taskActionMenuDebounceTimer = null;
                     }
-                    if (prefix.match(/^(\s*)-\s\[\s\]\s(.*)$/)) {
+                    if (prefix.match(/^(\s*)-\s*\[\s\]\s*(.*)$/)) {
                         if (this.isTaskActionInProgress) return;
                         if (this.currentTaskActionMenu && this.currentTaskActionMenu.isOpen && this.currentTaskActionMenu.isSamePosition(editor, cursor)) return;
                         if (Date.now() - this.lastTaskMenuTriggerTime < 300) return;
@@ -1952,6 +1954,20 @@ export default class DidaSyncPlugin extends Plugin {
                 await this.syncTaskToDidaList(editor, cursor, line);
             } else if (action === "date") {
                 this.addDateToTask(editor, cursor, line, data.date);
+            } else if (action === "timeRange") {
+                await this.updateTaskLineMetadata(editor, cursor, line, {
+                    startDate: data.startDate,
+                    dueDate: data.dueDate,
+                    isAllDay: false
+                });
+            } else if (action === "priority") {
+                await this.updateTaskLineMetadata(editor, cursor, line, {
+                    priority: data.priority
+                });
+            } else if (action === "repeat") {
+                await this.updateTaskLineMetadata(editor, cursor, line, {
+                    repeatFlag: data.repeatFlag
+                });
             } else if (action === "search") {
                 this.showTaskSuggestions(editor, cursor, (task) => {
                     this.linkTaskToLine(editor, cursor, task);
@@ -1974,6 +1990,63 @@ export default class DidaSyncPlugin extends Plugin {
     async syncTaskToDidaList(editor: Editor, cursor: EditorPosition, line: string) {
         try {
             if (this.settings.accessToken) {
+                const parsedLine = parseTaskLine(line);
+                if (parsedLine) {
+                    if (!parsedLine.title) {
+                        new Notice("任务内容不能为空");
+                        return;
+                    }
+                    if (parsedLine.didaId) {
+                        new Notice("任务已同步，无需再次同步", 3000);
+                        return;
+                    }
+                    const created = await this.createTaskDirectly(parsedLine.title, {
+                        startDate: parsedLine.startDate as any,
+                        dueDate: parsedLine.dueDate as any,
+                        isAllDay: parsedLine.isAllDay,
+                        priority: parsedLine.priority,
+                        repeatFlag: parsedLine.repeatFlag as any
+                    });
+                    if (created && created.id) {
+                        editor.setLine(cursor.line, formatTaskLine(line, { didaId: created.id }));
+                        const task: DidaTask = {
+                            id: Date.now().toString(),
+                            title: parsedLine.title,
+                            content: "",
+                            completed: false,
+                            status: 0,
+                            didaId: created.id,
+                            projectId: created.projectId || "inbox",
+                            projectName: "收集箱",
+                            createdAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString(),
+                            items: [],
+                            dueDate: created.dueDate || parsedLine.dueDate as any,
+                            etag: created.etag || "",
+                            completedTime: null,
+                            startDate: created.startDate || parsedLine.startDate as any,
+                            isAllDay: created.isAllDay ?? parsedLine.isAllDay,
+                            kind: created.kind || "TEXT",
+                            projectViewMode: "list",
+                            projectKind: "TASK",
+                            reminders: [],
+                            repeatFlag: created.repeatFlag || parsedLine.repeatFlag as any,
+                            priority: created.priority ?? parsedLine.priority,
+                            desc: "",
+                            projectColor: "#F18181",
+                            projectClosed: false,
+                            projectPermission: "write",
+                            parentId: null
+                        };
+                        this.settings.tasks.push(task);
+                        await this.saveSettings();
+                        new Notice("任务已同步到滴答清单", 3000);
+                        this.refreshTaskView();
+                    } else {
+                        new Notice("同步失败，请重试");
+                    }
+                    return;
+                }
                 const match = line.match(/^(\s*)-\s\[\s\]\s*(.+)$/);
                 if (match) {
                     const indent = match[1];
@@ -2050,12 +2123,17 @@ export default class DidaSyncPlugin extends Plugin {
         }
     }
 
-    async createTaskDirectly(title: string) {
-        const data = {
+    async createTaskDirectly(title: string, metadata: Partial<DidaTask> = {}) {
+        const data: any = {
             title: title,
             content: "",
             desc: ""
         };
+        if (metadata.startDate !== undefined) data.startDate = metadata.startDate;
+        if (metadata.dueDate !== undefined) data.dueDate = metadata.dueDate;
+        if (metadata.isAllDay !== undefined) data.isAllDay = metadata.isAllDay;
+        if (metadata.priority !== undefined) data.priority = metadata.priority;
+        if (typeof metadata.repeatFlag === "string") data.repeatFlag = metadata.repeatFlag;
         try {
             const res = await this.apiClient.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task", {
                 method: "POST",
@@ -2074,6 +2152,14 @@ export default class DidaSyncPlugin extends Plugin {
 
     async addDateToTask(editor: Editor, cursor: EditorPosition, line: string, date: string) {
         try {
+            const parsedLine = parseTaskLine(line);
+            if (parsedLine) {
+                await this.updateTaskLineMetadata(editor, cursor, line, {
+                    dueDate: makeLocalDateTime(date, 0, 0),
+                    isAllDay: true
+                });
+                return;
+            }
             const match = line.match(/^(\s*)-\s\[\s\]\s*(.+)$/);
             if (match) {
                 const indent = match[1];
@@ -2138,6 +2224,28 @@ export default class DidaSyncPlugin extends Plugin {
         }
     }
 
+    async updateTaskLineMetadata(editor: Editor, cursor: EditorPosition, line: string, metadata: TaskLineMetadata) {
+        const parsed = parseTaskLine(line);
+        if (!parsed) {
+            new Notice("无法识别任务格式");
+            return;
+        }
+        const newLine = formatTaskLine(line, metadata);
+        editor.setLine(cursor.line, newLine);
+        const next = parseTaskLine(newLine);
+        if (!next || !next.didaId) return;
+
+        const task = this.settings.tasks.find(t => t.didaId === next.didaId);
+        if (!task) return;
+        applyParsedLineToTask(task, next);
+        task.updatedAt = new Date().toISOString();
+        await this.saveSettings();
+        if (this.settings.accessToken) {
+            await this.updateTaskInDidaList(task);
+        }
+        this.refreshTaskView();
+    }
+
     async handleDateChange(didaId: string, newDate: string, newTitle?: string) {
         try {
             const task = this.settings.tasks.find(t => t.didaId === didaId);
@@ -2181,7 +2289,9 @@ export default class DidaSyncPlugin extends Plugin {
                     cleanTitle = cleanTitle.replace(/\s*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)\s*/g, "").trim();
                     // 去除 📅 日期后缀（防万一）
                     cleanTitle = cleanTitle.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, "").trim();
-                    cleanTitle = cleanTitle.replace(/\s+/g, " ").trim();
+                    cleanTitle = cleanTitle.replace(/\s*\[[0-9]{1,2}:[0-9]{2}\s*-\s*[0-9]{1,2}:[0-9]{2}\]\s*/g, "").trim();
+                    cleanTitle = cleanTitle.replace(/\s*🔁\s*every[^📅🔴🟡🔵⚪]*/g, "").trim();
+                    cleanTitle = cleanTitle.replace(/[🔴🟡🔵⚪]/g, "").replace(/\s+/g, " ").trim();
                     task.title = cleanTitle;
                 }
                 task.updatedAt = new Date().toISOString();
