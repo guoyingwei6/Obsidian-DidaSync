@@ -2491,17 +2491,16 @@ export class TaskView extends ItemView {
     }
 
     getTaskColor(task: any) {
-        const text = (task.title || task.id || "").toString();
-        let hash = 0;
-        for (let i = 0; i < text.length; i++) {
-            hash = (hash << 5) - hash + text.charCodeAt(i);
-            hash |= 0;
+        switch (Number(task.priority || 0)) {
+            case 5:
+                return "rgb(239 190 190)";
+            case 3:
+                return "rgb(246 226 156)";
+            case 1:
+                return "rgb(190 214 248)";
+            default:
+                return "rgb(226 226 226)";
         }
-        const normalized = Math.abs(hash);
-        const hue = normalized % 360;
-        const saturation = 48 + ((normalized >> 3) % 18);
-        const lightness = 82 + ((normalized >> 7) % 8);
-        return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
     }
 
     renderTimeTaskBlock(container: HTMLElement, task: any, column: number) {

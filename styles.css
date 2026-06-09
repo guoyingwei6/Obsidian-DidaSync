@@ -2801,6 +2801,7 @@ label+.dida-project-select {
     min-width: 0;
     max-width: none;
     font-size: 10px;
+    font-weight: 600;
     line-height: 1.25;
 }
 
@@ -3991,6 +3992,7 @@ label+.dida-project-select {
 
 .dida-time-block-task-title {
     font-size: 10px;
+    font-weight: 600;
     pointer-events: auto;
     white-space: normal;
     word-break: break-all;
