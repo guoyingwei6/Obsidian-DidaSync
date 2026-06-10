@@ -1,7 +1,7 @@
-import { App, Editor, EditorPosition, Notice } from "obsidian";
+import { App, Editor, EditorPosition } from "obsidian";
 import { RRuleParser } from "../core/RRuleParser";
 import DidaSyncPlugin from "../main";
-import { makeLocalDateTime, parseTaskLine, tasksRepeatToRRule } from "../taskLineFormat";
+import { parseTaskLine, tasksRepeatToRRule } from "../taskLineFormat";
 
 export class TaskActionMenu {
     app: App;
@@ -387,13 +387,6 @@ export class TaskActionMenu {
         });
         this.menuItems.push(dateOption);
 
-        const rangeOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "⏱ 时间段" });
-        rangeOption.addEventListener("click", (e) => {
-            e.preventDefault(); e.stopPropagation();
-            this.showTimeRangePrompt();
-        });
-        this.menuItems.push(rangeOption);
-
         const priorityOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "🔴 优先级" });
         priorityOption.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();
@@ -514,23 +507,6 @@ export class TaskActionMenu {
 
         this.updateSelectedItem();
         this.positionMenu();
-    }
-
-    showTimeRangePrompt() {
-        const input = window.prompt("请输入时间段：YYYY-MM-DD HH:mm - YYYY-MM-DD HH:mm\n例如：2026-06-09 09:00 - 2026-06-09 10:00");
-        if (!input) return;
-        const match = input.trim().match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})\s*-\s*(?:(\d{4}-\d{2}-\d{2})\s+)?(\d{1,2}):(\d{2})$/);
-        if (!match) return;
-        const startDate = match[1];
-        const dueDate = match[4] || startDate;
-        if (dueDate !== startDate) {
-            new Notice("Markdown 任务不显示开始日期，暂不支持跨日时间段");
-            return;
-        }
-        const start = makeLocalDateTime(startDate, parseInt(match[2], 10), parseInt(match[3], 10));
-        const due = makeLocalDateTime(dueDate, parseInt(match[5], 10), parseInt(match[6], 10));
-        this.close();
-        this.onAction("timeRange", { startDate: start, dueDate: due });
     }
 
     renderPriorityMenu() {

@@ -1954,12 +1954,6 @@ export default class DidaSyncPlugin extends Plugin {
                 await this.syncTaskToDidaList(editor, cursor, line);
             } else if (action === "date") {
                 this.addDateToTask(editor, cursor, line, data.date);
-            } else if (action === "timeRange") {
-                await this.updateTaskLineMetadata(editor, cursor, line, {
-                    startDate: data.startDate,
-                    dueDate: data.dueDate,
-                    isAllDay: false
-                });
             } else if (action === "priority") {
                 await this.updateTaskLineMetadata(editor, cursor, line, {
                     priority: data.priority
