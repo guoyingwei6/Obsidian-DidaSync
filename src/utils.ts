@@ -1,3 +1,5 @@
+import { IconName, setIcon } from "obsidian";
+
 export function debounce<T extends (...args: any[]) => any>(
     func: T,
     wait: number
@@ -78,28 +80,78 @@ export function compareVersions(v1: string, v2: string): number {
     }
 }
 
-export function translateRepeatFlag(repeatFlag: string): string {
-    if (!repeatFlag || "" === repeatFlag) return "";
-    var icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#858585" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-repeat-icon lucide-repeat"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>';
+export interface RepeatRuleDisplay {
+    label: string;
+    icon: IconName;
+}
+
+export function setIconElement(element: HTMLElement, icon: IconName) {
+    while (element.firstChild) element.removeChild(element.firstChild);
+    setIcon(element, icon);
+}
+
+export function setTextWithIcon(
+    element: HTMLElement,
+    text: string,
+    icon: IconName,
+    options?: {
+        iconClass?: string;
+        textClass?: string;
+        textFirst?: boolean;
+    }
+) {
+    while (element.firstChild) element.removeChild(element.firstChild);
+    const iconEl = element.ownerDocument.createElement("span");
+    if (options?.iconClass) iconEl.className = options.iconClass;
+    setIcon(iconEl, icon);
+    const textEl = element.ownerDocument.createElement("span");
+    if (options?.textClass) textEl.className = options.textClass;
+    textEl.textContent = text;
+    if (options?.textFirst) {
+        element.append(textEl, iconEl);
+        return;
+    }
+    element.append(iconEl, textEl);
+}
+
+export function appendValidatedSvg(container: HTMLElement, svgMarkup: string): boolean {
+    if (!svgMarkup || !svgMarkup.trim()) return false;
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgMarkup, "image/svg+xml");
+    const svg = doc.documentElement;
+    if (!svg || svg.tagName.toLowerCase() !== "svg") return false;
+    if (doc.querySelector("parsererror")) return false;
+    svg.querySelectorAll("script").forEach((node) => node.remove());
+    svg.querySelectorAll("*").forEach((node) => {
+        Array.from(node.attributes).forEach((attr) => {
+            if (attr.name.toLowerCase().startsWith("on")) node.removeAttribute(attr.name);
+        });
+    });
+    while (container.firstChild) container.removeChild(container.firstChild);
+    container.appendChild(container.ownerDocument.importNode(svg, true));
+    return true;
+}
+
+export function translateRepeatFlag(repeatFlag: string): RepeatRuleDisplay | null {
+    if (!repeatFlag || "" === repeatFlag) return null;
     try {
-        var part,
-            rruleStr = repeatFlag.startsWith("RRULE:") ? repeatFlag.substring(6) : repeatFlag,
-            rules: any = {};
-        for (part of rruleStr.split(";")) {
-            var [key, value] = part.split("=");
+        const rruleStr = repeatFlag.startsWith("RRULE:") ? repeatFlag.substring(6) : repeatFlag;
+        const rules: Record<string, string> = {};
+        for (const part of rruleStr.split(";")) {
+            const [key, value] = part.split("=");
             if (key && value) rules[key] = value;
         }
-        var freq = rules.FREQ,
-            interval = parseInt(rules.INTERVAL) || 1;
+        const freq = rules.FREQ;
+        const interval = parseInt(rules.INTERVAL || "1", 10) || 1;
         let text = "";
         switch (freq) {
             case "DAILY":
-                text = 1 === interval ? "每天" : `每${interval}天`;
+                text = interval === 1 ? "每天" : `每 ${interval} 天`;
                 break;
-            case "WEEKLY":
-                var byday = rules.BYDAY;
+            case "WEEKLY": {
+                const byday = rules.BYDAY;
                 if (byday) {
-                    let map: any = {
+                    const dayMap: Record<string, string> = {
                         SU: "周日",
                         MO: "周一",
                         TU: "周二",
@@ -108,25 +160,34 @@ export function translateRepeatFlag(repeatFlag: string): string {
                         FR: "周五",
                         SA: "周六"
                     };
-                    var days = byday.split(",").map((d: string) => map[d] || d).join("、");
-                    text = 1 === interval ? "每周" + days : `每${interval}周的` + days;
-                } else text = 1 === interval ? "每周" : `每${interval}周`;
+                    const days = byday.split(",").map((day) => dayMap[day] || day).join("、");
+                    text = interval === 1 ? `每周 ${days}` : `每 ${interval} 周的 ${days}`;
+                } else {
+                    text = interval === 1 ? "每周" : `每 ${interval} 周`;
+                }
                 break;
-            case "MONTHLY":
-                var bymonthday = rules.BYMONTHDAY;
-                text = bymonthday ? 1 === interval ? `每月${bymonthday}日` : `每${interval}个月的${bymonthday}日` : 1 === interval ? "每月" : `每${interval}个月`;
+            }
+            case "MONTHLY": {
+                const bymonthday = rules.BYMONTHDAY;
+                text = bymonthday
+                    ? (interval === 1 ? `每月 ${bymonthday} 日` : `每 ${interval} 个月的 ${bymonthday} 日`)
+                    : (interval === 1 ? "每月" : `每 ${interval} 个月`);
                 break;
-            case "YEARLY":
-                var bymonth = rules.BYMONTH,
-                    bymonthday = rules.BYMONTHDAY;
-                text = bymonth && bymonthday ? 1 === interval ? `每年${bymonth}月${bymonthday}日` : `每${interval}年的${bymonth}月${bymonthday}日` : 1 === interval ? "每年" : `每${interval}年`;
+            }
+            case "YEARLY": {
+                const bymonth = rules.BYMONTH;
+                const bymonthday = rules.BYMONTHDAY;
+                text = bymonth && bymonthday
+                    ? (interval === 1 ? `每年 ${bymonth} 月 ${bymonthday} 日` : `每 ${interval} 年的 ${bymonth} 月 ${bymonthday} 日`)
+                    : (interval === 1 ? "每年" : `每 ${interval} 年`);
                 break;
+            }
             default:
                 text = "重复";
         }
-        return text + " " + icon;
+        return { label: text, icon: "repeat" };
     } catch (e) {
-        return "重复 " + icon;
+        return { label: "重复", icon: "repeat" };
     }
 }
 

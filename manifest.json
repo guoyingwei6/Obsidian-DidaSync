@@ -1,7 +1,7 @@
 {
 	"id": "didasync",
 	"name": "DidaSync",
-	"minAppVersion": "0.15.0",
+	"minAppVersion": "1.7.2",
 	"description": "Sync tasks between Dida365 or TickTick and your notes.",
 	"author": "CYZice",
 	"authorUrl": "https://github.com/CYZice",

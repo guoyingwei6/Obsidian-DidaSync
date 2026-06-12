@@ -1248,7 +1248,8 @@ export default class DidaSyncPlugin extends Plugin {
         window.addEventListener("offline", this._handleOfflineForAutoSync);
 
         this.registerEvent(this.app.workspace.on("layout-change", () => {
-            if (this._cachedTaskLeaf && this._cachedTaskLeaf.isDestroyed) this._cachedTaskLeaf = null;
+            const leaves = this.app.workspace.getLeavesOfType(TASK_VIEW_TYPE);
+            if (this._cachedTaskLeaf && !leaves.includes(this._cachedTaskLeaf)) this._cachedTaskLeaf = null;
         }));
 
         this.registerEvent(this.app.vault.on("modify", async (file) => {
@@ -1399,7 +1400,8 @@ export default class DidaSyncPlugin extends Plugin {
     // View Management
     async openTaskViewWithCache() {
         const workspace = this.app.workspace;
-        if (this._cachedTaskLeaf && !this._cachedTaskLeaf.isDestroyed) {
+        const cachedLeafAvailable = this._cachedTaskLeaf && workspace.getLeavesOfType(TASK_VIEW_TYPE).includes(this._cachedTaskLeaf);
+        if (cachedLeafAvailable && this._cachedTaskLeaf) {
             workspace.revealLeaf(this._cachedTaskLeaf);
         } else {
             let leaf = null;
@@ -2620,7 +2622,8 @@ export default class DidaSyncPlugin extends Plugin {
                 const view = leaves[0].view as TaskView;
                 if (view && typeof (view as any).toggleTaskDetails === "function") return view;
             }
-            if (this._cachedTaskLeaf && !this._cachedTaskLeaf.isDestroyed()) {
+            const cachedLeafAvailable = this._cachedTaskLeaf && this.app.workspace.getLeavesOfType(TASK_VIEW_TYPE).includes(this._cachedTaskLeaf);
+            if (cachedLeafAvailable && this._cachedTaskLeaf) {
                 const view = this._cachedTaskLeaf.view as TaskView;
                 if (view && typeof (view as any).toggleTaskDetails === "function") return view;
             }

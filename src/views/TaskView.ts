@@ -4,7 +4,7 @@ import { DatePickerModal } from '../modals/DatePickerModal';
 import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask } from '../taskLineFormat';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
-import { debounce, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, translateRepeatFlag } from '../utils';
+import { appendValidatedSvg, debounce, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
 
 export const TASK_VIEW_TYPE = "dida-task-view";
 
@@ -316,27 +316,27 @@ export class TaskView extends ItemView {
             {
                 value: "none",
                 label: "无音乐",
-                icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-music"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>'
+                icon: "music"
             },
             {
                 value: "rain",
                 label: "雨声",
-                icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cloud-hail"><path d="M16 16h2a4 4 0 0 0 .53-7.965A6 6 0 0 0 6 9a4 4 0 0 0 .746 7.93"/><path d="M8 16v1"/><path d="M8 20h.01"/><path d="M12 18v1"/><path d="M12 22h.01"/><path d="M16 16v1"/><path d="M16 20h.01"/></svg>'
+                icon: "cloud-hail"
             },
             {
                 value: "stream",
-                label: "婧祦",
-                icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-waves-horizontal"><path d="M2 6c1.5 1.5 3 2 4.5 2S9.5 7.5 11 6s3-2 4.5-2S18.5 4.5 20 6"/><path d="M2 12c1.5 1.5 3 2 4.5 2s3-.5 4.5-2 3-2 4.5-2 3 .5 4.5 2"/><path d="M2 18c1.5 1.5 3 2 4.5 2s3-.5 4.5-2 3-2 4.5-2 3 .5 4.5 2"/></svg>'
+                label: "溪流",
+                icon: "waves"
             },
             {
                 value: "forest",
-                label: "妫灄",
-                icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trees-icon lucide-trees"><path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"/><path d="M7 16v6"/><path d="M13 19v3"/><path d="M12 19h8.3a1 1 0 0 0 .7-1.7L18 14h.3a1 1 0 0 0 .7-1.7L16 9h.2a1 1 0 0 0 .8-1.7L13 3l-1.4 1.5"/></svg>'
+                label: "森林",
+                icon: "trees"
             },
             {
                 value: "white",
-                label: "鐧藉櫔",
-                icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-audio-lines"><path d="M2 10v4"/><path d="M6 6v12"/><path d="M10 3v18"/><path d="M14 8v8"/><path d="M18 5v14"/><path d="M22 10v4"/></svg>'
+                label: "白噪音",
+                icon: "audio-lines"
             }
         ];
     }
@@ -758,21 +758,22 @@ export class TaskView extends ItemView {
 
         if (!this.isPomodoroDurationPickerVisible || (this.pomodoroState.phase !== "focus" && this.pomodoroState.phase !== "longBreak")) {
             const ringButton = ringCard.createDiv("dida-pomodoro-ring-button");
-            ringButton.innerHTML = `
-                <svg class="dida-pomodoro-ring" viewBox="0 0 120 120" aria-hidden="true">
-                    <circle class="dida-pomodoro-ring-track" cx="60" cy="60" r="52"></circle>
-                    <circle class="dida-pomodoro-ring-progress" cx="60" cy="60" r="52"></circle>
-                </svg>
-                <span class="dida-pomodoro-ring-center">
-                    <span class="dida-pomodoro-phase"></span>
-                    <span class="dida-pomodoro-time"></span>
-                    <span class="dida-pomodoro-hint"></span>
-                </span>
-            `;
-            progressCircle = ringButton.querySelector(".dida-pomodoro-ring-progress");
-            phaseEl = ringButton.querySelector(".dida-pomodoro-phase");
-            timeEl = ringButton.querySelector(".dida-pomodoro-time");
-            hintEl = ringButton.querySelector(".dida-pomodoro-hint");
+            const ringSvg = ringButton.createSvg("svg", {
+                cls: "dida-pomodoro-ring",
+                attr: { viewBox: "0 0 120 120", "aria-hidden": "true" }
+            });
+            ringSvg.createSvg("circle", {
+                cls: "dida-pomodoro-ring-track",
+                attr: { cx: "60", cy: "60", r: "52" }
+            });
+            progressCircle = ringSvg.createSvg("circle", {
+                cls: "dida-pomodoro-ring-progress",
+                attr: { cx: "60", cy: "60", r: "52" }
+            }) as SVGCircleElement;
+            const ringCenter = ringButton.createSpan({ cls: "dida-pomodoro-ring-center" });
+            phaseEl = ringCenter.createSpan({ cls: "dida-pomodoro-phase" });
+            timeEl = ringCenter.createSpan({ cls: "dida-pomodoro-time" });
+            hintEl = ringCenter.createSpan({ cls: "dida-pomodoro-hint" });
             if (timeEl) {
                 timeEl.title = this.getPomodoroHintText(this.pomodoroState.phase);
                 timeEl.setAttribute("role", "button");
@@ -870,7 +871,7 @@ export class TaskView extends ItemView {
                 const stopBreak = controls.createEl("button", { cls: "dida-pomodoro-control-btn" });
                 stopBreak.type = "button";
                 stopBreak.title = "停止休息并进入下一个专注";
-                stopBreak.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square"><rect width="14" height="14" x="5" y="5" rx="2"/></svg>';
+                setIconElement(stopBreak, "square");
                 stopBreak.addEventListener("click", () => this.stopPomodoro());
             }
         } else {
@@ -885,7 +886,7 @@ export class TaskView extends ItemView {
             const stopBtn = controls.createEl("button", { cls: "dida-pomodoro-control-btn" });
             stopBtn.type = "button";
             stopBtn.title = "停止";
-            stopBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square"><rect width="14" height="14" x="5" y="5" rx="2"/></svg>';
+            setIconElement(stopBtn, "square");
             stopBtn.addEventListener("click", () => this.stopPomodoro());
             const soundBtn = controls.createEl("button", { cls: "dida-pomodoro-control-btn" });
             soundBtn.type = "button";
@@ -941,7 +942,7 @@ export class TaskView extends ItemView {
         const svgData = this.buildPomodoroTrendSvg(trendData, this.pomodoroTrendPeriod);
         plot.style.width = `${svgData.chartWidth}px`;
         plot.style.minWidth = `${svgData.chartWidth}px`;
-        plot.innerHTML = svgData.svg;
+        appendValidatedSvg(plot, svgData.svg);
         trendSection.createDiv("dida-pomodoro-trend-tooltip");
         const axis = chart.createDiv("dida-pomodoro-trend-axis");
         axis.style.width = `${svgData.chartWidth}px`;
@@ -979,13 +980,11 @@ export class TaskView extends ItemView {
         }
         if (this.pomodoroElements.toggleBtn) {
             this.pomodoroElements.toggleBtn.title = this.pomodoroState.isRunning ? "暂停" : "继续";
-            this.pomodoroElements.toggleBtn.innerHTML = this.pomodoroState.isRunning
-                ? '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-pause"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>'
-                : '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play"><polygon points="6 3 20 12 6 21 6 3"/></svg>';
+            setIconElement(this.pomodoroElements.toggleBtn, this.pomodoroState.isRunning ? "pause" : "play");
         }
         if (this.pomodoroElements.soundBtn) {
             this.pomodoroElements.soundBtn.title = sound ? sound.label : "无音乐";
-            this.pomodoroElements.soundBtn.innerHTML = sound ? sound.icon : "";
+            setIconElement(this.pomodoroElements.soundBtn, sound ? sound.icon : "music");
         }
     }
 
@@ -1089,7 +1088,8 @@ export class TaskView extends ItemView {
         } else {
             container.empty();
             const header = container.createDiv("dida-task-header");
-            header.createEl("h3").innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-check-big-icon lucide-circle-check-big"><path d="M21.801 10A10 10 0 1 1 17 3.335" stroke="#183f9bff"/><path d="m9 11 3 3L22 4" stroke="#ff9800"/></svg> 滴答清单';
+            const headerTitle = header.createEl("h3");
+            setTextWithIcon(headerTitle, "滴答清单", "circle-check-big");
             const headerControls = header.createDiv("dida-task-header-controls");
 
             // View toggle button
@@ -1098,10 +1098,10 @@ export class TaskView extends ItemView {
             });
 
             if (this.viewMode === "timeblock") {
-                viewToggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-list-checks-icon lucide-list-checks"><path d="M11 6h10"/><path d="M11 12h10"/><path d="M11 18h10"/><path d="m3 6 1 1 2-2"/><path d="m3 12 1 1 2-2"/><path d="m3 18 1 1 2-2"/></svg>';
+                setIconElement(viewToggleBtn, "list-checks");
                 viewToggleBtn.title = "切换到任务列表";
             } else {
-                viewToggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-align-start-vertical-icon lucide-align-start-vertical"><rect width="9" height="6" x="6" y="14" rx="2"/><rect width="16" height="6" x="6" y="4" rx="2"/><path d="M2 2v20"/></svg>';
+                setIconElement(viewToggleBtn, "align-start-vertical");
                 viewToggleBtn.title = "切换到时间段视图";
             }
             viewToggleBtn.onclick = async () => {
@@ -1116,7 +1116,7 @@ export class TaskView extends ItemView {
             const timelineBtn = headerControls.createEl("button", {
                 cls: "dida-timeline-btn"
             });
-            timelineBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-check-icon lucide-calendar-check"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/></svg>';
+            setIconElement(timelineBtn, "calendar-check");
             timelineBtn.onclick = async () => {
                 if (this.isPomodoroVisible) {
                     await this.exitPomodoroPanel();
@@ -1128,7 +1128,7 @@ export class TaskView extends ItemView {
             const pomodoroToggleBtn = headerControls.createEl("button", {
                 cls: "dida-timeline-btn dida-pomodoro-toggle-btn"
             });
-            pomodoroToggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-star"><circle cx="12" cy="12" r="10"/><path d="M12 8.75 13.236 11.255 16 11.657 14 13.606 14.472 16.36 12 15.06 9.528 16.36 10 13.606 8 11.657 10.764 11.255z"/></svg>';
+            setIconElement(pomodoroToggleBtn, "circle-star");
             pomodoroToggleBtn.title = this.isPomodoroVisible ? "番茄钟模式中，请点时间线按钮返回任务列表" : "显示番茄钟";
             pomodoroToggleBtn.disabled = this.isPomodoroVisible;
             if (this.isPomodoroVisible) {
@@ -1144,7 +1144,7 @@ export class TaskView extends ItemView {
             const syncBtn = headerControls.createEl("button", {
                 cls: "dida-sync-btn"
             });
-            syncBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw-icon lucide-refresh-cw"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>';
+            setIconElement(syncBtn, "refresh-cw");
             syncBtn.onclick = async () => {
                 if (this.plugin.isPluginActivated) {
                     this.plugin.safeManualSync();
@@ -1178,13 +1178,13 @@ export class TaskView extends ItemView {
                 const clearBtn = searchInputWrap.createEl("button", {
                     cls: "dida-search-clear-btn"
                 });
-                clearBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+                setIconElement(clearBtn, "x");
                 clearBtn.style.display = this.searchQuery ? "flex" : "none";
 
                 const dateFilterClearBtn = searchInputWrap.createEl("button", {
                     cls: "dida-date-clear-btn"
                 });
-                dateFilterClearBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+                setIconElement(dateFilterClearBtn, "x");
                 dateFilterClearBtn.style.display = this.dateFilter ? "flex" : "none";
 
                 const dateFilterDropdown = searchInputWrap.createDiv("dida-date-filter-dropdown");
@@ -1486,8 +1486,6 @@ export class TaskView extends ItemView {
                         cls: projectInfo.isArchived ? "dida-project-title archived" : "dida-project-title"
                     });
 
-                    const archiveIcon = projectInfo.isArchived ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-archive-icon lucide-archive" style="margin-left: 5px;"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M9 15h6"/></svg>' : "";
-
                     const tasksInProject = tasks.filter(t => {
                         if (t.parentId) return false;
                         let pName = "本地任务";
@@ -1507,7 +1505,7 @@ export class TaskView extends ItemView {
                     titleEl.createEl("span", { text: countText });
                     if (projectInfo.isArchived) {
                         const archived = titleEl.createSpan({ cls: "dida-project-archived-icon" });
-                        archived.innerHTML = archiveIcon;
+                        setIconElement(archived, "archive");
                     }
                     titleEl.onclick = () => this.toggleProjectCollapse(projectHeader, tasksContainer, projectName);
                     titleEl.addEventListener("contextmenu", (event) => {
@@ -1578,8 +1576,8 @@ export class TaskView extends ItemView {
                     const addTaskBtn = projectHeader.createEl("button", {
                         cls: "dida-project-add-task-btn"
                     });
-                    addTaskBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus-icon lucide-plus"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
-                    addTaskBtn.onclick = (e) => this.showAddTaskModal(projectName, projectInfo.id, e.target as HTMLElement);
+                    setIconElement(addTaskBtn, "plus");
+                    addTaskBtn.onclick = (e) => this.showAddTaskModal(projectName, projectInfo.id, e.currentTarget as HTMLElement);
 
                     const tasksContainer = taskListContainer.createDiv("dida-project-tasks");
 
@@ -1704,7 +1702,7 @@ export class TaskView extends ItemView {
                             reminderSpan.className = "dida-task-reminder-inline";
                             reminderSpan.style.display = "inline-flex";
                             reminderSpan.style.alignItems = "center";
-                            reminderSpan.innerHTML = reminderInfo + '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-timer-icon lucide-timer"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>';
+                            setTextWithIcon(reminderSpan, reminderInfo, "timer", { textFirst: true });
 
                             const repeatDiv = taskItem.querySelector(".dida-task-repeat-rule");
                             if (repeatDiv) {
@@ -1758,7 +1756,7 @@ export class TaskView extends ItemView {
                                 dateSpan.textContent = "";
                             }
                         } else {
-                            dateSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#da1b1b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-x2-icon lucide-calendar-x-2"><path d="M8 2v4"/><path d="M16 2v4"/><path d="M21 13V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8"/><path d="M3 10h18"/><path d="m17 22 5-5"/><path d="m17 17 5 5"/></svg>';
+                            setIconElement(dateSpan, "calendar-x-2");
                             dateSpan.classList.add("no-date");
                         }
 
@@ -1785,7 +1783,7 @@ export class TaskView extends ItemView {
                         const deleteBtn = rightButtons.createEl("button", {
                             cls: "dida-task-delete"
                         });
-                        deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+                        setIconElement(deleteBtn, "x");
                         deleteBtn.onclick = (e) => {
                             e.stopPropagation();
                             e.preventDefault();
@@ -1805,9 +1803,9 @@ export class TaskView extends ItemView {
                         });
 
                         if (task.didaId) {
-                            syncStatusSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cloud-check-icon lucide-cloud-check"><path d="m17 15-5.5 5.5L9 18"/><path d="M5 17.743A7 7 0 1 1 15.71 10h1.79a4.5 4.5 0 0 1 1.5 8.742"/></svg>';
+                            setIconElement(syncStatusSpan, "cloud-check");
                         } else {
-                            syncStatusSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cloud-alert-icon lucide-cloud-alert"><path d="M12 12v4"/><path d="M12 20h.01"/><path d="M17 18h.5a1 1 0 0 0 0-9h-1.79A7 7 0 1 0 7 17.708"/></svg>';
+                            setIconElement(syncStatusSpan, "cloud-alert");
                         }
                     });
                 }
@@ -1993,7 +1991,7 @@ export class TaskView extends ItemView {
         }
 
         if (tasks.length === 0) {
-            blockContainer.createDiv("dida-timeline-empty-state").innerHTML = "<p>今天没有任务</p>";
+            blockContainer.createDiv("dida-timeline-empty-state").createEl("p", { text: "今天没有任务" });
         }
 
         this.renderTimeGrid(blockContainer, timeTasks);
@@ -2119,7 +2117,7 @@ export class TaskView extends ItemView {
                     dateSpan.textContent = "";
                 }
             } else {
-                dateSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#da1b1b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-x2-icon lucide-calendar-x-2"><path d="M8 2v4"/><path d="M16 2v4"/><path d="M21 13V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8"/><path d="M3 10h18"/><path d="m17 22 5-5"/><path d="m17 17 5 5"/></svg>';
+                setIconElement(dateSpan, "calendar-x-2");
                 dateSpan.classList.add("no-date");
             }
 
@@ -2142,7 +2140,7 @@ export class TaskView extends ItemView {
             };
 
             const deleteBtn = item.createEl("button", { cls: "dida-task-delete" });
-            deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+            setIconElement(deleteBtn, "x");
             deleteBtn.onclick = async (e) => {
                 e.stopPropagation();
                 e.preventDefault();
@@ -2597,7 +2595,7 @@ export class TaskView extends ItemView {
             };
 
             const deleteBtn = block.createEl("button", { cls: "dida-task-delete" });
-            deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+            setIconElement(deleteBtn, "x");
             deleteBtn.onclick = async (e) => {
                 e.stopPropagation();
                 e.preventDefault();
@@ -2913,23 +2911,27 @@ export class TaskView extends ItemView {
             if (existing) existing.remove();
             const popup = document.createElement("div");
             popup.className = "dida-add-task-popup";
-            popup.innerHTML = `
-            <h4>添加任务到 ${projectName}</h4>
-            <input type="text" placeholder="输入任务标题..." class="task-title-input" />
-            <div class="button-container">
-                <button class="cancel-btn">取消</button>
-                <button class="submit-btn">添加</button>
-            </div>
-        `;
+            popup.createEl("h4", { text: `添加任务到 ${projectName}` });
+            const input = popup.createEl("input", {
+                type: "text",
+                cls: "task-title-input"
+            }) as HTMLInputElement;
+            input.placeholder = "输入任务标题...";
+            const buttonContainer = popup.createDiv("button-container");
+            const cancelBtn = buttonContainer.createEl("button", {
+                cls: "cancel-btn",
+                text: "取消"
+            }) as HTMLButtonElement;
+            const submitBtn = buttonContainer.createEl("button", {
+                cls: "submit-btn",
+                text: "添加"
+            }) as HTMLButtonElement;
             document.body.appendChild(popup);
             const rect = button.getBoundingClientRect();
             popup.style.right = window.innerWidth - rect.right + "px";
             popup.style.top = rect.bottom + 8 + "px";
             popup.classList.add("show");
-            const input = popup.querySelector(".task-title-input") as HTMLInputElement;
             input.focus();
-            const submitBtn = popup.querySelector(".submit-btn") as HTMLButtonElement;
-            const cancelBtn = popup.querySelector(".cancel-btn") as HTMLButtonElement;
             const closePopup = () => {
                 popup.classList.remove("show");
                 setTimeout(() => {
@@ -3068,7 +3070,7 @@ export class TaskView extends ItemView {
                         };
 
                         const delBtn = itemDiv.createEl("button", { cls: "dida-task-delete" });
-                        delBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+                        setIconElement(delBtn, "x");
                         delBtn.onclick = (e) => {
                             e.stopPropagation();
                             e.preventDefault();
@@ -3082,7 +3084,7 @@ export class TaskView extends ItemView {
             renderCheckItems();
 
             const addCheckItemBtn = checkTab.createEl("button", { cls: "dida-project-add-task-btn" });
-            addCheckItemBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus-icon lucide-plus"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
+            setIconElement(addCheckItemBtn, "plus");
             addCheckItemBtn.style.position = "absolute";
             addCheckItemBtn.style.top = "0";
             addCheckItemBtn.style.right = "0";
@@ -3142,7 +3144,7 @@ export class TaskView extends ItemView {
                     };
 
                     const delBtn = itemDiv.createEl("button", { cls: "dida-task-delete" });
-                    delBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+                    setIconElement(delBtn, "x");
                     delBtn.onclick = async (e) => {
                         e.stopPropagation();
                         e.preventDefault();
@@ -3155,7 +3157,7 @@ export class TaskView extends ItemView {
                 });
 
                 const addSubBtn = subtaskTab.createEl("button", { cls: "dida-project-add-task-btn" });
-                addSubBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus-icon lucide-plus"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
+                setIconElement(addSubBtn, "plus");
                 addSubBtn.style.position = "absolute";
                 addSubBtn.style.top = "0";
                 addSubBtn.style.right = "0";
@@ -3225,7 +3227,7 @@ export class TaskView extends ItemView {
                         };
 
                         const unlinkBtn = btnContainer.createEl("button", { cls: "dida-task-delete-link-btn", title: "删除markdown文件中的任务链接" });
-                        unlinkBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+                        setIconElement(unlinkBtn, "x");
                         unlinkBtn.onclick = async (e) => {
                             e.stopPropagation();
                             e.preventDefault();
@@ -3596,11 +3598,7 @@ export class TaskView extends ItemView {
             const completedItems = task.items.filter((i: any) => i.status === 1).length;
             const span = existing || document.createElement("span");
             span.className = "dida-subtask-count";
-            const icon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" id="item-text" fill="#4c4f69">
-  <path d="M30.06666612625122,7.625000095367431Q30.06666612625122,7.221142095367432,30.35223712625122,6.935571095367432Q30.637808126251223,6.650000095367432,31.041666126251222,6.650000095367432L40.95836612625122,6.650000095367432Q41.362166126251225,6.650000095367432,41.64776612625122,6.935571095367432Q41.93336612625122,7.221140095367431,41.93336612625122,7.625000095367431Q41.93336612625122,8.028860095367431,41.64776612625122,8.314430095367431Q41.362166126251225,8.600000095367431,40.95836612625122,8.600000095367431L31.041666126251222,8.600000095367431Q30.637808126251223,8.600000095367431,30.35223712625122,8.314430095367431Q30.06666612625122,8.028860095367431,30.06666612625122,7.625000095367431ZM32.98332612625122,12.000000095367431Q32.98332612625122,11.596140095367431,33.26889612625122,11.310570095367432Q33.554476126251224,11.025000095367432,33.95832612625122,11.025000095367432L40.95836612625122,11.025000095367432Q41.362166126251225,11.025000095367432,41.64776612625122,11.310570095367432Q41.93336612625122,11.596140095367431,41.93336612625122,12.000000095367431Q41.93336612625122,12.403860095367431,41.64776612625122,12.689430095367431Q41.362166126251225,12.975000095367431,40.95836612625122,12.975000095367431L37.45832612625122,12.975000095367431L33.95832612625122,12.975000095367431Q33.554476126251224,12.975000095367431,33.26889612625122,12.689430095367431Q32.98332612625122,12.403860095367431,32.98332612625122,12.000000095367431ZM32.98332612625122,16.375000095367433Q32.98332612625122,15.971140095367431,33.26889612625122,15.685570095367432Q33.55446612625122,15.400000095367432,33.95832612625122,15.400000095367432L40.95836612625122,15.400000095367432Q41.362166126251225,15.400000095367432,41.64776612625122,15.685570095367432Q41.93336612625122,15.971140095367431,41.93336612625122,16.375000095367433Q41.93336612625122,16.778900095367433,41.64776612625122,17.064400095367432Q41.362166126251225,17.35000009536743,40.95836612625122,17.35000009536743L33.95832612625122,17.35000009536743Q33.55446612625122,17.35000009536743,33.26889612625122,17.064400095367432Q32.98332612625122,16.778900095367433,32.98332612625122,16.375000095367433Z" fill-rule="evenodd"></path>
-  <path d="M46.5,18.5L46.5,5.5Q46.5,3.84314,45.3284,2.671573Q44.1569,1.5,42.5,1.5L29.5,1.5Q27.84315,1.5,26.671573,2.671573Q25.5,3.84315,25.5,5.5L25.5,18.5Q25.5,20.1569,26.671573,21.3284Q27.84314,22.5,29.5,22.5L42.5,22.5Q44.1569,22.5,45.3284,21.3284Q46.5,20.1569,46.5,18.5ZM44.5,5.5L44.5,18.5Q44.5,19.3284,43.9142,19.9142Q43.3284,20.5,42.5,20.5L29.5,20.5Q28.67157,20.5,28.08579,19.9142Q27.5,19.3284,27.5,18.5L27.5,5.5Q27.5,4.67157,28.08579,4.08579Q28.67157,3.5,29.5,3.5L42.5,3.5Q43.3284,3.5,43.9142,4.08579Q44.5,4.67157,44.5,5.5Z" fill-rule="evenodd" transform="matrix(-1 0 0 1 48 0)"></path>
-</svg>`;
-            span.innerHTML = `${icon}${completedItems}/${task.items.length}`;
+            setTextWithIcon(span, `${completedItems}/${task.items.length}`, "list-todo");
             span.style.fontSize = "0.8em";
             span.style.color = "#666";
             span.style.marginLeft = "2px";
@@ -3623,10 +3621,7 @@ export class TaskView extends ItemView {
             const completedChilds = childTasks.filter(t => t.status === 2).length;
             const span = existing || document.createElement("span");
             span.className = "dida-child-task-count";
-            const icon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 12 12" id="descendant-task-small" fill="#4c4f69">
-  <path d="M1.2500016689300537,1.491542L1.2500016689300537,8.31342C1.2500016689300537,9.3755,2.1029426689300537,10.25,3.1650316689300535,10.25L6.995881668930053,10.25C7.272021668930054,10.25,7.500001668930054,10.02614,7.500001668930054,9.75C7.500001668930054,9.47386,7.2761416689300535,9.25,7.000001668930054,9.25L3.204551668930054,9.25C2.677361668930054,9.25,2.2500016689300537,8.82264,2.2500016689300537,8.295449999999999L2.2500016689300537,4.75L7.000001668930054,4.75C7.2761416689300535,4.75,7.500001668930054,4.52614,7.500001668930054,4.25C7.500001668930054,3.97386,7.2761416689300535,3.75,7.000001668930054,3.75L2.2500016689300537,3.75L2.2500016689300537,1.5C2.2500016689300537,1.223858,2.026143668930054,1,1.7500016689300537,1C1.4738596689300536,1,1.2500016689300537,1.2154,1.2500016689300537,1.491542ZM10.750001668930054,4.25Q10.750001668930054,4.34849,10.730781668930053,4.44509Q10.711571668930054,4.54169,10.673881668930054,4.632680000000001Q10.636191668930053,4.72368,10.581471668930053,4.8055699999999995Q10.526751668930054,4.88746,10.457111668930054,4.95711Q10.387461668930055,5.02675,10.305571668930053,5.08147Q10.223681668930054,5.13619,10.132681668930054,5.17388Q10.041691668930053,5.21157,9.945091668930054,5.23078Q9.848491668930054,5.25,9.750001668930054,5.25Q9.651511668930054,5.25,9.554911668930053,5.23078Q9.458311668930055,5.21157,9.367321668930053,5.17388Q9.276321668930054,5.13619,9.194431668930054,5.08147Q9.112541668930053,5.02675,9.042891668930054,4.95711Q8.973251668930054,4.88746,8.918531668930054,4.8055699999999995Q8.863811668930055,4.72368,8.826121668930053,4.632680000000001Q8.788431668930054,4.54169,8.769211668930055,4.44509Q8.750001668930054,4.34849,8.750001668930054,4.25Q8.750001668930054,4.15151,8.769211668930055,4.05491Q8.788431668930054,3.95831,8.826121668930053,3.86732Q8.863811668930055,3.77632,8.918531668930054,3.69443Q8.973251668930054,3.61254,9.042891668930054,3.54289Q9.112541668930053,3.47325,9.194431668930054,3.41853Q9.276321668930054,3.36381,9.367321668930053,3.32612Q9.458311668930055,3.28843,9.554911668930053,3.26922Q9.651511668930054,3.25,9.750001668930054,3.25Q9.848491668930054,3.25,9.945091668930054,3.26922Q10.041691668930053,3.28843,10.132681668930054,3.32612Q10.223681668930054,3.36381,10.305571668930053,3.41853Q10.387461668930055,3.47325,10.457111668930054,3.54289Q10.526751668930054,3.61254,10.581471668930053,3.69443Q10.636191668930053,3.77632,10.673881668930054,3.86732Q10.711571668930054,3.95831,10.730781668930053,4.05491Q10.750001668930054,4.15151,10.750001668930054,4.25Z" fill-rule="evenodd"></path>
-</svg>`;
-            span.innerHTML = `${icon}${completedChilds}/${childTasks.length}`;
+            setTextWithIcon(span, `${completedChilds}/${childTasks.length}`, "git-branch-plus");
             span.style.fontSize = "0.8em";
             span.style.color = "#0066cc";
             span.style.marginLeft = "2px";
@@ -3653,14 +3648,14 @@ export class TaskView extends ItemView {
         if (!targetItem) return;
         const existing = targetItem.querySelector(".dida-task-repeat-rule");
         if (targetTask.repeatFlag && targetTask.repeatFlag.trim() !== "") {
-            const text = translateRepeatFlag(targetTask.repeatFlag);
-            if (text) {
+            const repeatRule = translateRepeatFlag(targetTask.repeatFlag);
+            if (repeatRule) {
                 if (existing) {
-                    existing.innerHTML = text;
+                    setTextWithIcon(existing as HTMLElement, repeatRule.label, repeatRule.icon, { textFirst: true });
                 } else {
                     const div = document.createElement("div");
                     div.className = "dida-task-repeat-rule";
-                    div.innerHTML = text;
+                    setTextWithIcon(div, repeatRule.label, repeatRule.icon, { textFirst: true });
                     targetItem.appendChild(div);
                 }
             }

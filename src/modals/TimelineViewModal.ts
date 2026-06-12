@@ -2,7 +2,7 @@ import { App } from 'obsidian';
 import DidaSyncPlugin from '../main';
 import { resolveTaskIndex } from '../taskIndex';
 import { DidaTask } from '../types';
-import { debounce, translateRepeatFlag } from '../utils';
+import { debounce, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
 import { TASK_VIEW_TYPE } from '../views/TaskView';
 import { AddTaskModal } from './AddTaskModal';
 import { DatePickerModal } from './DatePickerModal';
@@ -120,12 +120,12 @@ export class TimelineViewModal {
         const title = header.createEl("h2", {
             cls: "dida-timeline-custom-window-title"
         });
-        title.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-check-icon lucide-calendar-check"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/></svg> 时间线日历视图';
+        setTextWithIcon(title, "时间线日历视图", "calendar-check");
 
         const closeBtn = header.createEl("button", {
             cls: "dida-timeline-custom-window-close"
         });
-        closeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+        setIconElement(closeBtn, "x");
         closeBtn.onclick = () => this.close();
 
         this.contentEl = this.windowElement.createDiv("dida-timeline-custom-window-content");
@@ -142,9 +142,8 @@ export class TimelineViewModal {
     renderDateSelector(container: HTMLElement) {
         const selector = container.createDiv("dida-timeline-date-selector");
         const nav = selector.createDiv("dida-timeline-month-nav");
-
         nav.createEl("button", {
-            text: "‹",
+            text: "<",
             cls: "dida-timeline-nav-btn"
         }).onclick = () => {
             this.displayMonth--;
@@ -161,10 +160,10 @@ export class TimelineViewModal {
             this.renderTimelineView();
         };
 
-        nav.createDiv("dida-timeline-month-display").innerHTML = `${this.displayYear}年${this.displayMonth + 1}月`;
+        nav.createDiv("dida-timeline-month-display").setText(`${this.displayYear}\u5e74${this.displayMonth + 1}\u6708`);
 
         nav.createEl("button", {
-            text: "›",
+            text: ">",
             cls: "dida-timeline-nav-btn"
         }).onclick = () => {
             this.displayMonth++;
@@ -182,7 +181,7 @@ export class TimelineViewModal {
         };
 
         nav.createEl("button", {
-            text: this.isCalendarExpanded ? "收起" : "展开",
+            text: this.isCalendarExpanded ? "\u6536\u8d77" : "\u5c55\u5f00",
             cls: "dida-timeline-expand-btn"
         }).onclick = () => {
             this.isCalendarExpanded = !this.isCalendarExpanded;
@@ -190,7 +189,7 @@ export class TimelineViewModal {
         };
 
         const weekHeader = selector.createDiv("dida-timeline-week-header");
-        ["日", "一", "二", "三", "四", "五", "六"].forEach(d => {
+        ["\u65e5", "\u4e00", "\u4e8c", "\u4e09", "\u56db", "\u4e94", "\u516d"].forEach(d => {
             weekHeader.createEl("span", {
                 text: d,
                 cls: "dida-timeline-week-day"
@@ -377,7 +376,7 @@ export class TimelineViewModal {
         }
 
         if (tasks.length === 0) {
-            list.createDiv("dida-timeline-empty-state").innerHTML = "<p>今天没有任务</p>";
+            list.createDiv("dida-timeline-empty-state").createEl("p", { text: "今天没有任务" });
         }
 
         this.renderFloatingActionButton(container);
@@ -416,7 +415,7 @@ export class TimelineViewModal {
                 if (repeatText) {
                     const rDiv = document.createElement("div");
                     rDiv.className = "dida-task-repeat-rule";
-                    rDiv.innerHTML = repeatText;
+                    setTextWithIcon(rDiv, repeatText.label, repeatText.icon, { textFirst: true });
                     rDiv.style.fontSize = "8px";
                     rDiv.style.color = "#0066cc";
                     rDiv.style.marginTop = "2px";
@@ -442,10 +441,7 @@ export class TimelineViewModal {
             if (task.items && task.items.length > 0) {
                 const activeCount = task.items.filter((i: any) => i.status === 1).length;
                 const subSpan = item.createEl("span", { cls: "dida-subtask-count" });
-                subSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" id="item-text" fill="#4c4f69">
-  <path d="M30.06666612625122,7.625000095367431Q30.06666612625122,7.221142095367432,30.35223712625122,6.935571095367432Q30.637808126251223,6.650000095367432,31.041666126251222,6.650000095367432L40.95836612625122,6.650000095367432Q41.362166126251225,6.650000095367432,41.64776612625122,6.935571095367432Q41.93336612625122,7.221140095367431,41.93336612625122,7.625000095367431Q41.93336612625122,8.028860095367431,41.64776612625122,8.314430095367431Q41.362166126251225,8.600000095367431,40.95836612625122,8.600000095367431L31.041666126251222,8.600000095367431Q30.637808126251223,8.600000095367431,30.35223712625122,8.314430095367431Q30.06666612625122,8.028860095367431,30.06666612625122,7.625000095367431ZM32.98332612625122,12.000000095367431Q32.98332612625122,11.596140095367431,33.26889612625122,11.310570095367432Q33.554476126251224,11.025000095367432,33.95832612625122,11.025000095367432L40.95836612625122,11.025000095367432Q41.362166126251225,11.025000095367432,41.64776612625122,11.310570095367432Q41.93336612625122,11.596140095367431,41.93336612625122,12.000000095367431Q41.93336612625122,12.403860095367431,41.64776612625122,12.689430095367431Q41.362166126251225,12.975000095367431,40.95836612625122,12.975000095367431L37.45832612625122,12.975000095367431L33.95832612625122,12.975000095367431Q33.554476126251224,12.975000095367431,33.26889612625122,12.689430095367431Q32.98332612625122,12.403860095367431,32.98332612625122,12.000000095367431ZM32.98332612625122,16.375000095367433Q32.98332612625122,15.971140095367431,33.26889612625122,15.685570095367432Q33.55446612625122,15.400000095367432,33.95832612625122,15.400000095367432L40.95836612625122,15.400000095367432Q41.362166126251225,15.400000095367432,41.64776612625122,15.685570095367432Q41.93336612625122,15.971140095367431,41.93336612625122,16.375000095367433Q41.93336612625122,16.778900095367433,41.64776612625122,17.064400095367432Q41.362166126251225,17.35000009536743,40.95836612625122,17.35000009536743L33.95832612625122,17.35000009536743Q33.55446612625122,17.35000009536743,33.26889612625122,17.064400095367432Q32.98332612625122,16.778900095367433,32.98332612625122,16.375000095367433Z" fill-rule="evenodd"></path>
-  <path d="M46.5,18.5L46.5,5.5Q46.5,3.84314,45.3284,2.671573Q44.1569,1.5,42.5,1.5L29.5,1.5Q27.84315,1.5,26.671573,2.671573Q25.5,3.84315,25.5,5.5L25.5,18.5Q25.5,20.1569,26.671573,21.3284Q27.84314,22.5,29.5,22.5L42.5,22.5Q44.1569,22.5,45.3284,21.3284Q46.5,20.1569,46.5,18.5ZM44.5,5.5L44.5,18.5Q44.5,19.3284,43.9142,19.9142Q43.3284,20.5,42.5,20.5L29.5,20.5Q28.67157,20.5,28.08579,19.9142Q27.5,19.3284,27.5,18.5L27.5,5.5Q27.5,4.67157,28.08579,4.08579Q28.67157,3.5,29.5,3.5L42.5,3.5Q43.3284,3.5,43.9142,4.08579Q44.5,4.67157,44.5,5.5Z" fill-rule="evenodd" transform="matrix(-1 0 0 1 48 0)"></path>
-</svg>${activeCount}/${task.items.length}`;
+                setTextWithIcon(subSpan, `${activeCount}/${task.items.length}`, "list-todo");
                 subSpan.style.fontSize = "0.8em";
                 subSpan.style.color = "#666";
                 subSpan.style.marginLeft = "2px";
@@ -461,9 +457,7 @@ export class TimelineViewModal {
             if (task.didaId && childTasks.length > 0) {
                 const completedChilds = childTasks.filter(t => t.status === 2).length;
                 const childSpan = item.createEl("span", { cls: "dida-child-task-count" });
-                childSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 12 12" id="descendant-task-small" fill="#4c4f69">
-  <path d="M1.2500016689300537,1.491542L1.2500016689300537,8.31342C1.2500016689300537,9.3755,2.1029426689300537,10.25,3.1650316689300535,10.25L6.995881668930053,10.25C7.272021668930054,10.25,7.500001668930054,10.02614,7.500001668930054,9.75C7.500001668930054,9.47386,7.2761416689300535,9.25,7.000001668930054,9.25L3.204551668930054,9.25C2.677361668930054,9.25,2.2500016689300537,8.82264,2.2500016689300537,8.295449999999999L2.2500016689300537,4.75L7.000001668930054,4.75C7.2761416689300535,4.75,7.500001668930054,4.52614,7.500001668930054,4.25C7.500001668930054,3.97386,7.2761416689300535,3.75,7.000001668930054,3.75L2.2500016689300537,3.75L2.2500016689300537,1.5C2.2500016689300537,1.223858,2.026143668930054,1,1.7500016689300537,1C1.4738596689300536,1,1.2500016689300537,1.2154,1.2500016689300537,1.491542ZM10.750001668930054,4.25Q10.750001668930054,4.34849,10.730781668930053,4.44509Q10.711571668930054,4.54169,10.673881668930054,4.632680000000001Q10.636191668930053,4.72368,10.581471668930053,4.8055699999999995Q10.526751668930054,4.88746,10.457111668930054,4.95711Q10.387461668930055,5.02675,10.305571668930053,5.08147Q10.223681668930054,5.13619,10.132681668930054,5.17388Q10.041691668930053,5.21157,9.945091668930054,5.23078Q9.848491668930054,5.25,9.750001668930054,5.25Q9.651511668930054,5.25,9.554911668930053,5.23078Q9.458311668930055,5.21157,9.367321668930053,5.17388Q9.276321668930054,5.13619,9.194431668930054,5.08147Q9.112541668930053,5.02675,9.042891668930054,4.95711Q8.973251668930054,4.88746,8.918531668930054,4.8055699999999995Q8.863811668930055,4.72368,8.826121668930053,4.632680000000001Q8.788431668930054,4.54169,8.769211668930055,4.44509Q8.750001668930054,4.34849,8.750001668930054,4.25Q8.750001668930054,4.15151,8.769211668930055,4.05491Q8.788431668930054,3.95831,8.826121668930053,3.86732Q8.863811668930055,3.77632,8.918531668930054,3.69443Q8.973251668930054,3.61254,9.042891668930054,3.54289Q9.112541668930053,3.47325,9.194431668930054,3.41853Q9.276321668930054,3.36381,9.367321668930053,3.32612Q9.458311668930055,3.28843,9.554911668930053,3.26922Q9.651511668930054,3.25,9.750001668930054,3.25Q9.848491668930054,3.25,9.945091668930054,3.26922Q10.041691668930053,3.28843,10.132681668930054,3.32612Q10.223681668930054,3.36381,10.305571668930053,3.41853Q10.387461668930055,3.47325,10.457111668930054,3.54289Q10.526751668930054,3.61254,10.581471668930053,3.69443Q10.636191668930053,3.77632,10.673881668930054,3.86732Q10.711571668930054,3.95831,10.730781668930053,4.05491Q10.750001668930054,4.15151,10.750001668930054,4.25Z" fill-rule="evenodd"></path>
-</svg>${completedChilds}/${childTasks.length}`;
+                setTextWithIcon(childSpan, `${completedChilds}/${childTasks.length}`, "git-branch-plus");
                 childSpan.style.fontSize = "0.8em";
                 childSpan.style.color = "#0066cc";
                 childSpan.style.marginLeft = "2px";
@@ -493,7 +487,7 @@ export class TimelineViewModal {
                     dateSpan.textContent = "";
                 }
             } else {
-                dateSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#da1b1b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-x2-icon lucide-calendar-x-2"><path d="M8 2v4"/><path d="M16 2v4"/><path d="M21 13V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8"/><path d="M3 10h18"/><path d="m17 22 5-5"/><path d="m17 17 5 5"/></svg>';
+                setIconElement(dateSpan, "calendar-x-2");
                 dateSpan.classList.add("no-date");
             }
 
@@ -511,7 +505,7 @@ export class TimelineViewModal {
             };
 
             const delBtn = item.createEl("button", { cls: "dida-task-delete" });
-            delBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+            setIconElement(delBtn, "x");
             delBtn.onclick = async (e) => {
                 e.stopPropagation();
                 e.preventDefault();
@@ -554,7 +548,7 @@ export class TimelineViewModal {
                 if (repeatText) {
                     const rDiv = document.createElement("div");
                     rDiv.className = "dida-task-repeat-rule";
-                    rDiv.innerHTML = repeatText;
+                    setTextWithIcon(rDiv, repeatText.label, repeatText.icon, { textFirst: true });
                     rDiv.style.fontSize = "8px";
                     rDiv.style.color = "#0066cc";
                     rDiv.style.marginTop = "2px";
@@ -580,10 +574,7 @@ export class TimelineViewModal {
             if (task.items && task.items.length > 0) {
                 const activeCount = task.items.filter((i: any) => i.status === 1).length;
                 const subSpan = item.createEl("span", { cls: "dida-subtask-count" });
-                subSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" id="item-text" fill="#4c4f69">
-  <path d="M30.06666612625122,7.625000095367431Q30.06666612625122,7.221142095367432,30.35223712625122,6.935571095367432Q30.637808126251223,6.650000095367432,31.041666126251222,6.650000095367432L40.95836612625122,6.650000095367432Q41.362166126251225,6.650000095367432,41.64776612625122,6.935571095367432Q41.93336612625122,7.221140095367431,41.93336612625122,7.625000095367431Q41.93336612625122,8.028860095367431,41.64776612625122,8.314430095367431Q41.362166126251225,8.600000095367431,40.95836612625122,8.600000095367431L31.041666126251222,8.600000095367431Q30.637808126251223,8.600000095367431,30.35223712625122,8.314430095367431Q30.06666612625122,8.028860095367431,30.06666612625122,7.625000095367431ZM32.98332612625122,12.000000095367431Q32.98332612625122,11.596140095367431,33.26889612625122,11.310570095367432Q33.554476126251224,11.025000095367432,33.95832612625122,11.025000095367432L40.95836612625122,11.025000095367432Q41.362166126251225,11.025000095367432,41.64776612625122,11.310570095367432Q41.93336612625122,11.596140095367431,41.93336612625122,12.000000095367431Q41.93336612625122,12.403860095367431,41.64776612625122,12.689430095367431Q41.362166126251225,12.975000095367431,40.95836612625122,12.975000095367431L37.45832612625122,12.975000095367431L33.95832612625122,12.975000095367431Q33.554476126251224,12.975000095367431,33.26889612625122,12.689430095367431Q32.98332612625122,12.403860095367431,32.98332612625122,12.000000095367431ZM32.98332612625122,16.375000095367433Q32.98332612625122,15.971140095367431,33.26889612625122,15.685570095367432Q33.55446612625122,15.400000095367432,33.95832612625122,15.400000095367432L40.95836612625122,15.400000095367432Q41.362166126251225,15.400000095367432,41.64776612625122,15.685570095367432Q41.93336612625122,15.971140095367431,41.93336612625122,16.375000095367433Q41.93336612625122,16.778900095367433,41.64776612625122,17.064400095367432Q41.362166126251225,17.35000009536743,40.95836612625122,17.35000009536743L33.95832612625122,17.35000009536743Q33.55446612625122,17.35000009536743,33.26889612625122,17.064400095367432Q32.98332612625122,16.778900095367433,32.98332612625122,16.375000095367433Z" fill-rule="evenodd"></path>
-  <path d="M46.5,18.5L46.5,5.5Q46.5,3.84314,45.3284,2.671573Q44.1569,1.5,42.5,1.5L29.5,1.5Q27.84315,1.5,26.671573,2.671573Q25.5,3.84315,25.5,5.5L25.5,18.5Q25.5,20.1569,26.671573,21.3284Q27.84314,22.5,29.5,22.5L42.5,22.5Q44.1569,22.5,45.3284,21.3284Q46.5,20.1569,46.5,18.5ZM44.5,5.5L44.5,18.5Q44.5,19.3284,43.9142,19.9142Q43.3284,20.5,42.5,20.5L29.5,20.5Q28.67157,20.5,28.08579,19.9142Q27.5,19.3284,27.5,18.5L27.5,5.5Q27.5,4.67157,28.08579,4.08579Q28.67157,3.5,29.5,3.5L42.5,3.5Q43.3284,3.5,43.9142,4.08579Q44.5,4.67157,44.5,5.5Z" fill-rule="evenodd" transform="matrix(-1 0 0 1 48 0)"></path>
-</svg>${activeCount}/${task.items.length}`;
+                setTextWithIcon(subSpan, `${activeCount}/${task.items.length}`, "list-todo");
                 subSpan.style.fontSize = "0.8em";
                 subSpan.style.color = "#666";
                 subSpan.style.marginLeft = "2px";
@@ -599,9 +590,7 @@ export class TimelineViewModal {
             if (task.didaId && childTasks.length > 0) {
                 const completedChilds = childTasks.filter(t => t.status === 2).length;
                 const childSpan = item.createEl("span", { cls: "dida-child-task-count" });
-                childSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 12 12" id="descendant-task-small" fill="#4c4f69">
-  <path d="M1.2500016689300537,1.491542L1.2500016689300537,8.31342C1.2500016689300537,9.3755,2.1029426689300537,10.25,3.1650316689300535,10.25L6.995881668930053,10.25C7.272021668930054,10.25,7.500001668930054,10.02614,7.500001668930054,9.75C7.500001668930054,9.47386,7.2761416689300535,9.25,7.000001668930054,9.25L3.204551668930054,9.25C2.677361668930054,9.25,2.2500016689300537,8.82264,2.2500016689300537,8.295449999999999L2.2500016689300537,4.75L7.000001668930054,4.75C7.2761416689300535,4.75,7.500001668930054,4.52614,7.500001668930054,4.25C7.500001668930054,3.97386,7.2761416689300535,3.75,7.000001668930054,3.75L2.2500016689300537,3.75L2.2500016689300537,1.5C2.2500016689300537,1.223858,2.026143668930054,1,1.7500016689300537,1C1.4738596689300536,1,1.2500016689300537,1.2154,1.2500016689300537,1.491542ZM10.750001668930054,4.25Q10.750001668930054,4.34849,10.730781668930053,4.44509Q10.711571668930054,4.54169,10.673881668930054,4.632680000000001Q10.636191668930053,4.72368,10.581471668930053,4.8055699999999995Q10.526751668930054,4.88746,10.457111668930054,4.95711Q10.387461668930055,5.02675,10.305571668930053,5.08147Q10.223681668930054,5.13619,10.132681668930054,5.17388Q10.041691668930053,5.21157,9.945091668930054,5.23078Q9.848491668930054,5.25,9.750001668930054,5.25Q9.651511668930054,5.25,9.554911668930053,5.23078Q9.458311668930055,5.21157,9.367321668930053,5.17388Q9.276321668930054,5.13619,9.194431668930054,5.08147Q9.112541668930053,5.02675,9.042891668930054,4.95711Q8.973251668930054,4.88746,8.918531668930054,4.8055699999999995Q8.863811668930055,4.72368,8.826121668930053,4.632680000000001Q8.788431668930054,4.54169,8.769211668930055,4.44509Q8.750001668930054,4.34849,8.750001668930054,4.25Q8.750001668930054,4.15151,8.769211668930055,4.05491Q8.788431668930054,3.95831,8.826121668930053,3.86732Q8.863811668930055,3.77632,8.918531668930054,3.69443Q8.973251668930054,3.61254,9.042891668930054,3.54289Q9.112541668930053,3.47325,9.194431668930054,3.41853Q9.276321668930054,3.36381,9.367321668930053,3.32612Q9.458311668930055,3.28843,9.554911668930053,3.26922Q9.651511668930054,3.25,9.750001668930054,3.25Q9.848491668930054,3.25,9.945091668930054,3.26922Q10.041691668930053,3.28843,10.132681668930054,3.32612Q10.223681668930054,3.36381,10.305571668930053,3.41853Q10.387461668930055,3.47325,10.457111668930054,3.54289Q10.526751668930054,3.61254,10.581471668930053,3.69443Q10.636191668930053,3.77632,10.673881668930054,3.86732Q10.711571668930054,3.95831,10.730781668930053,4.05491Q10.750001668930054,4.15151,10.750001668930054,4.25Z" fill-rule="evenodd"></path>
-</svg>${completedChilds}/${childTasks.length}`;
+                setTextWithIcon(childSpan, `${completedChilds}/${childTasks.length}`, "git-branch-plus");
                 childSpan.style.fontSize = "0.8em";
                 childSpan.style.color = "#0066cc";
                 childSpan.style.marginLeft = "2px";
@@ -629,7 +618,7 @@ export class TimelineViewModal {
                     dateSpan.textContent = "";
                 }
             } else {
-                dateSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#da1b1b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-x2-icon lucide-calendar-x-2"><path d="M8 2v4"/><path d="M16 2v4"/><path d="M21 13V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8"/><path d="M3 10h18"/><path d="m17 22 5-5"/><path d="m17 17 5 5"/></svg>';
+                setIconElement(dateSpan, "calendar-x-2");
                 dateSpan.classList.add("no-date");
             }
             dateSpan.style.cursor = "pointer";
@@ -656,7 +645,7 @@ export class TimelineViewModal {
             };
 
             const delBtn = item.createEl("button", { cls: "dida-task-delete" });
-            delBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+            setIconElement(delBtn, "x");
             delBtn.onclick = async (e) => {
                 e.stopPropagation();
                 e.preventDefault();
@@ -673,7 +662,7 @@ export class TimelineViewModal {
 
     renderFloatingActionButton(container: HTMLElement) {
         const fab = container.createDiv("dida-timeline-fab");
-        fab.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus-icon lucide-plus"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
+        setIconElement(fab, "plus");
         fab.onclick = () => {
             this.showAddTaskModal();
         };
@@ -799,7 +788,7 @@ export class TimelineViewModal {
                             this.plugin.updateTaskInDidaList(currentTask);
                         };
                         const delBtn = itemDiv.createEl("button", { cls: "dida-task-delete" });
-                        delBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+                        setIconElement(delBtn, "x");
                         delBtn.onclick = (e) => {
                             e.stopPropagation();
                             e.preventDefault();
@@ -814,7 +803,7 @@ export class TimelineViewModal {
             renderCheckItems();
 
             const addCheckItemBtn = checkTab.createEl("button", { cls: "dida-project-add-task-btn" });
-            addCheckItemBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus-icon lucide-plus"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
+            setIconElement(addCheckItemBtn, "plus");
             addCheckItemBtn.style.position = "absolute";
             addCheckItemBtn.style.top = "0";
             addCheckItemBtn.style.right = "0";
@@ -867,7 +856,7 @@ export class TimelineViewModal {
                         }
                     };
                     const delBtn = itemDiv.createEl("button", { cls: "dida-task-delete" });
-                    delBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+                    setIconElement(delBtn, "x");
                     delBtn.onclick = async (e) => {
                         e.stopPropagation();
                         e.preventDefault();
@@ -879,7 +868,7 @@ export class TimelineViewModal {
                     };
                 });
                 const addSubBtn = subtaskTab.createEl("button", { cls: "dida-project-add-task-btn" });
-                addSubBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus-icon lucide-plus"><path d="M5 12h14"/><path d="M12 5v14"/></svg>';
+                setIconElement(addSubBtn, "plus");
                 addSubBtn.style.position = "absolute";
                 addSubBtn.style.top = "0";
                 addSubBtn.style.right = "0";
