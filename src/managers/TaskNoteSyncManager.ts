@@ -21,6 +21,7 @@ interface ParsedTaskBlock {
     insertLineIndex: number;
     existingTaskIds: Set<string>;
     existingTaskTitles: Set<string>;
+    dateGroups: Map<string, { headerLineIndex: number; insertLineIndex: number }>;
     hasExistingContent: boolean;
 }
 
@@ -150,11 +151,12 @@ export class TaskNoteSyncManager {
                 return lines.join("\n");
             }
 
-            const newLines = range.startDate === range.endDate
-                ? this.formatTasks(tasksToAppend, range.startDate, taskPrefix)
-                : this.formatGroupedTasks(tasksToAppend, taskPrefix, isCallout);
-
-            lines.splice(parsed.insertLineIndex, 0, ...newLines);
+            if (range.startDate === range.endDate) {
+                const newLines = this.formatTasks(tasksToAppend, range.startDate, taskPrefix);
+                lines.splice(parsed.insertLineIndex, 0, ...newLines);
+            } else {
+                this.insertGroupedTasks(lines, parsed, tasksToAppend, taskPrefix, isCallout);
+            }
             new Notice(`成功同步 ${tasksToAppend.length} 个新任务`);
             return lines.join("\n");
         });
@@ -181,29 +183,48 @@ export class TaskNoteSyncManager {
                 insertLineIndex: -1,
                 existingTaskIds: new Set(),
                 existingTaskTitles: new Set(),
+                dateGroups: new Map(),
                 hasExistingContent: false
             };
         }
 
         const existingTaskIds = new Set<string>();
         const existingTaskTitles = new Set<string>();
+        const dateGroups = new Map<string, { headerLineIndex: number; insertLineIndex: number }>();
         let insertLineIndex = headerIndex + 1;
         let hasExistingContent = false;
+        let currentDateGroup: string | null = null;
+        let currentDateGroupHasTasks = false;
 
         for (let i = headerIndex + 1; i < lines.length; i++) {
             const line = lines[i];
             const trimmed = line.trim();
             if (this.isBlockBoundary(trimmed, headerPattern)) break;
 
-            if (this.isTaskLine(trimmed)) {
+            const dateGroup = this.extractDateGroup(trimmed);
+            if (dateGroup) {
+                currentDateGroup = dateGroup;
+                currentDateGroupHasTasks = false;
+                dateGroups.set(dateGroup, { headerLineIndex: i, insertLineIndex: i + 1 });
+                hasExistingContent = true;
+            } else if (this.isTaskLine(trimmed)) {
                 const id = this.extractDidaId(trimmed);
                 if (id) existingTaskIds.add(id);
                 const title = this.extractTaskTitle(trimmed);
                 if (title) existingTaskTitles.add(title);
                 hasExistingContent = true;
                 insertLineIndex = i + 1;
+                if (currentDateGroup) {
+                    currentDateGroupHasTasks = true;
+                    const group = dateGroups.get(currentDateGroup);
+                    if (group) group.insertLineIndex = i + 1;
+                }
             } else if (trimmed !== "") {
                 hasExistingContent = true;
+                if (currentDateGroup && !currentDateGroupHasTasks) {
+                    const group = dateGroups.get(currentDateGroup);
+                    if (group) group.insertLineIndex = i;
+                }
             }
         }
 
@@ -213,6 +234,7 @@ export class TaskNoteSyncManager {
             insertLineIndex,
             existingTaskIds,
             existingTaskTitles,
+            dateGroups,
             hasExistingContent
         };
     }
@@ -226,6 +248,11 @@ export class TaskNoteSyncManager {
         if (/^#{3,}\s+\d{4}-\d{2}-\d{2}/.test(trimmedLine)) return false;
         if (headerPattern.trim().startsWith(">")) return !trimmedLine.startsWith(">");
         return trimmedLine.startsWith("#");
+    }
+
+    extractDateGroup(line: string): string | null {
+        const match = line.match(/^(?:>\s*)?#{3,}\s+(\d{4}-\d{2}-\d{2})(?:\s|$)/);
+        return match ? match[1] : null;
     }
 
     extractDidaId(line: string): string | null {
@@ -324,6 +351,46 @@ export class TaskNoteSyncManager {
             lines.push(...this.formatTasks([task], taskDate, taskPrefix));
         }
         return lines;
+    }
+
+    insertGroupedTasks(lines: string[], parsed: ParsedTaskBlock, tasks: DidaTask[], taskPrefix: string, isCallout: boolean) {
+        const tasksByDate = new Map<string, DidaTask[]>();
+        for (const task of tasks) {
+            const taskDate = this.getTaskLocalDate(task);
+            if (!taskDate) continue;
+            if (!tasksByDate.has(taskDate)) tasksByDate.set(taskDate, []);
+            tasksByDate.get(taskDate)!.push(task);
+        }
+
+        const insertions: Array<{ index: number; taskDate: string; lines: string[] }> = [];
+        for (const [taskDate, dateTasks] of tasksByDate.entries()) {
+            const existingGroup = parsed.dateGroups.get(taskDate);
+            if (existingGroup) {
+                insertions.push({
+                    index: existingGroup.insertLineIndex,
+                    taskDate,
+                    lines: this.formatTasks(dateTasks, taskDate, taskPrefix)
+                });
+            } else {
+                insertions.push({
+                    index: parsed.insertLineIndex,
+                    taskDate,
+                    lines: [
+                        `${isCallout ? "> " : ""}### ${taskDate}`,
+                        ...this.formatTasks(dateTasks, taskDate, taskPrefix)
+                    ]
+                });
+            }
+        }
+
+        insertions
+            .sort((a, b) => {
+                if (a.index !== b.index) return b.index - a.index;
+                return b.taskDate.localeCompare(a.taskDate);
+            })
+            .forEach((insertion) => {
+                lines.splice(insertion.index, 0, ...insertion.lines);
+            });
     }
 
     formatTasks(tasks: DidaTask[], targetDate: string, prefix: string): string[] {
