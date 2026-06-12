@@ -1779,16 +1779,18 @@ export default class DidaSyncPlugin extends Plugin {
                 }
             });
             const el = popup.element!;
-            el.style.position = "fixed";
-            el.style.width = "400px";
-            el.style.maxHeight = "300px";
-            el.style.overflowY = "auto";
-            el.style.zIndex = "1000";
-            el.style.backgroundColor = "var(--background-primary)";
-            el.style.border = "1px solid var(--background-modifier-border)";
-            el.style.borderRadius = "8px";
-            el.style.boxShadow = "0 8px 32px rgba(0, 0, 0, 0.15)";
-            el.style.padding = "16px";
+            el.setCssStyles({
+                position: "fixed",
+                width: "400px",
+                maxHeight: "300px",
+                overflowY: "auto",
+                zIndex: "1000",
+                backgroundColor: "var(--background-primary)",
+                border: "1px solid var(--background-modifier-border)",
+                borderRadius: "8px",
+                boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
+                padding: "16px"
+            });
 
             let editorDom: HTMLElement | null = null;
             if ((editor as any).cm && (editor as any).cm.dom) editorDom = (editor as any).cm.dom;
@@ -1863,11 +1865,15 @@ export default class DidaSyncPlugin extends Plugin {
 
                 if (lineEl) {
                     const lineRect = lineEl.getBoundingClientRect();
-                    el.style.left = lineRect.left + "px";
-                    el.style.top = lineRect.bottom + 5 + "px";
+                    el.setCssStyles({
+                        left: `${lineRect.left}px`,
+                        top: `${lineRect.bottom + 5}px`
+                    });
                 } else {
-                    el.style.left = rect.left + "px";
-                    el.style.top = rect.bottom + 5 + "px";
+                    el.setCssStyles({
+                        left: `${rect.left}px`,
+                        top: `${rect.bottom + 5}px`
+                    });
                 }
                 const popupRect = el.getBoundingClientRect();
                 const winHeight = window.innerHeight;
@@ -1876,17 +1882,19 @@ export default class DidaSyncPlugin extends Plugin {
                     if (lineEl) {
                         const lineRect = lineEl.getBoundingClientRect();
                         const newTop = lineRect.top - popupRect.height - 5;
-                        el.style.top = Math.max(10, newTop) + "px";
+                        el.setCssStyles({ top: `${Math.max(10, newTop)}px` });
                     } else {
                         const newTop = top - popupRect.height - 5;
-                        el.style.top = Math.max(10, newTop) + "px";
+                        el.setCssStyles({ top: `${Math.max(10, newTop)}px` });
                     }
                 }
-                if (popupRect.right > winWidth) el.style.left = winWidth - popupRect.width - 10 + "px";
-                if (popupRect.left < 10) el.style.left = "10px";
+                if (popupRect.right > winWidth) el.setCssStyles({ left: `${winWidth - popupRect.width - 10}px` });
+                if (popupRect.left < 10) el.setCssStyles({ left: "10px" });
             } else {
-                el.style.left = fallbackLeft + "px";
-                el.style.top = fallbackTop + "px";
+                el.setCssStyles({
+                    left: `${fallbackLeft}px`,
+                    top: `${fallbackTop}px`
+                });
             }
         } catch (e) { }
     }
@@ -2446,10 +2454,12 @@ export default class DidaSyncPlugin extends Plugin {
             };
         });
         const rect = button.getBoundingClientRect();
-        dropdown.style.position = "absolute";
-        dropdown.style.top = rect.bottom + 5 + "px";
-        dropdown.style.left = rect.left + "px";
-        dropdown.style.zIndex = "1000";
+        dropdown.setCssStyles({
+            position: "absolute",
+            top: `${rect.bottom + 5}px`,
+            left: `${rect.left}px`,
+            zIndex: "1000"
+        });
         document.body.appendChild(dropdown);
         const handleClickOutside = (evt: MouseEvent) => {
             if (!dropdown.contains(evt.target as Node) && !button.contains(evt.target as Node)) {
@@ -2655,11 +2665,9 @@ export default class DidaSyncPlugin extends Plugin {
         if (el) {
             try {
                 el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
-                el.style.transition = "background-color 0.3s ease";
-                el.style.backgroundColor = "var(--background-modifier-hover)";
+                el.classList.add("dida-scroll-highlight");
                 setTimeout(() => {
-                    el.style.backgroundColor = "";
-                    el.style.transition = "";
+                    el.classList.remove("dida-scroll-highlight");
                 }, 3000);
             } catch (e) { }
         }

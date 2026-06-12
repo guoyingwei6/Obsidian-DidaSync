@@ -298,8 +298,10 @@ export class TaskView extends ItemView {
             const bounds = container.getBoundingClientRect();
             const left = event.clientX - bounds.left;
             const top = event.clientY - bounds.top;
-            tooltip.style.left = `${left}px`;
-            tooltip.style.top = `${Math.max(6, top - 16)}px`;
+            tooltip.setCssStyles({
+                left: `${left}px`,
+                top: `${Math.max(6, top - 16)}px`
+            });
         };
         const handleLeave = () => {
             tooltip.classList.remove("is-visible");
@@ -940,17 +942,21 @@ export class TaskView extends ItemView {
         const chart = trendSection.createDiv("dida-pomodoro-trend-chart");
         const plot = chart.createDiv("dida-pomodoro-trend-plot");
         const svgData = this.buildPomodoroTrendSvg(trendData, this.pomodoroTrendPeriod);
-        plot.style.width = `${svgData.chartWidth}px`;
-        plot.style.minWidth = `${svgData.chartWidth}px`;
+        plot.setCssStyles({
+            width: `${svgData.chartWidth}px`,
+            minWidth: `${svgData.chartWidth}px`
+        });
         appendValidatedSvg(plot, svgData.svg);
         trendSection.createDiv("dida-pomodoro-trend-tooltip");
         const axis = chart.createDiv("dida-pomodoro-trend-axis");
-        axis.style.width = `${svgData.chartWidth}px`;
-        axis.style.minWidth = `${svgData.chartWidth}px`;
+        axis.setCssStyles({
+            width: `${svgData.chartWidth}px`,
+            minWidth: `${svgData.chartWidth}px`
+        });
         svgData.points.forEach((point, index) => {
             const item = trendData[index];
             const label = axis.createDiv("dida-pomodoro-trend-axis-item");
-            label.style.left = `${point.x}px`;
+            label.setCssStyles({ left: `${point.x}px` });
             label.createDiv("dida-pomodoro-trend-label").textContent = this.getPomodoroTrendAxisLabel(item, index, trendData.length);
         });
         this.bindPomodoroTrendTooltip(trendSection);
@@ -966,8 +972,8 @@ export class TaskView extends ItemView {
         const progress = Math.min(1, Math.max(0, (duration - remaining) / duration));
         const circumference = 2 * Math.PI * 52;
         if (this.pomodoroElements.progressCircle) {
-            this.pomodoroElements.progressCircle.style.strokeDasharray = `${circumference}`;
-            this.pomodoroElements.progressCircle.style.strokeDashoffset = `${circumference * (1 - progress)}`;
+            this.pomodoroElements.progressCircle.setAttribute("stroke-dasharray", `${circumference}`);
+            this.pomodoroElements.progressCircle.setAttribute("stroke-dashoffset", `${circumference * (1 - progress)}`);
         }
         this.pomodoroElements.wrapper?.setAttribute("data-phase", this.pomodoroState.phase);
         if (this.pomodoroElements.phaseEl) this.pomodoroElements.phaseEl.textContent = this.getPomodoroPhaseLabel();
@@ -1166,8 +1172,6 @@ export class TaskView extends ItemView {
             {
                 const searchContainer = headerControls.createDiv("dida-search-container");
                 const searchInputWrap = searchContainer.createDiv("dida-search-input-wrap");
-                searchInputWrap.style.position = "relative";
-
                 const searchInput = searchInputWrap.createEl("input", {
                     type: "text",
                     cls: "dida-search-input",
@@ -1179,28 +1183,28 @@ export class TaskView extends ItemView {
                     cls: "dida-search-clear-btn"
                 });
                 setIconElement(clearBtn, "x");
-                clearBtn.style.display = this.searchQuery ? "flex" : "none";
+                clearBtn.setCssStyles({ display: this.searchQuery ? "flex" : "none" });
 
                 const dateFilterClearBtn = searchInputWrap.createEl("button", {
                     cls: "dida-date-clear-btn"
                 });
                 setIconElement(dateFilterClearBtn, "x");
-                dateFilterClearBtn.style.display = this.dateFilter ? "flex" : "none";
+                dateFilterClearBtn.setCssStyles({ display: this.dateFilter ? "flex" : "none" });
 
                 const dateFilterDropdown = searchInputWrap.createDiv("dida-date-filter-dropdown");
-                dateFilterDropdown.style.cssText = `
-                    position: absolute;
-                    top: 100%;
-                    left: 0;
-                    width: 100%;
-                    background: var(--background-primary);
-                    border: 1px solid var(--background-modifier-border);
-                    border-radius: 4px;
-                    margin-top: 4px;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-                    z-index: 1000;
-                    display: none;
-                `;
+                dateFilterDropdown.setCssStyles({
+                    position: "absolute",
+                    top: "100%",
+                    left: "0",
+                    width: "100%",
+                    background: "var(--background-primary)",
+                    border: "1px solid var(--background-modifier-border)",
+                    borderRadius: "4px",
+                    marginTop: "4px",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                    zIndex: "1000",
+                    display: "none"
+                });
 
                 const filterOptions = [
                     { label: "已逾期", value: "overdue" },
@@ -1212,75 +1216,75 @@ export class TaskView extends ItemView {
                 filterOptions.forEach(opt => {
                     const option = dateFilterDropdown.createDiv("dida-date-filter-option");
                     option.textContent = opt.label;
-                    option.style.cssText = `
-                        padding: 8px 12px;
-                        cursor: pointer;
-                        transition: background 0.2s;
-                    `;
+                    option.setCssStyles({
+                        padding: "8px 12px",
+                        cursor: "pointer",
+                        transition: "background 0.2s"
+                    });
                     option.addEventListener("mouseenter", () => {
-                        option.style.background = "var(--background-modifier-hover)";
+                        option.setCssStyles({ background: "var(--background-modifier-hover)" });
                     });
                     option.addEventListener("mouseleave", () => {
-                        option.style.background = "";
+                        option.setCssStyles({ background: "" });
                     });
                     option.addEventListener("click", () => {
                         this.dateFilter = opt.value;
                         searchInput.placeholder = "筛选：" + opt.label;
-                        dateFilterDropdown.style.display = "none";
-                        dateFilterClearBtn.style.display = "flex";
+                        dateFilterDropdown.setCssStyles({ display: "none" });
+                        dateFilterClearBtn.setCssStyles({ display: "flex" });
                         this.renderTaskList({ preserveSearch: true });
                     });
                 });
 
                 const completedOption = dateFilterDropdown.createDiv("dida-date-filter-option");
                 completedOption.textContent = "已完成";
-                completedOption.style.cssText = `
-                    padding: 8px 12px;
-                    cursor: pointer;
-                    border-top: 1px solid var(--background-modifier-border);
-                    transition: background 0.2s;
-                `;
+                completedOption.setCssStyles({
+                    padding: "8px 12px",
+                    cursor: "pointer",
+                    borderTop: "1px solid var(--background-modifier-border)",
+                    transition: "background 0.2s"
+                });
                 completedOption.addEventListener("mouseenter", () => {
-                    completedOption.style.background = "var(--background-modifier-hover)";
+                    completedOption.setCssStyles({ background: "var(--background-modifier-hover)" });
                 });
                 completedOption.addEventListener("mouseleave", () => {
-                    completedOption.style.background = "";
+                    completedOption.setCssStyles({ background: "" });
                 });
                 completedOption.addEventListener("click", () => {
-                    dateFilterDropdown.style.display = "none";
+                    dateFilterDropdown.setCssStyles({ display: "none" });
                     this.plugin.showCompletedTasksModal();
                 });
 
                 const clearOption = dateFilterDropdown.createDiv("dida-date-filter-option");
                 clearOption.textContent = "清除筛选";
-                clearOption.style.cssText = `
-                    padding: 8px 12px;
-                    cursor: pointer;
-                    border-top: 1px solid var(--background-modifier-border);
-                    color: var(--text-muted);
-                `;
+                clearOption.setCssStyles({
+                    padding: "8px 12px",
+                    cursor: "pointer",
+                    borderTop: "1px solid var(--background-modifier-border)",
+                    color: "var(--text-muted)"
+                });
                 clearOption.addEventListener("mouseenter", () => {
-                    clearOption.style.background = "var(--background-modifier-hover)";
+                    clearOption.setCssStyles({ background: "var(--background-modifier-hover)" });
                 });
                 clearOption.addEventListener("mouseleave", () => {
-                    clearOption.style.background = "";
+                    clearOption.setCssStyles({ background: "" });
                 });
                 clearOption.addEventListener("click", () => {
                     this.dateFilter = null;
                     searchInput.placeholder = "搜索任务...";
-                    dateFilterDropdown.style.display = "none";
-                    dateFilterClearBtn.style.display = "none";
+                    dateFilterDropdown.setCssStyles({ display: "none" });
+                    dateFilterClearBtn.setCssStyles({ display: "none" });
                     this.renderTaskList({ preserveSearch: true });
                 });
 
                 const handleClickOutside = (e: MouseEvent) => {
                     if (!searchInputWrap.contains(e.target as Node)) {
-                        dateFilterDropdown.style.display = "none";
+                        dateFilterDropdown.setCssStyles({ display: "none" });
                     }
                 };
 
                 searchInput.addEventListener("focus", () => {
-                    dateFilterDropdown.style.display = "block";
+                    dateFilterDropdown.setCssStyles({ display: "block" });
                 });
 
                 setTimeout(() => {
@@ -1299,15 +1303,15 @@ export class TaskView extends ItemView {
                 searchInput.addEventListener("compositionend", (e: any) => {
                     this.isComposing = false;
                     const val = e.target.value;
-                    clearBtn.style.display = val ? "flex" : "none";
+                    clearBtn.setCssStyles({ display: val ? "flex" : "none" });
                     this.debouncedSearch(val);
                 });
 
                 searchInput.addEventListener("input", (e: any) => {
                     const val = e.target.value;
-                    clearBtn.style.display = val ? "flex" : "none";
+                    clearBtn.setCssStyles({ display: val ? "flex" : "none" });
                     if (!this.isComposing) {
-                        dateFilterDropdown.style.display = "none";
+                        dateFilterDropdown.setCssStyles({ display: "none" });
                         this.debouncedSearch(val);
                     }
                 });
@@ -1315,15 +1319,15 @@ export class TaskView extends ItemView {
                 clearBtn.addEventListener("click", () => {
                     searchInput.value = "";
                     this.searchQuery = "";
-                    clearBtn.style.display = "none";
+                    clearBtn.setCssStyles({ display: "none" });
                     this.renderTaskList({ preserveSearch: true });
                 });
 
                 dateFilterClearBtn.addEventListener("click", () => {
                     this.dateFilter = null;
                     searchInput.placeholder = "搜索任务...";
-                    dateFilterDropdown.style.display = "none";
-                    dateFilterClearBtn.style.display = "none";
+                    dateFilterDropdown.setCssStyles({ display: "none" });
+                    dateFilterClearBtn.setCssStyles({ display: "none" });
                     this.renderTaskList({ preserveSearch: true });
                 });
 
@@ -1700,8 +1704,7 @@ export class TaskView extends ItemView {
                         if (reminderInfo) {
                             const reminderSpan = document.createElement("span");
                             reminderSpan.className = "dida-task-reminder-inline";
-                            reminderSpan.style.display = "inline-flex";
-                            reminderSpan.style.alignItems = "center";
+                            reminderSpan.addClass("dida-inline-flex-center");
                             setTextWithIcon(reminderSpan, reminderInfo, "timer", { textFirst: true });
 
                             const repeatDiv = taskItem.querySelector(".dida-task-repeat-rule");
@@ -1723,7 +1726,7 @@ export class TaskView extends ItemView {
                         });
                         prioritySpan.textContent = this.formatPriorityLabel(task.priority || 0);
                         prioritySpan.title = "点击切换优先级";
-                        prioritySpan.style.cursor = "pointer";
+                        prioritySpan.addClass("dida-clickable-date");
                         prioritySpan.onclick = async (e) => {
                             e.stopPropagation();
                             const idx = this.resolveTaskOriginalIndex(task);
@@ -1760,7 +1763,7 @@ export class TaskView extends ItemView {
                             dateSpan.classList.add("no-date");
                         }
 
-                        dateSpan.style.cursor = "pointer";
+                        dateSpan.addClass("dida-clickable-date");
                         dateSpan.title = "点击设置开始时间";
                         dateSpan.onclick = (e) => {
                             e.stopPropagation();
@@ -2006,7 +2009,7 @@ export class TaskView extends ItemView {
             const item = grid.createDiv("dida-time-block-item dida-time-block-all-day");
             item.setAttribute("data-task-id", task.id);
             item.setAttribute("draggable", "true");
-            item.style.backgroundColor = this.getTaskColor(task);
+            item.setCssStyles({ backgroundColor: this.getTaskColor(task) });
 
             item.addEventListener("dragstart", (e) => {
                 const target = e.target as HTMLElement;
@@ -2044,9 +2047,7 @@ export class TaskView extends ItemView {
 
             // Edit title logic
             titleSpan.contentEditable = "false";
-            titleSpan.style.outline = "none";
-            titleSpan.style.wordBreak = "break-word";
-            titleSpan.style.cursor = "pointer";
+            titleSpan.setCssStyles({ outline: "none", wordBreak: "break-word", cursor: "pointer" });
 
             let originalTitle = task.title;
 
@@ -2054,7 +2055,7 @@ export class TaskView extends ItemView {
                 e.stopPropagation();
                 if (titleSpan.contentEditable !== "true") {
                     titleSpan.contentEditable = "true";
-                    titleSpan.style.cursor = "text";
+                    titleSpan.setCssStyles({ cursor: "text" });
                     titleSpan.focus();
                 }
             };
@@ -2062,7 +2063,7 @@ export class TaskView extends ItemView {
             titleSpan.onfocus = () => { originalTitle = titleSpan.textContent; };
             titleSpan.onblur = async () => {
                 titleSpan.contentEditable = "false";
-                titleSpan.style.cursor = "pointer";
+                titleSpan.setCssStyles({ cursor: "pointer" });
                 const newTitle = titleSpan.textContent?.trim();
                 if (newTitle && newTitle !== originalTitle) {
                     const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
@@ -2097,8 +2098,7 @@ export class TaskView extends ItemView {
             const dateSpan = item.createEl("span", {
                 cls: "dida-task-due-date"
             });
-            dateSpan.style.marginLeft = "auto";
-            dateSpan.style.marginRight = "10px";
+            dateSpan.setCssStyles({ marginLeft: "auto", marginRight: "10px" });
 
             if (task.startDate) {
                 try {
@@ -2121,7 +2121,7 @@ export class TaskView extends ItemView {
                 dateSpan.classList.add("no-date");
             }
 
-            dateSpan.style.cursor = "pointer";
+            dateSpan.addClass("dida-clickable-date");
             dateSpan.title = "点击设置时间";
             dateSpan.onclick = (e) => {
                 e.stopPropagation();
@@ -2225,7 +2225,7 @@ export class TaskView extends ItemView {
             const topPercent = (minutesFromStart / 1440) * 100;
 
             const line = grid.createDiv("dida-time-block-now-line");
-            line.style.top = topPercent + "%";
+            line.setCssStyles({ top: topPercent + "%" });
         }
 
         // Handle Drag and Drop for scheduling "All Day" tasks
@@ -2355,15 +2355,13 @@ export class TaskView extends ItemView {
                 if (!isDragging && Math.abs(diff) > 5) {
                     isDragging = true;
                     tempTask = grid.createDiv("dida-time-block-task dida-time-block-temp");
-                    tempTask.style.position = "absolute";
+                    tempTask.setCssStyles({ position: "absolute" });
                     // Column positioning
                     const effectiveWidth = rect.width - offsetX;
                     if (column === 0) {
-                        tempTask.style.left = offsetX + "px";
-                        tempTask.style.width = `calc(50% - ${offsetX / 2}px - 2.5px)`; // Approx
+                        tempTask.setCssStyles({ left: `${offsetX}px`, width: `calc(50% - ${offsetX / 2}px - 2.5px)` }); // Approx
                     } else {
-                        tempTask.style.left = `calc(50% + ${offsetX / 2}px + 2.5px)`;
-                        tempTask.style.width = `calc(50% - ${offsetX / 2}px - 2.5px)`;
+                        tempTask.setCssStyles({ left: `calc(50% + ${offsetX / 2}px + 2.5px)`, width: `calc(50% - ${offsetX / 2}px - 2.5px)` });
                     }
 
                     const contentDiv = tempTask.createDiv("dida-time-block-task-content");
@@ -2373,7 +2371,7 @@ export class TaskView extends ItemView {
                     timeLabel = contentDiv.createDiv("dida-time-block-task-time");
                     titleInput = contentDiv.createDiv("dida-time-block-task-title");
                     titleInput.contentEditable = "true";
-                    titleInput.style.outline = "none";
+                    titleInput.setCssStyles({ outline: "none" });
                 }
 
                 if (isDragging && tempTask) {
@@ -2385,8 +2383,10 @@ export class TaskView extends ItemView {
                     const topPct = (relativeTop / height) * 100;
                     const heightPct = (h / height) * 100;
 
-                    tempTask.style.top = topPct + "%";
-                    tempTask.style.height = heightPct + "%";
+                    tempTask.setCssStyles({
+                        top: topPct + "%",
+                        height: heightPct + "%"
+                    });
 
                     // Update time label
                     // ... calculation ...
@@ -2517,17 +2517,20 @@ export class TaskView extends ItemView {
             const block = container.createDiv("dida-time-block-task");
             block.setAttribute("data-task-id", task.id);
             block.setAttribute("data-column", column.toString());
-            block.style.top = topPct + "%";
-            block.style.height = heightPct + "%";
-            block.style.backgroundColor = this.getTaskColor(task);
-            block.style.left = column === 0 ? "50px" : "calc(50% + 25px + 2.5px)";
-            block.style.width = "calc(50% - 25px - 2.5px)";
+            block.setCssStyles({
+                top: topPct + "%",
+                height: heightPct + "%",
+                backgroundColor: this.getTaskColor(task)
+            });
+            block.setCssStyles({
+                left: column === 0 ? "50px" : "calc(50% + 25px + 2.5px)",
+                width: "calc(50% - 25px - 2.5px)"
+            });
 
             const content = block.createDiv("dida-time-block-task-content");
             const cb = content.createEl("input", { type: "checkbox" });
             cb.checked = task.status === 2;
-            cb.style.marginRight = "8px";
-            cb.style.flexShrink = "0";
+            cb.setCssStyles({ marginRight: "8px", flexShrink: "0" });
             cb.onchange = async (e) => {
                 e.stopPropagation();
                 const idx = this.plugin.settings.tasks.findIndex(t => task.didaId === t.didaId);
@@ -2559,10 +2562,12 @@ export class TaskView extends ItemView {
             const titleDiv = block.createDiv("dida-time-block-task-title");
             this.renderTaskTitleContent(titleDiv, task.title || "");
             titleDiv.contentEditable = "true";
-            titleDiv.style.outline = "none";
-            titleDiv.style.cursor = "text";
-            titleDiv.style.wordBreak = "break-word";
-            if (task.status === 2) titleDiv.style.textDecoration = "line-through";
+            titleDiv.setCssStyles({
+                outline: "none",
+                cursor: "text",
+                wordBreak: "break-word",
+                textDecoration: task.status === 2 ? "line-through" : ""
+            });
             let originalTitle = task.title;
             titleDiv.onfocus = () => { originalTitle = titleDiv.textContent || ""; };
             titleDiv.onblur = async () => {
@@ -2617,8 +2622,10 @@ export class TaskView extends ItemView {
             };
             const moveTooltip = (e: MouseEvent) => {
                 if (tooltip) {
-                    tooltip.style.left = e.clientX + 12 + "px";
-                    tooltip.style.top = e.clientY + 12 + "px";
+                    tooltip.setCssStyles({
+                        left: e.clientX + 12 + "px",
+                        top: e.clientY + 12 + "px"
+                    });
                 }
             };
             const showTooltip = (e: MouseEvent) => {
@@ -2663,7 +2670,7 @@ export class TaskView extends ItemView {
                                 const maxTop = Math.max(0, height - startHeight);
                                 if (newTop < 0) newTop = 0;
                                 if (newTop > maxTop) newTop = maxTop;
-                                block.style.top = (newTop / height) * 100 + "%";
+                                block.setCssStyles({ top: (newTop / height) * 100 + "%" });
                                 if (timeLabel && block.parentElement) {
                                     const parentHeight = block.parentElement.offsetHeight || 0;
                                     if (parentHeight > 0) {
@@ -2781,13 +2788,13 @@ export class TaskView extends ItemView {
             const diff = e.clientY - startY;
             if (activeHandle === "top") {
                 const topPct = Math.max(0, Math.min(100, (startTop + diff) / parentHeight * 100));
-                block.style.top = topPct + "%";
+                block.setCssStyles({ top: topPct + "%" });
                 const newHeight = Math.max(5, startHeight - diff);
-                block.style.height = (newHeight / parentHeight) * 100 + "%";
+                block.setCssStyles({ height: (newHeight / parentHeight) * 100 + "%" });
                 updateTimeLabel();
             } else if (activeHandle === "bottom") {
                 const newHeight = Math.max(5, startHeight + diff);
-                block.style.height = (newHeight / parentHeight) * 100 + "%";
+                block.setCssStyles({ height: (newHeight / parentHeight) * 100 + "%" });
                 updateTimeLabel();
             }
         });
@@ -2928,8 +2935,10 @@ export class TaskView extends ItemView {
             }) as HTMLButtonElement;
             document.body.appendChild(popup);
             const rect = button.getBoundingClientRect();
-            popup.style.right = window.innerWidth - rect.right + "px";
-            popup.style.top = rect.bottom + 8 + "px";
+            popup.setCssStyles({
+                right: window.innerWidth - rect.right + "px",
+                top: rect.bottom + 8 + "px"
+            });
             popup.classList.add("show");
             input.focus();
             const closePopup = () => {
@@ -3010,11 +3019,10 @@ export class TaskView extends ItemView {
             taskTab.id = "task-tab";
 
             const titleRow = taskTab.createDiv("dida-task-detail-title");
-            titleRow.style.display = "flex";
-            titleRow.style.alignItems = "center";
+            titleRow.addClass("dida-detail-title-row");
             titleRow.createEl("strong", { text: "标题：" });
             const titleInput = titleRow.createEl("input", { type: "text", value: currentTask.title, cls: "dida-task-title-input" });
-            titleInput.style.flex = "1";
+            titleInput.addClass("dida-detail-title-input-grow");
 
             const contentRow = taskTab.createDiv("dida-task-detail-content");
             let contentField = "content";
@@ -3085,9 +3093,7 @@ export class TaskView extends ItemView {
 
             const addCheckItemBtn = checkTab.createEl("button", { cls: "dida-project-add-task-btn" });
             setIconElement(addCheckItemBtn, "plus");
-            addCheckItemBtn.style.position = "absolute";
-            addCheckItemBtn.style.top = "0";
-            addCheckItemBtn.style.right = "0";
+            addCheckItemBtn.addClass("dida-floating-add-btn");
             addCheckItemBtn.title = "添加检查项";
             addCheckItemBtn.onclick = () => {
                 if (!currentTask.items) currentTask.items = [];
@@ -3158,9 +3164,7 @@ export class TaskView extends ItemView {
 
                 const addSubBtn = subtaskTab.createEl("button", { cls: "dida-project-add-task-btn" });
                 setIconElement(addSubBtn, "plus");
-                addSubBtn.style.position = "absolute";
-                addSubBtn.style.top = "0";
-                addSubBtn.style.right = "0";
+                addSubBtn.addClass("dida-floating-add-btn");
                 addSubBtn.title = "添加子任务";
                 addSubBtn.onclick = async () => {
                     const newSub: DidaTask = {
@@ -3599,13 +3603,7 @@ export class TaskView extends ItemView {
             const span = existing || document.createElement("span");
             span.className = "dida-subtask-count";
             setTextWithIcon(span, `${completedItems}/${task.items.length}`, "list-todo");
-            span.style.fontSize = "0.8em";
-            span.style.color = "#666";
-            span.style.marginLeft = "2px";
-            span.style.display = "flex";
-            span.style.alignItems = "center";
-            span.style.gap = "2px";
-            span.style.cursor = "pointer";
+            span.addClass("dida-task-count-base", "dida-task-count-sub");
             span.title = "点击查看检查项";
             span.onclick = () => this.toggleTaskDetails(taskItem, task, "check-items-tab");
             if (!existing) taskItem.querySelector(".dida-task-left-content")?.appendChild(span);
@@ -3622,13 +3620,7 @@ export class TaskView extends ItemView {
             const span = existing || document.createElement("span");
             span.className = "dida-child-task-count";
             setTextWithIcon(span, `${completedChilds}/${childTasks.length}`, "git-branch-plus");
-            span.style.fontSize = "0.8em";
-            span.style.color = "#0066cc";
-            span.style.marginLeft = "2px";
-            span.style.display = "flex";
-            span.style.alignItems = "center";
-            span.style.gap = "2px";
-            span.style.cursor = "pointer";
+            span.addClass("dida-task-count-base", "dida-task-count-child");
             span.title = "点击查看子任务";
             span.onclick = () => this.toggleTaskDetails(taskItem, task, "subtasks-tab");
             if (!existing) taskItem.querySelector(".dida-task-left-content")?.appendChild(span);

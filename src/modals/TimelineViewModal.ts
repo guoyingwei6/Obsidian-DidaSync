@@ -263,27 +263,27 @@ export class TimelineViewModal {
 
         if (totalCount > 0) {
             const countDiv = item.createDiv("dida-timeline-task-count");
-            countDiv.style.cssText = `
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                gap: 2px;
-                font-size: 8px;
-                color: var(--text-muted);
-                line-height: 1;
-            `;
+            countDiv.setCssStyles({
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                gap: "2px",
+                fontSize: "8px",
+                color: "var(--text-muted)",
+                lineHeight: "1"
+            });
 
             const maxDots = 10;
             if (totalCount > maxDots) {
                 countDiv.createEl("span", {
                     text: "+" + totalCount,
                     cls: "dida-timeline-task-more"
-                }).style.cssText = `
-                    font-size: 7px;
-                    color: var(--text-muted);
-                    line-height: 1;
-                    font-weight: bold;
-                `;
+                }).setCssStyles({
+                    fontSize: "7px",
+                    color: "var(--text-muted)",
+                    lineHeight: "1",
+                    fontWeight: "bold"
+                });
             } else {
                 const rows = Math.ceil(Math.min(totalCount, maxDots) / 5);
                 let p = Math.min(pendingCount, maxDots);
@@ -291,13 +291,13 @@ export class TimelineViewModal {
 
                 for (let r = 0; r < rows; r++) {
                     const rowDiv = countDiv.createDiv("dida-timeline-task-dots-row");
-                    rowDiv.style.cssText = `
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        gap: 1px;
-                        line-height: 1;
-                    `;
+                    rowDiv.setCssStyles({
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        gap: "1px",
+                        lineHeight: "1"
+                    });
 
                     const start = r * 5;
                     const end = Math.min(start + 5, Math.min(totalCount, maxDots));
@@ -315,11 +315,11 @@ export class TimelineViewModal {
                         }
 
                         const dot = rowDiv.createEl("span", { text: "•", cls: cls });
-                        dot.style.cssText = `
-                            font-size: 10px;
-                            line-height: 1;
-                            font-weight: bold;
-                        `;
+                        dot.setCssStyles({
+                            fontSize: "10px",
+                            lineHeight: "1",
+                            fontWeight: "bold"
+                        });
                         if (isDone) dot.title = "已完成任务";
                     }
                 }
@@ -416,10 +416,7 @@ export class TimelineViewModal {
                     const rDiv = document.createElement("div");
                     rDiv.className = "dida-task-repeat-rule";
                     setTextWithIcon(rDiv, repeatText.label, repeatText.icon, { textFirst: true });
-                    rDiv.style.fontSize = "8px";
-                    rDiv.style.color = "#0066cc";
-                    rDiv.style.marginTop = "2px";
-                    rDiv.style.marginLeft = "20px";
+                    rDiv.addClass("dida-repeat-inline-meta");
                     item.appendChild(rDiv);
                 }
             }
@@ -442,13 +439,7 @@ export class TimelineViewModal {
                 const activeCount = task.items.filter((i: any) => i.status === 1).length;
                 const subSpan = item.createEl("span", { cls: "dida-subtask-count" });
                 setTextWithIcon(subSpan, `${activeCount}/${task.items.length}`, "list-todo");
-                subSpan.style.fontSize = "0.8em";
-                subSpan.style.color = "#666";
-                subSpan.style.marginLeft = "2px";
-                subSpan.style.display = "flex";
-                subSpan.style.alignItems = "center";
-                subSpan.style.gap = "2px";
-                subSpan.style.cursor = "pointer";
+                subSpan.addClass("dida-task-count-base", "dida-task-count-sub");
                 subSpan.title = "点击查看检查项";
                 subSpan.onclick = () => this.toggleTimelineTaskDetails(item, task, "check-items-tab");
             }
@@ -458,13 +449,7 @@ export class TimelineViewModal {
                 const completedChilds = childTasks.filter(t => t.status === 2).length;
                 const childSpan = item.createEl("span", { cls: "dida-child-task-count" });
                 setTextWithIcon(childSpan, `${completedChilds}/${childTasks.length}`, "git-branch-plus");
-                childSpan.style.fontSize = "0.8em";
-                childSpan.style.color = "#0066cc";
-                childSpan.style.marginLeft = "2px";
-                childSpan.style.display = "flex";
-                childSpan.style.alignItems = "center";
-                childSpan.style.gap = "2px";
-                childSpan.style.cursor = "pointer";
+                childSpan.addClass("dida-task-count-base", "dida-task-count-child");
                 childSpan.title = "点击查看子任务";
                 childSpan.onclick = () => this.toggleTimelineTaskDetails(item, task, "subtasks-tab");
             }
@@ -491,7 +476,7 @@ export class TimelineViewModal {
                 dateSpan.classList.add("no-date");
             }
 
-            dateSpan.style.cursor = "pointer";
+            dateSpan.addClass("dida-clickable-date");
             dateSpan.title = "点击设置到期日期";
             dateSpan.onclick = (e) => {
                 e.stopPropagation();
@@ -549,10 +534,7 @@ export class TimelineViewModal {
                     const rDiv = document.createElement("div");
                     rDiv.className = "dida-task-repeat-rule";
                     setTextWithIcon(rDiv, repeatText.label, repeatText.icon, { textFirst: true });
-                    rDiv.style.fontSize = "8px";
-                    rDiv.style.color = "#0066cc";
-                    rDiv.style.marginTop = "2px";
-                    rDiv.style.marginLeft = "20px";
+                    rDiv.addClass("dida-repeat-inline-meta");
                     item.appendChild(rDiv);
                 }
             }
@@ -575,13 +557,7 @@ export class TimelineViewModal {
                 const activeCount = task.items.filter((i: any) => i.status === 1).length;
                 const subSpan = item.createEl("span", { cls: "dida-subtask-count" });
                 setTextWithIcon(subSpan, `${activeCount}/${task.items.length}`, "list-todo");
-                subSpan.style.fontSize = "0.8em";
-                subSpan.style.color = "#666";
-                subSpan.style.marginLeft = "2px";
-                subSpan.style.display = "flex";
-                subSpan.style.alignItems = "center";
-                subSpan.style.gap = "2px";
-                subSpan.style.cursor = "pointer";
+                subSpan.addClass("dida-task-count-base", "dida-task-count-sub");
                 subSpan.title = "点击查看检查项";
                 subSpan.onclick = () => this.toggleTimelineTaskDetails(item, task, "check-items-tab");
             }
@@ -591,13 +567,7 @@ export class TimelineViewModal {
                 const completedChilds = childTasks.filter(t => t.status === 2).length;
                 const childSpan = item.createEl("span", { cls: "dida-child-task-count" });
                 setTextWithIcon(childSpan, `${completedChilds}/${childTasks.length}`, "git-branch-plus");
-                childSpan.style.fontSize = "0.8em";
-                childSpan.style.color = "#0066cc";
-                childSpan.style.marginLeft = "2px";
-                childSpan.style.display = "flex";
-                childSpan.style.alignItems = "center";
-                childSpan.style.gap = "2px";
-                childSpan.style.cursor = "pointer";
+                childSpan.addClass("dida-task-count-base", "dida-task-count-child");
                 childSpan.title = "点击查看子任务";
                 childSpan.onclick = () => this.toggleTimelineTaskDetails(item, task, "subtasks-tab");
             }
@@ -621,7 +591,7 @@ export class TimelineViewModal {
                 setIconElement(dateSpan, "calendar-x-2");
                 dateSpan.classList.add("no-date");
             }
-            dateSpan.style.cursor = "pointer";
+            dateSpan.addClass("dida-clickable-date");
             dateSpan.title = "点击设置到期日期";
             dateSpan.onclick = (e) => {
                 e.stopPropagation();
@@ -731,11 +701,10 @@ export class TimelineViewModal {
             const taskTab = contentArea.createDiv(tab === "task-tab" ? "dida-tab-content active" : "dida-tab-content");
             taskTab.id = "task-tab";
             const titleRow = taskTab.createDiv("dida-task-detail-title");
-            titleRow.style.display = "flex";
-            titleRow.style.alignItems = "center";
+            titleRow.addClass("dida-detail-title-row");
             titleRow.createEl("strong", { text: "标题：" });
             const titleInput = titleRow.createEl("input", { type: "text", value: currentTask.title, cls: "dida-task-title-input" });
-            titleInput.style.flex = "1";
+            titleInput.addClass("dida-detail-title-input-grow");
             const contentRow = taskTab.createDiv("dida-task-detail-content");
             let contentField = "content";
             let contentValue = currentTask.content || "";
@@ -804,9 +773,7 @@ export class TimelineViewModal {
 
             const addCheckItemBtn = checkTab.createEl("button", { cls: "dida-project-add-task-btn" });
             setIconElement(addCheckItemBtn, "plus");
-            addCheckItemBtn.style.position = "absolute";
-            addCheckItemBtn.style.top = "0";
-            addCheckItemBtn.style.right = "0";
+            addCheckItemBtn.addClass("dida-floating-add-btn");
             addCheckItemBtn.title = "添加检查项";
             addCheckItemBtn.onclick = () => {
                 if (!currentTask.items) currentTask.items = [];
@@ -869,9 +836,7 @@ export class TimelineViewModal {
                 });
                 const addSubBtn = subtaskTab.createEl("button", { cls: "dida-project-add-task-btn" });
                 setIconElement(addSubBtn, "plus");
-                addSubBtn.style.position = "absolute";
-                addSubBtn.style.top = "0";
-                addSubBtn.style.right = "0";
+                addSubBtn.addClass("dida-floating-add-btn");
                 addSubBtn.title = "添加子任务";
                 addSubBtn.onclick = async () => {
                     const newSub: DidaTask = {

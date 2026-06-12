@@ -260,6 +260,232 @@
     margin-top: 0;
 }
 
+.dida-modal-input-full {
+    width: 100%;
+}
+
+.dida-modal-input-margin-sm {
+    margin-bottom: 10px;
+}
+
+.dida-modal-input-margin-md {
+    margin-bottom: 12px;
+}
+
+.dida-modal-actions {
+    text-align: right;
+    margin-top: 20px;
+}
+
+.dida-modal-actions > button + button {
+    margin-left: 10px;
+}
+
+.dida-modal-actions-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.dida-settings-info {
+    padding: 10px;
+    border-radius: 5px;
+    margin: 10px 0;
+}
+
+.dida-settings-info--muted {
+    color: #6c757d;
+}
+
+.dida-settings-info--warning {
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+.dida-settings-info--primary {
+    color: #0066cc;
+}
+
+.dida-settings-config {
+    margin: 10px 0;
+}
+
+.dida-settings-config-input {
+    width: 100%;
+    min-height: 220px;
+    padding: 10px;
+    border-radius: 8px;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+.dida-settings-pre {
+    white-space: pre-wrap;
+    padding: 10px;
+    border-radius: 5px;
+    overflow-x: auto;
+    user-select: text;
+}
+
+.dida-settings-block {
+    margin: 10px 0;
+}
+
+.dida-settings-inline-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.dida-settings-link-box {
+    background: transparent;
+    padding: 8px;
+    border-radius: 5px;
+}
+
+.dida-settings-code-box {
+    background: transparent;
+    padding: 10px;
+    border-radius: 5px;
+    margin: 10px 0;
+}
+
+.dida-settings-inline-margin {
+    margin: 5px 0;
+}
+
+.dida-settings-readonly-input {
+    width: 100%;
+}
+
+.dida-settings-status {
+    margin: 10px 0;
+    padding: 10px;
+    border-radius: 5px;
+}
+
+.dida-settings-status--success {
+    color: #06dc38ff;
+}
+
+.dida-settings-status--error {
+    background-color: #f8d7da;
+    color: #c30014ff;
+}
+
+.dida-project-form-row {
+    display: flex;
+    gap: 15px;
+    margin: 20px 0;
+    align-items: flex-end;
+}
+
+.dida-project-form-group {
+    flex: 1;
+}
+
+.dida-select-spaced,
+.dida-input-spaced {
+    width: 100%;
+    margin-top: 5px;
+}
+
+.dida-date-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.dida-date-display {
+    flex: 1;
+    padding: 6px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-muted);
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+}
+
+.dida-date-display.is-filled {
+    color: var(--text-normal);
+}
+
+.dida-auth-box {
+    background: #f5f5f5;
+    padding: 10px;
+    border-radius: 5px;
+    margin: 10px 0;
+    word-break: break-all;
+}
+
+.dida-completed-checkbox.is-dimmed {
+    opacity: 0.5;
+}
+
+.dida-scroll-highlight {
+    transition: background-color 0.3s ease;
+    background-color: var(--background-modifier-hover);
+}
+
+.dida-repeat-inline-meta {
+    font-size: 8px;
+    color: #0066cc;
+    margin-top: 2px;
+    margin-left: 20px;
+}
+
+.dida-task-count-base {
+    font-size: 0.8em;
+    margin-left: 2px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    cursor: pointer;
+}
+
+.dida-task-count-sub {
+    color: #666;
+}
+
+.dida-task-count-child {
+    color: #0066cc;
+}
+
+.dida-inline-flex-center {
+    display: inline-flex;
+    align-items: center;
+}
+
+.dida-clickable-date {
+    cursor: pointer;
+}
+
+.dida-detail-title-row {
+    display: flex;
+    align-items: center;
+}
+
+.dida-detail-title-input-grow {
+    flex: 1;
+}
+
+.dida-floating-add-btn {
+    position: absolute;
+    top: 0;
+    right: 0;
+}
+
 .dida-completed-controls {
     display: flex;
     align-items: center;

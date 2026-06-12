@@ -116,9 +116,11 @@ export class TaskActionMenu {
         if (!this.menuElement || !this.editor || !this.cursor) return;
 
         try {
-            this.menuElement.style.position = "fixed";
-            this.menuElement.style.zIndex = "1000";
-            this.menuElement.style.visibility = "visible";
+            this.menuElement.setCssStyles({
+                position: "fixed",
+                zIndex: "1000",
+                visibility: "visible"
+            });
 
             let coords: any = null;
             // @ts-ignore
@@ -140,8 +142,10 @@ export class TaskActionMenu {
             }
 
             if (coords && coords.left !== undefined && coords.top !== undefined) {
-                this.menuElement.style.left = coords.left + "px";
-                this.menuElement.style.top = coords.top + 20 + "px";
+                this.menuElement.setCssStyles({
+                    left: `${coords.left}px`,
+                    top: `${coords.top + 20}px`
+                });
             } else {
                 let editorEl: HTMLElement | null = null;
                 // @ts-ignore
@@ -162,12 +166,16 @@ export class TaskActionMenu {
                 }
                 if (lineEl) {
                     const rect = (lineEl as HTMLElement).getBoundingClientRect();
-                    this.menuElement.style.left = rect.left + "px";
-                    this.menuElement.style.top = rect.bottom + 5 + "px";
+                    this.menuElement.setCssStyles({
+                        left: `${rect.left}px`,
+                        top: `${rect.bottom + 5}px`
+                    });
                 } else {
                     const rect = editorEl.getBoundingClientRect();
-                    this.menuElement.style.left = rect.left + "px";
-                    this.menuElement.style.top = rect.bottom + 5 + "px";
+                    this.menuElement.setCssStyles({
+                        left: `${rect.left}px`,
+                        top: `${rect.bottom + 5}px`
+                    });
                 }
             }
 
@@ -176,14 +184,14 @@ export class TaskActionMenu {
             var winWidth = window.innerWidth;
 
             if (rect.bottom > winHeight) {
-                var top = parseInt(this.menuElement.style.top);
-                this.menuElement.style.top = top - rect.height - 40 + "px";
+                var top = rect.top;
+                this.menuElement.setCssStyles({ top: `${top - rect.height - 40}px` });
             }
             if (rect.right > winWidth) {
-                this.menuElement.style.left = winWidth - rect.width - 10 + "px";
+                this.menuElement.setCssStyles({ left: `${winWidth - rect.width - 10}px` });
             }
             if (rect.left < 10) {
-                this.menuElement.style.left = "10px";
+                this.menuElement.setCssStyles({ left: "10px" });
             }
         } catch (t) { }
     }

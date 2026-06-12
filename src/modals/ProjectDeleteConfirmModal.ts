@@ -19,10 +19,7 @@ export class ProjectDeleteConfirmModal extends Modal {
             text: "该项目当前没有任务。确认后会删除本地项目标题，并同步删除滴答清单中的对应项目。"
         });
 
-        const footer = content.createDiv();
-        footer.style.display = "flex";
-        footer.style.justifyContent = "flex-end";
-        footer.style.gap = "8px";
+        const footer = content.createDiv("dida-modal-actions-row");
         footer.createEl("button", { text: "取消" }).addEventListener("click", () => this.close());
         const confirm = footer.createEl("button", { text: "删除" });
         confirm.addClass("mod-warning");

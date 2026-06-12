@@ -29,15 +29,12 @@ export class AddTaskToProjectModal extends Modal {
                 cls: "dida-empty-state"
             });
         } else {
-            const formDiv = contentEl.createDiv();
-            formDiv.style.cssText = "display: flex; gap: 15px; margin: 20px 0; align-items: flex-end;";
+            const formDiv = contentEl.createDiv("dida-project-form-row");
 
-            const projectGroup = formDiv.createDiv();
-            projectGroup.style.cssText = "flex: 1;";
+            const projectGroup = formDiv.createDiv("dida-project-form-group");
             projectGroup.createEl("label", { text: "选择项目：" });
 
-            const projectSelect = projectGroup.createEl("select", { cls: "dida-project-select" });
-            projectSelect.style.cssText = "width: 100%; margin-top: 5px;";
+            const projectSelect = projectGroup.createEl("select", { cls: "dida-project-select dida-select-spaced" });
             projects.forEach(p => {
                 projectSelect.createEl("option", {
                     value: JSON.stringify(p),
@@ -49,23 +46,21 @@ export class AddTaskToProjectModal extends Modal {
                 text: "📅",
                 cls: "dida-date-btn"
             });
-            dateBtn.style.cssText = "width: 32px; height: 32px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0;";
 
             const dateDisplay = formDiv.createEl("span", {
                 text: "未设置",
                 cls: "dida-date-display"
             });
-            dateDisplay.style.cssText = "flex: 1; padding: 6px 8px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-muted); font-size: 12px; display: flex; align-items: center;";
 
             const titleGroup = contentEl.createDiv();
-            titleGroup.style.cssText = "margin: 20px 0;";
+            titleGroup.setCssStyles({ margin: "20px 0" });
             titleGroup.createEl("label", { text: "任务标题：" });
             const titleInput = titleGroup.createEl("input", {
                 type: "text",
                 placeholder: "请输入任务标题",
                 cls: "dida-task-title-input"
             });
-            titleInput.style.cssText = "width: 100%; margin-top: 5px;";
+            titleInput.addClass("dida-input-spaced");
 
             dateBtn.onclick = (e) => {
                 new DatePickerModal(this.app, this.selectedDate || new Date(), (date, isAllDay, endDate) => {
@@ -82,16 +77,15 @@ export class AddTaskToProjectModal extends Modal {
                             const endTimeStr = (this.selectedEndDate || this.selectedDate).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
                             dateDisplay.textContent = dateStr + ` ${timeStr}～` + endTimeStr;
                         }
-                        dateDisplay.style.color = "var(--text-normal)";
+                        dateDisplay.classList.add("is-filled");
                     } else {
                         dateDisplay.textContent = "未设置";
-                        dateDisplay.style.color = "var(--text-muted)";
+                        dateDisplay.classList.remove("is-filled");
                     }
                 }, e.currentTarget as HTMLElement, null, undefined).open();
             };
 
-            const btnContainer = contentEl.createDiv();
-            btnContainer.style.cssText = "text-align: right; margin-top: 20px;";
+            const btnContainer = contentEl.createDiv("dida-modal-actions");
 
             btnContainer.createEl("button", { text: "取消" }).onclick = () => this.close();
 
@@ -99,8 +93,6 @@ export class AddTaskToProjectModal extends Modal {
                 text: "添加任务",
                 cls: "mod-cta"
             });
-            submitBtn.style.marginLeft = "10px";
-
             submitBtn.onclick = async () => {
                 const project = JSON.parse(projectSelect.value);
                 const title = titleInput.value.trim();

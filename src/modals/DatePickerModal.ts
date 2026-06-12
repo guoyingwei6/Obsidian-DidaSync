@@ -119,16 +119,18 @@ export class DatePickerModal {
             if (left + 320 > window.innerWidth) left = window.innerWidth - 320 - 10;
             if (left < 10) left = 10;
 
-            this.container.style.position = "fixed";
-            this.container.style.top = top + "px";
-            this.container.style.left = left + "px";
-            this.container.style.zIndex = "1000";
+            this.container.setCssStyles({
+                position: "fixed",
+                top: `${top}px`,
+                left: `${left}px`,
+                zIndex: "1000"
+            });
         }
     }
 
     renderContent() {
         if (!this.container) return;
-        this.container.innerHTML = "";
+        this.container.empty();
 
         const title = this.container.createEl("h3", { cls: "dida-calendar-title" });
         const calendarContainer = this.container.createEl("div", { cls: "dida-calendar-container" });
@@ -136,6 +138,13 @@ export class DatePickerModal {
         this.displayYear = (this.selectedDate || now).getFullYear();
         this.displayMonth = (this.selectedDate || now).getMonth();
         this.renderCalendar(calendarContainer);
+        const setDropdownOpen = (dropdown: HTMLElement, isOpen: boolean) => {
+            dropdown.toggleClass("is-open", isOpen);
+            dropdown.setCssStyles({ display: isOpen ? "block" : "none" });
+        };
+        const toggleDropdown = (dropdown: HTMLElement) => {
+            setDropdownOpen(dropdown, !dropdown.hasClass("is-open"));
+        };
 
         const timeContainer = title.createEl("div", { cls: "dida-time-container" });
         const allDayContainer = timeContainer.createEl("div", { cls: "dida-allday-container" });
@@ -145,179 +154,167 @@ export class DatePickerModal {
 
         const timeLabel = timeContainer.createEl("span", { text: "｜时间段", cls: "dida-time-label" });
         const hourContainer = timeContainer.createDiv("dida-time-select-container");
-        hourContainer.style.cssText = "display: inline-block; position: relative; margin-right: 5px;";
+        hourContainer.setCssStyles({ display: "inline-block", position: "relative", marginRight: "5px" });
         const hourDisplay = hourContainer.createEl("div", { text: this.selectedHour.toString().padStart(2, "0"), cls: "dida-time-display" });
-        hourDisplay.style.cssText = "font-size: 12px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-normal); cursor: pointer; min-width: 25px; text-align: center; user-select: none;";
+        hourDisplay.setCssStyles({ fontSize: "12px", border: "1px solid var(--background-modifier-border)", borderRadius: "4px", background: "var(--background-primary)", color: "var(--text-normal)", cursor: "pointer", minWidth: "25px", textAlign: "center", userSelect: "none" });
         const hourDropdown = hourContainer.createDiv("dida-time-dropdown");
-        hourDropdown.style.cssText = "font-size: 12px; position: absolute; top: 100%; left: 0; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 4px; max-height: 150px; overflow-y: auto; z-index: 1003; display: none; box-shadow: 0 2px 8px rgba(0,0,0,0.1);";
+        hourDropdown.setCssStyles({ fontSize: "12px", position: "absolute", top: "100%", left: "0", background: "var(--background-primary)", border: "1px solid var(--background-modifier-border)", borderRadius: "4px", maxHeight: "150px", overflowY: "auto", zIndex: "1003", display: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" });
         for (let i = 0; i < 24; i++) {
             const opt = hourDropdown.createEl("div", { text: i.toString().padStart(2, "0"), cls: "dida-time-option" });
-            opt.style.cssText = "padding: 5px 10px; cursor: pointer; border-bottom: 1px solid var(--background-modifier-border); user-select: none;";
+            opt.setCssStyles({ padding: "5px 10px", cursor: "pointer", borderBottom: "1px solid var(--background-modifier-border)", userSelect: "none" });
             if (i === this.selectedHour) {
-                opt.style.background = "var(--interactive-accent)";
-                opt.style.color = "var(--text-on-accent)";
+                opt.setCssStyles({ background: "var(--interactive-accent)", color: "var(--text-on-accent)" });
             }
             opt.onclick = (e) => {
                 e.stopPropagation();
                 this.selectedHour = i;
                 hourDisplay.textContent = i.toString().padStart(2, "0");
-                hourDropdown.style.display = "none";
+                setDropdownOpen(hourDropdown, false);
                 hourDropdown.querySelectorAll(".dida-time-option").forEach((el, idx) => {
                     if (idx === i) {
-                        (el as HTMLElement).style.background = "var(--interactive-accent)";
-                        (el as HTMLElement).style.color = "var(--text-on-accent)";
+                        (el as HTMLElement).setCssStyles({ background: "var(--interactive-accent)", color: "var(--text-on-accent)" });
                     } else {
-                        (el as HTMLElement).style.background = "";
-                        (el as HTMLElement).style.color = "";
+                        (el as HTMLElement).setCssStyles({ background: "", color: "" });
                     }
                 });
             };
             opt.onmouseenter = () => {
-                if (i !== this.selectedHour) opt.style.background = "var(--background-modifier-hover)";
+                if (i !== this.selectedHour) opt.setCssStyles({ background: "var(--background-modifier-hover)" });
             };
             opt.onmouseleave = () => {
-                if (i !== this.selectedHour) opt.style.background = "";
+                if (i !== this.selectedHour) opt.setCssStyles({ background: "" });
             };
         }
         hourDisplay.onclick = (e) => {
             e.stopPropagation();
-            hourDropdown.style.display = hourDropdown.style.display === "block" ? "none" : "block";
+            toggleDropdown(hourDropdown);
         };
         timeContainer.createEl("span", { text: ":" });
         const minuteContainer = timeContainer.createDiv("dida-time-select-container");
-        minuteContainer.style.cssText = "display: inline-block; position: relative; margin-left: 5px;";
+        minuteContainer.setCssStyles({ display: "inline-block", position: "relative", marginLeft: "5px" });
         const minuteDisplay = minuteContainer.createEl("div", { text: (5 * Math.floor(this.selectedMinute / 5)).toString().padStart(2, "0"), cls: "dida-time-display" });
-        minuteDisplay.style.cssText = "font-size: 12px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-normal); cursor: pointer; min-width: 25px; text-align: center; user-select: none;";
+        minuteDisplay.setCssStyles({ fontSize: "12px", border: "1px solid var(--background-modifier-border)", borderRadius: "4px", background: "var(--background-primary)", color: "var(--text-normal)", cursor: "pointer", minWidth: "25px", textAlign: "center", userSelect: "none" });
         const minuteDropdown = minuteContainer.createDiv("dida-time-dropdown");
-        minuteDropdown.style.cssText = "font-size: 12px; position: absolute; top: 100%; left: 0; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 4px; max-height: 150px; overflow-y: auto; z-index: 1003; display: none; box-shadow: 0 2px 8px rgba(0,0,0,0.1);";
+        minuteDropdown.setCssStyles({ fontSize: "12px", position: "absolute", top: "100%", left: "0", background: "var(--background-primary)", border: "1px solid var(--background-modifier-border)", borderRadius: "4px", maxHeight: "150px", overflowY: "auto", zIndex: "1003", display: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" });
         for (let i = 0; i < 60; i += 5) {
             const opt = minuteDropdown.createEl("div", { text: i.toString().padStart(2, "0"), cls: "dida-time-option" });
-            opt.style.cssText = "padding: 5px 10px; cursor: pointer; border-bottom: 1px solid var(--background-modifier-border); user-select: none;";
+            opt.setCssStyles({ padding: "5px 10px", cursor: "pointer", borderBottom: "1px solid var(--background-modifier-border)", userSelect: "none" });
             if (i === 5 * Math.floor(this.selectedMinute / 5)) {
-                opt.style.background = "var(--interactive-accent)";
-                opt.style.color = "var(--text-on-accent)";
+                opt.setCssStyles({ background: "var(--interactive-accent)", color: "var(--text-on-accent)" });
             }
             opt.onclick = (e) => {
                 e.stopPropagation();
                 this.selectedMinute = i;
                 minuteDisplay.textContent = i.toString().padStart(2, "0");
-                minuteDropdown.style.display = "none";
+                setDropdownOpen(minuteDropdown, false);
                 minuteDropdown.querySelectorAll(".dida-time-option").forEach((el, idx) => {
                     if (5 * idx === i) {
-                        (el as HTMLElement).style.background = "var(--interactive-accent)";
-                        (el as HTMLElement).style.color = "var(--text-on-accent)";
+                        (el as HTMLElement).setCssStyles({ background: "var(--interactive-accent)", color: "var(--text-on-accent)" });
                     } else {
-                        (el as HTMLElement).style.background = "";
-                        (el as HTMLElement).style.color = "";
+                        (el as HTMLElement).setCssStyles({ background: "", color: "" });
                     }
                 });
             };
             opt.onmouseenter = () => {
-                if (i !== 5 * Math.floor(this.selectedMinute / 5)) opt.style.background = "var(--background-modifier-hover)";
+                if (i !== 5 * Math.floor(this.selectedMinute / 5)) opt.setCssStyles({ background: "var(--background-modifier-hover)" });
             };
             opt.onmouseleave = () => {
-                if (i !== 5 * Math.floor(this.selectedMinute / 5)) opt.style.background = "";
+                if (i !== 5 * Math.floor(this.selectedMinute / 5)) opt.setCssStyles({ background: "" });
             };
         }
         minuteDisplay.onclick = (e) => {
             e.stopPropagation();
-            minuteDropdown.style.display = minuteDropdown.style.display === "block" ? "none" : "block";
+            toggleDropdown(minuteDropdown);
         };
 
         const endContainer = title.createEl("div", { cls: "dida-time-container" });
         endContainer.createEl("span", { text: "～", cls: "dida-time-label" });
         const endHourContainer = endContainer.createDiv("dida-time-select-container");
-        endHourContainer.style.cssText = "display: inline-block; position: relative; margin-right: 5px;";
+        endHourContainer.setCssStyles({ display: "inline-block", position: "relative", marginRight: "5px" });
         const endHourDisplay = endHourContainer.createEl("div", { text: this.endHour.toString().padStart(2, "0"), cls: "dida-time-display" });
-        endHourDisplay.style.cssText = "font-size: 12px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-normal); cursor: pointer; min-width: 25px; text-align: center; user-select: none;";
+        endHourDisplay.setCssStyles({ fontSize: "12px", border: "1px solid var(--background-modifier-border)", borderRadius: "4px", background: "var(--background-primary)", color: "var(--text-normal)", cursor: "pointer", minWidth: "25px", textAlign: "center", userSelect: "none" });
         const endHourDropdown = endHourContainer.createDiv("dida-time-dropdown");
-        endHourDropdown.style.cssText = "font-size: 12px; position: absolute; top: 100%; left: 0; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 4px; max-height: 150px; overflow-y: auto; z-index: 1003; display: none; box-shadow: 0 2px 8px rgba(0,0,0,0.1);";
+        endHourDropdown.setCssStyles({ fontSize: "12px", position: "absolute", top: "100%", left: "0", background: "var(--background-primary)", border: "1px solid var(--background-modifier-border)", borderRadius: "4px", maxHeight: "150px", overflowY: "auto", zIndex: "1003", display: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" });
         for (let i = 0; i < 24; i++) {
             const opt = endHourDropdown.createEl("div", { text: i.toString().padStart(2, "0"), cls: "dida-time-option" });
-            opt.style.cssText = "padding: 5px 10px; cursor: pointer; border-bottom: 1px solid var(--background-modifier-border); user-select: none;";
+            opt.setCssStyles({ padding: "5px 10px", cursor: "pointer", borderBottom: "1px solid var(--background-modifier-border)", userSelect: "none" });
             if (i === this.endHour) {
-                opt.style.background = "var(--interactive-accent)";
-                opt.style.color = "var(--text-on-accent)";
+                opt.setCssStyles({ background: "var(--interactive-accent)", color: "var(--text-on-accent)" });
             }
             opt.onclick = (e) => {
                 e.stopPropagation();
                 this.endHour = i;
                 endHourDisplay.textContent = i.toString().padStart(2, "0");
-                endHourDropdown.style.display = "none";
+                setDropdownOpen(endHourDropdown, false);
                 endHourDropdown.querySelectorAll(".dida-time-option").forEach((el, idx) => {
                     if (idx === i) {
-                        (el as HTMLElement).style.background = "var(--interactive-accent)";
-                        (el as HTMLElement).style.color = "var(--text-on-accent)";
+                        (el as HTMLElement).setCssStyles({ background: "var(--interactive-accent)", color: "var(--text-on-accent)" });
                     } else {
-                        (el as HTMLElement).style.background = "";
-                        (el as HTMLElement).style.color = "";
+                        (el as HTMLElement).setCssStyles({ background: "", color: "" });
                     }
                 });
             };
             opt.onmouseenter = () => {
-                if (i !== this.endHour) opt.style.background = "var(--background-modifier-hover)";
+                if (i !== this.endHour) opt.setCssStyles({ background: "var(--background-modifier-hover)" });
             };
             opt.onmouseleave = () => {
-                if (i !== this.endHour) opt.style.background = "";
+                if (i !== this.endHour) opt.setCssStyles({ background: "" });
             };
         }
         endHourDisplay.onclick = (e) => {
             e.stopPropagation();
-            endHourDropdown.style.display = endHourDropdown.style.display === "block" ? "none" : "block";
+            toggleDropdown(endHourDropdown);
         };
         endContainer.createEl("span", { text: ":" });
         const endMinuteContainer = endContainer.createDiv("dida-time-select-container");
-        endMinuteContainer.style.cssText = "display: inline-block; position: relative; margin-left: 5px;";
+        endMinuteContainer.setCssStyles({ display: "inline-block", position: "relative", marginLeft: "5px" });
         const endMinuteDisplay = endMinuteContainer.createEl("div", { text: (5 * Math.floor(this.endMinute / 5)).toString().padStart(2, "0"), cls: "dida-time-display" });
-        endMinuteDisplay.style.cssText = "font-size: 12px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-normal); cursor: pointer; min-width: 25px; text-align: center; user-select: none;";
+        endMinuteDisplay.setCssStyles({ fontSize: "12px", border: "1px solid var(--background-modifier-border)", borderRadius: "4px", background: "var(--background-primary)", color: "var(--text-normal)", cursor: "pointer", minWidth: "25px", textAlign: "center", userSelect: "none" });
         const endMinuteDropdown = endMinuteContainer.createDiv("dida-time-dropdown");
-        endMinuteDropdown.style.cssText = "font-size: 12px; position: absolute; top: 100%; left: 0; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 4px; max-height: 150px; overflow-y: auto; z-index: 1003; display: none; box-shadow: 0 2px 8px rgba(0,0,0,0.1);";
+        endMinuteDropdown.setCssStyles({ fontSize: "12px", position: "absolute", top: "100%", left: "0", background: "var(--background-primary)", border: "1px solid var(--background-modifier-border)", borderRadius: "4px", maxHeight: "150px", overflowY: "auto", zIndex: "1003", display: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" });
         for (let i = 0; i < 60; i += 5) {
             const opt = endMinuteDropdown.createEl("div", { text: i.toString().padStart(2, "0"), cls: "dida-time-option" });
-            opt.style.cssText = "padding: 5px 10px; cursor: pointer; border-bottom: 1px solid var(--background-modifier-border); user-select: none;";
+            opt.setCssStyles({ padding: "5px 10px", cursor: "pointer", borderBottom: "1px solid var(--background-modifier-border)", userSelect: "none" });
             if (i === 5 * Math.floor(this.endMinute / 5)) {
-                opt.style.background = "var(--interactive-accent)";
-                opt.style.color = "var(--text-on-accent)";
+                opt.setCssStyles({ background: "var(--interactive-accent)", color: "var(--text-on-accent)" });
             }
             opt.onclick = (e) => {
                 e.stopPropagation();
                 this.endMinute = i;
                 endMinuteDisplay.textContent = i.toString().padStart(2, "0");
-                endMinuteDropdown.style.display = "none";
+                setDropdownOpen(endMinuteDropdown, false);
                 endMinuteDropdown.querySelectorAll(".dida-time-option").forEach((el, idx) => {
                     if (5 * idx === i) {
-                        (el as HTMLElement).style.background = "var(--interactive-accent)";
-                        (el as HTMLElement).style.color = "var(--text-on-accent)";
+                        (el as HTMLElement).setCssStyles({ background: "var(--interactive-accent)", color: "var(--text-on-accent)" });
                     } else {
-                        (el as HTMLElement).style.background = "";
-                        (el as HTMLElement).style.color = "";
+                        (el as HTMLElement).setCssStyles({ background: "", color: "" });
                     }
                 });
             };
             opt.onmouseenter = () => {
-                if (i !== 5 * Math.floor(this.endMinute / 5)) opt.style.background = "var(--background-modifier-hover)";
+                if (i !== 5 * Math.floor(this.endMinute / 5)) opt.setCssStyles({ background: "var(--background-modifier-hover)" });
             };
             opt.onmouseleave = () => {
-                if (i !== 5 * Math.floor(this.endMinute / 5)) opt.style.background = "";
+                if (i !== 5 * Math.floor(this.endMinute / 5)) opt.setCssStyles({ background: "" });
             };
         }
         endMinuteDisplay.onclick = (e) => {
             e.stopPropagation();
-            endMinuteDropdown.style.display = endMinuteDropdown.style.display === "block" ? "none" : "block";
+            toggleDropdown(endMinuteDropdown);
         };
 
         const updateVisibility = () => {
             const show = !this.isAllDay;
-            timeLabel.style.display = show ? "inline-block" : "none";
-            hourContainer.style.display = show ? "inline-block" : "none";
-            minuteContainer.style.display = show ? "inline-block" : "none";
-            endContainer.style.display = show ? "flex" : "none";
+            timeLabel.setCssStyles({ display: show ? "inline-block" : "none" });
+            hourContainer.setCssStyles({ display: show ? "inline-block" : "none" });
+            minuteContainer.setCssStyles({ display: show ? "inline-block" : "none" });
+            endContainer.setCssStyles({ display: show ? "flex" : "none" });
         };
         updateVisibility();
         if (this.dateOnly) {
             this.isAllDay = true;
-            timeContainer.style.display = "none";
-            endContainer.style.display = "none";
+            timeContainer.setCssStyles({ display: "none" });
+            endContainer.setCssStyles({ display: "none" });
             updateVisibility();
         }
         allDayCheckbox.onchange = (e) => {
@@ -331,10 +328,10 @@ export class DatePickerModal {
         };
 
         const closeDropdowns = (e: MouseEvent) => {
-            if (!hourContainer.contains(e.target as Node)) hourDropdown.style.display = "none";
-            if (!minuteContainer.contains(e.target as Node)) minuteDropdown.style.display = "none";
-            if (!endHourContainer.contains(e.target as Node)) endHourDropdown.style.display = "none";
-            if (!endMinuteContainer.contains(e.target as Node)) endMinuteDropdown.style.display = "none";
+            if (!hourContainer.contains(e.target as Node)) setDropdownOpen(hourDropdown, false);
+            if (!minuteContainer.contains(e.target as Node)) setDropdownOpen(minuteDropdown, false);
+            if (!endHourContainer.contains(e.target as Node)) setDropdownOpen(endHourDropdown, false);
+            if (!endMinuteContainer.contains(e.target as Node)) setDropdownOpen(endMinuteDropdown, false);
         };
         setTimeout(() => {
             this.closeDropdownsHandler = closeDropdowns;
@@ -373,7 +370,7 @@ export class DatePickerModal {
         };
         const repeatBtn = buttons.createEl("button", { text: "重复设置" });
         repeatBtn.onclick = () => this.showRepeatSettings(repeatBtn);
-        if (this.dateOnly) repeatBtn.style.display = "none";
+        if (this.dateOnly) repeatBtn.setCssStyles({ display: "none" });
         buttons.createEl("button", { text: "取消" }).onclick = () => this.close();
         buttons.createEl("button", { text: "确认", cls: "mod-cta" }).onclick = () => {
             if (this.selectedDate) {

@@ -1,4 +1,4 @@
-import { Modal, Notice } from "obsidian";
+import { Modal, Notice, setIcon } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { DatePickerModal } from "./DatePickerModal";
 import { DidaTask } from "../types";
@@ -142,9 +142,9 @@ export class CompletedTasksModal extends Modal {
                 // Header: checkbox + title
                 const header = item.createDiv("dida-completed-item-header");
                 const checkbox = header.createDiv("dida-completed-checkbox checked");
-                checkbox.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+                setIcon(checkbox, "check");
                 checkbox.addEventListener("click", async () => {
-                    checkbox.style.opacity = "0.5";
+                    checkbox.classList.add("is-dimmed");
                     try {
                         await this.plugin.restoreCompletedTask(task);
                         const nextTasks = (this.plugin.settings.completedTasks || []).filter((item) => item.didaId !== task.didaId);
@@ -154,7 +154,7 @@ export class CompletedTasksModal extends Modal {
                         }
                     } catch (e: any) {
                         new Notice(e?.message || "恢复任务失败");
-                        checkbox.style.opacity = "1";
+                        checkbox.classList.remove("is-dimmed");
                     }
                 });
                 const titleEl = header.createEl("span", {

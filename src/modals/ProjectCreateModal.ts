@@ -21,13 +21,9 @@ export class ProjectCreateModal extends Modal {
             type: "text",
             placeholder: "输入项目标题"
         });
-        this.inputEl.style.width = "100%";
-        this.inputEl.style.marginBottom = "12px";
+        this.inputEl.addClass("dida-modal-input-full", "dida-modal-input-margin-md");
 
-        const footer = content.createDiv();
-        footer.style.display = "flex";
-        footer.style.justifyContent = "flex-end";
-        footer.style.gap = "8px";
+        const footer = content.createDiv("dida-modal-actions-row");
         footer.createEl("button", { text: "取消" }).addEventListener("click", () => this.close());
         const confirm = footer.createEl("button", { text: "确定" });
         confirm.addClass("mod-cta");

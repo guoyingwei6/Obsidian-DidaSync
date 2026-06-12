@@ -19,11 +19,9 @@ export class AddTaskModal extends Modal {
             type: "text",
             placeholder: "请输入任务标题"
         });
-        input.style.width = "100%";
-        input.style.marginBottom = "10px";
+        input.addClass("dida-modal-input-full", "dida-modal-input-margin-sm");
 
-        const btnContainer = contentEl.createDiv();
-        btnContainer.style.textAlign = "right";
+        const btnContainer = contentEl.createDiv("dida-modal-actions");
         
         btnContainer.createEl("button", { text: "取消" }).onclick = () => this.close();
         
@@ -31,8 +29,6 @@ export class AddTaskModal extends Modal {
             text: "添加",
             cls: "mod-cta"
         });
-        submitBtn.style.marginLeft = "10px";
-        
         submitBtn.onclick = () => {
             const val = input.value.trim();
             if (val) {

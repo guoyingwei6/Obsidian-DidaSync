@@ -31,7 +31,7 @@ export class CompactRepeatSettings {
         this.renderContent();
         this.addEventListeners();
         document.body.appendChild(this.overlay!);
-        requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
             this.overlay!.classList.add("show");
         });
     }
@@ -74,12 +74,16 @@ export class CompactRepeatSettings {
             if (left < 10) left = 10;
             else if (left + 320 > window.innerWidth - 10) left = window.innerWidth - 330;
 
-            this.container.style.position = "fixed";
-            this.container.style.top = `${top}px`;
-            this.container.style.left = `${left}px`;
-            this.container.style.zIndex = "10001";
-            this.overlay!.style.justifyContent = "flex-start";
-            this.overlay!.style.alignItems = "flex-start";
+            this.container.setCssStyles({
+                position: "fixed",
+                top: `${top}px`,
+                left: `${left}px`,
+                zIndex: "10001"
+            });
+            this.overlay!.setCssStyles({
+                justifyContent: "flex-start",
+                alignItems: "flex-start"
+            });
         }
     }
 
