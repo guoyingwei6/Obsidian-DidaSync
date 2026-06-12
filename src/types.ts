@@ -114,8 +114,8 @@ export interface DidaSyncSettings {
 
     enableNativeTaskSync: boolean;
 
-    // Daily Sync Settings
-    dailySyncTargetBlockHeader: string;
+    // Task note sync settings
+    taskNoteSyncTargetBlockHeader: string;
     taskNoteSyncFolder: string;
     taskNoteSyncFileNamePattern: string;
     taskNoteSyncCreateNewFile: boolean;
@@ -175,7 +175,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     autoCleanCompletedTasks: false,
     autoCleanInterval: 1,
     enableNativeTaskSync: true,
-    dailySyncTargetBlockHeader: "> [!todo]",
+    taskNoteSyncTargetBlockHeader: "> [!todo]",
     taskNoteSyncFolder: "DidaSync",
     taskNoteSyncFileNamePattern: "",
     taskNoteSyncCreateNewFile: false,

@@ -81,9 +81,9 @@ export class SyncSettingsView extends AbstractSettingsView {
             .setDesc("任务会写入这个 Markdown 区块；目标笔记中没有该区块时会自动创建。")
             .addText((text) => text
                 .setPlaceholder("输入目标区块标题")
-                .setValue(this.plugin.settings.dailySyncTargetBlockHeader)
+                .setValue(this.plugin.settings.taskNoteSyncTargetBlockHeader)
                 .onChange(async (value) => {
-                    this.plugin.settings.dailySyncTargetBlockHeader = value;
+                    this.plugin.settings.taskNoteSyncTargetBlockHeader = value;
                     await this.plugin.saveSettings();
                 }));
 

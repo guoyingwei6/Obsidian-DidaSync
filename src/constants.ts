@@ -11,7 +11,7 @@ export const DEFAULT_SETTINGS = {
     autoCleanCompletedTasks: false,
     autoCleanInterval: 1,
     enableNativeTaskSync: true,
-    dailySyncTargetBlockHeader: "> [!todo]",
+    taskNoteSyncTargetBlockHeader: "> [!todo]",
     taskNoteSyncFolder: "DidaSync",
     taskNoteSyncFileNamePattern: "",
     taskNoteSyncCreateNewFile: false,

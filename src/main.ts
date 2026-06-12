@@ -123,14 +123,6 @@ export default class DidaSyncPlugin extends Plugin {
         });
 
         this.addCommand({
-            id: 'sync-daily-tasks',
-            name: '同步任务到笔记（兼容旧入口）',
-            callback: () => {
-                this.showTaskNoteSyncModal();
-            }
-        });
-
-        this.addCommand({
             id: 'sync-tasks-to-note',
             name: '同步任务到笔记',
             callback: () => {
@@ -185,7 +177,13 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     async loadSettings() {
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        const loadedSettings = await this.loadData();
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedSettings);
+        const legacySettings = this.settings as any;
+        if (loadedSettings?.dailySyncTargetBlockHeader && !loadedSettings?.taskNoteSyncTargetBlockHeader) {
+            this.settings.taskNoteSyncTargetBlockHeader = loadedSettings.dailySyncTargetBlockHeader;
+            delete legacySettings.dailySyncTargetBlockHeader;
+        }
         if (!this.settings.tasks) this.settings.tasks = [];
         this.settings.tasks.forEach(t => {
             if (t.content === undefined) t.content = "";

@@ -33,20 +33,10 @@ export class TaskNoteSyncManager {
         this.plugin = plugin;
     }
 
-    async syncTodayTasksToActiveNote() {
-        const activeFile = this.app.workspace.getActiveFile();
-        const targetDate = activeFile ? await this.resolveTargetDate(activeFile) : null;
-        const today = this.formatDateOnly(new Date());
-        await this.syncTasksToNote({
-            range: this.createRange("day", targetDate || today),
-            createNewFile: this.plugin.settings.taskNoteSyncCreateNewFile
-        });
-    }
-
     async syncTasksToNote(options: TaskNoteSyncOptions) {
         try {
             const file = await this.resolveTargetFile(options);
-            const targetHeader = this.plugin.settings.dailySyncTargetBlockHeader;
+            const targetHeader = this.plugin.settings.taskNoteSyncTargetBlockHeader;
             const isCallout = targetHeader.trim().startsWith(">");
             const tasks = await this.getTasksForRange(options.range);
             await this.smartAppendTasksToHeader(file, targetHeader, tasks, options.range, isCallout);
@@ -88,7 +78,7 @@ export class TaskNoteSyncManager {
     }
 
     buildInitialContent(range: TaskNoteSyncRange): string {
-        return `# ${this.getRangeTitle(range)}\n\n${this.plugin.settings.dailySyncTargetBlockHeader}\n`;
+        return `# ${this.getRangeTitle(range)}\n\n${this.plugin.settings.taskNoteSyncTargetBlockHeader}\n`;
     }
 
     buildTargetFilePath(range: TaskNoteSyncRange): string {
