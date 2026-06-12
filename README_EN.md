@@ -90,7 +90,7 @@ DidaSync can expose a local HTTP MCP server on desktop so MCP-compatible AI tool
 | ✅ **Completed Task View** | View completed tasks independently, filter by time range, and restore them. | Open `Completed tasks` from the task list filter menu. |
 | 📋 **Drag To Markdown** | Drag tasks into the Markdown editor and insert linked checklist items. | See [Drag Tasks Into Markdown Documents](#drag-tasks-into-markdown-documents). |
 | 🔗 **Markdown Back Links** | Jump from Dida links in notes back to the related task inside Obsidian. | Click the `obsidian://dida-task` link in a note. |
-| 📝 **Daily Note Integration** | Sync today's tasks into your daily note. | See [Sync Today's Tasks To The Daily Note](#sync-todays-tasks-to-the-daily-note). |
+| 📝 **Task Note Sync** | Write tasks from a day, week, month, year, or custom date range into a note. | See [Sync Tasks To Notes](#sync-tasks-to-notes). |
 | 🤖 **MCP / AI Integration** | Expose a local MCP service so AI plugins can operate on Dida tasks. | See [MCP / AI Plugin Usage](#mcp--ai-plugin-usage). |
 
 ## Quick Start
@@ -109,12 +109,13 @@ DidaSync can expose a local HTTP MCP server on desktop so MCP-compatible AI tool
 4. Click `Query` to fetch completed tasks in that range.
 5. Click `Restore` next to any task to mark it as incomplete again.
 
-### Sync Today's Tasks To The Daily Note
+### Sync Tasks To Notes
 
-1. Open **Settings -> DidaSync -> Sync Settings -> Daily Note Sync Settings**.
-2. Set the target block marker or heading where tasks should be written.
-3. Open the command palette and run `Sync today's tasks to daily note`.
-4. DidaSync writes today's tasks into the matching section of the current daily note.
+1. Open **Settings -> DidaSync -> Sync Settings -> Task Note Sync Settings**.
+2. Set the target block, note folder, week start day, and whether to query remote tasks before writing.
+3. Open the command palette and run `Sync tasks to note`.
+4. Choose a day, week, month, year, or custom date range.
+5. DidaSync writes the matching tasks into the range note, or creates a fresh note when "Always create a new note" is enabled.
 
 ### Use Native Obsidian Task Syntax `- [ ]`
 
