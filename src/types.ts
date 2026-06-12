@@ -116,6 +116,11 @@ export interface DidaSyncSettings {
 
     // Daily Sync Settings
     dailySyncTargetBlockHeader: string;
+    taskNoteSyncFolder: string;
+    taskNoteSyncFileNamePattern: string;
+    taskNoteSyncCreateNewFile: boolean;
+    taskNoteSyncWeekStart: "monday" | "sunday";
+    taskNoteSyncUseRemoteQuery: boolean;
 
     // UI Settings
     projectCollapsedStates: { [key: string]: boolean };
@@ -171,6 +176,11 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     autoCleanInterval: 1,
     enableNativeTaskSync: true,
     dailySyncTargetBlockHeader: "> [!todo]",
+    taskNoteSyncFolder: "DidaSync",
+    taskNoteSyncFileNamePattern: "",
+    taskNoteSyncCreateNewFile: false,
+    taskNoteSyncWeekStart: "monday",
+    taskNoteSyncUseRemoteQuery: false,
     projectCollapsedStates: {},
     projectOrder: [],
     defaultViewMode: "task",

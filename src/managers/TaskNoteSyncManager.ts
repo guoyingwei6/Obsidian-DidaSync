@@ -1,0 +1,384 @@
+import { App, normalizePath, Notice, TFile } from "obsidian";
+import DidaSyncPlugin from "../main";
+import { DidaTask } from "../types";
+
+export type TaskNoteSyncRangeType = "day" | "week" | "month" | "year" | "custom";
+
+export interface TaskNoteSyncRange {
+    type: TaskNoteSyncRangeType;
+    startDate: string;
+    endDate: string;
+}
+
+export interface TaskNoteSyncOptions {
+    range: TaskNoteSyncRange;
+    createNewFile?: boolean;
+}
+
+interface ParsedTaskBlock {
+    hasHeader: boolean;
+    headerLineIndex: number;
+    insertLineIndex: number;
+    existingTaskIds: Set<string>;
+    existingTaskTitles: Set<string>;
+    hasExistingContent: boolean;
+}
+
+export class TaskNoteSyncManager {
+    app: App;
+    plugin: DidaSyncPlugin;
+
+    constructor(app: App, plugin: DidaSyncPlugin) {
+        this.app = app;
+        this.plugin = plugin;
+    }
+
+    async syncTodayTasksToActiveNote() {
+        const activeFile = this.app.workspace.getActiveFile();
+        const targetDate = activeFile ? await this.resolveTargetDate(activeFile) : null;
+        const today = this.formatDateOnly(new Date());
+        await this.syncTasksToNote({
+            range: this.createRange("day", targetDate || today),
+            createNewFile: this.plugin.settings.taskNoteSyncCreateNewFile
+        });
+    }
+
+    async syncTasksToNote(options: TaskNoteSyncOptions) {
+        try {
+            const file = await this.resolveTargetFile(options);
+            const targetHeader = this.plugin.settings.dailySyncTargetBlockHeader;
+            const isCallout = targetHeader.trim().startsWith(">");
+            const tasks = await this.getTasksForRange(options.range);
+            await this.smartAppendTasksToHeader(file, targetHeader, tasks, options.range, isCallout);
+            await this.app.workspace.getLeaf(false).openFile(file);
+        } catch (e) {
+            console.error(e);
+            new Notice(`同步失败: ${e instanceof Error ? e.message : "未知错误"}`);
+        }
+    }
+
+    async resolveTargetFile(options: TaskNoteSyncOptions): Promise<TFile> {
+        const path = options.createNewFile
+            ? await this.buildUniqueTargetFilePath(options.range)
+            : this.buildTargetFilePath(options.range);
+        return await this.ensureMarkdownFile(path, this.buildInitialContent(options.range));
+    }
+
+    async getTasksForRange(range: TaskNoteSyncRange): Promise<DidaTask[]> {
+        if (this.plugin.settings.taskNoteSyncUseRemoteQuery && this.plugin.settings.accessToken) {
+            try {
+                const start = this.parseDateOnly(range.startDate);
+                start.setHours(0, 0, 0, 0);
+                const end = this.parseDateOnly(range.endDate);
+                end.setHours(23, 59, 59, 999);
+                const remoteTasks = await this.plugin.apiClient.filterTasks({
+                    startDate: this.plugin.formatDidaDateTime(start),
+                    endDate: this.plugin.formatDidaDateTime(end)
+                });
+                const normalized = Array.isArray(remoteTasks)
+                    ? remoteTasks.map((task) => this.plugin.normalizeRemoteTask(task))
+                    : [];
+                return this.selectTasksForRange(normalized, range);
+            } catch (e) {
+                console.error(e);
+                new Notice("主动查询任务失败，已改用本地缓存任务");
+            }
+        }
+        return this.selectTasksForRange(this.plugin.settings.tasks || [], range);
+    }
+
+    buildInitialContent(range: TaskNoteSyncRange): string {
+        return `# ${this.getRangeTitle(range)}\n\n${this.plugin.settings.dailySyncTargetBlockHeader}\n`;
+    }
+
+    buildTargetFilePath(range: TaskNoteSyncRange): string {
+        const folder = normalizePath((this.plugin.settings.taskNoteSyncFolder || "DidaSync").trim());
+        const fileName = this.buildTargetFileName(range);
+        return folder ? normalizePath(`${folder}/${fileName}`) : fileName;
+    }
+
+    async buildUniqueTargetFilePath(range: TaskNoteSyncRange): Promise<string> {
+        const basePath = this.buildTargetFilePath(range);
+        const normalizedPath = normalizePath(basePath.endsWith(".md") ? basePath : `${basePath}.md`);
+        if (!(await this.app.vault.adapter.exists(normalizedPath))) return normalizedPath;
+
+        const stem = normalizedPath.slice(0, -3);
+        for (let i = 2; i < 1000; i++) {
+            const candidate = `${stem}-${i}.md`;
+            if (!(await this.app.vault.adapter.exists(candidate))) return candidate;
+        }
+        return `${stem}-${Date.now()}.md`;
+    }
+
+    buildTargetFileName(range: TaskNoteSyncRange): string {
+        if (range.type === "day") return `${range.startDate}.md`;
+        if (range.type === "week") return `${this.getIsoWeekFileStem(range.startDate)}.md`;
+        if (range.type === "month") return `${range.startDate.slice(0, 7)}.md`;
+        if (range.type === "year") return `${range.startDate.slice(0, 4)}.md`;
+        return `${range.startDate}_to_${range.endDate}.md`;
+    }
+
+    async ensureMarkdownFile(path: string, initialContent: string): Promise<TFile> {
+        const normalizedPath = normalizePath(path.endsWith(".md") ? path : `${path}.md`);
+        const pathParts = normalizedPath.split("/").filter(Boolean);
+        const folderParts = pathParts.slice(0, -1);
+        let currentPath = "";
+        for (const part of folderParts) {
+            currentPath = currentPath ? `${currentPath}/${part}` : part;
+            const folderPath = normalizePath(currentPath);
+            if (!(await this.app.vault.adapter.exists(folderPath))) {
+                await this.app.vault.createFolder(folderPath);
+            }
+        }
+
+        const existingFile = this.app.vault.getAbstractFileByPath(normalizedPath);
+        if (existingFile instanceof TFile) return existingFile;
+        return await this.app.vault.create(normalizedPath, initialContent);
+    }
+
+    async smartAppendTasksToHeader(file: TFile, targetHeader: string, fetchedTasks: DidaTask[], range: TaskNoteSyncRange, isCallout: boolean) {
+        await this.app.vault.process(file, (data) => {
+            const lines = data.split("\n");
+            let parsed = this.parseExistingTaskBlock(lines, targetHeader);
+
+            if (!parsed.hasHeader) {
+                if (lines.length > 0 && lines[lines.length - 1].trim() !== "") lines.push("");
+                lines.push(targetHeader);
+                parsed = this.parseExistingTaskBlock(lines, targetHeader);
+            }
+
+            const tasksToAppend = this.filterNewTasks(fetchedTasks, parsed);
+            const taskPrefix = isCallout ? "> - " : "- ";
+
+            if (tasksToAppend.length === 0) {
+                if (fetchedTasks.length === 0 && !parsed.hasExistingContent) {
+                    lines.splice(parsed.insertLineIndex, 0, `${taskPrefix}无待办任务`);
+                    new Notice("所选时间段无待办任务");
+                    return lines.join("\n");
+                }
+                new Notice("没有新任务需要同步");
+                return lines.join("\n");
+            }
+
+            const newLines = range.startDate === range.endDate
+                ? this.formatTasks(tasksToAppend, range.startDate, taskPrefix)
+                : this.formatGroupedTasks(tasksToAppend, taskPrefix, isCallout);
+
+            lines.splice(parsed.insertLineIndex, 0, ...newLines);
+            new Notice(`成功同步 ${tasksToAppend.length} 个新任务`);
+            return lines.join("\n");
+        });
+    }
+
+    filterNewTasks(fetchedTasks: DidaTask[], parsed: ParsedTaskBlock): DidaTask[] {
+        const tasksToAppend: DidaTask[] = [];
+        for (const task of fetchedTasks) {
+            const didaId = task.didaId || task.id;
+            const title = this.normalizeTitle(task.title);
+            if (didaId && parsed.existingTaskIds.has(didaId)) continue;
+            if (parsed.existingTaskTitles.has(title)) continue;
+            tasksToAppend.push(task);
+        }
+        return tasksToAppend;
+    }
+
+    parseExistingTaskBlock(lines: string[], headerPattern: string): ParsedTaskBlock {
+        const headerIndex = lines.findIndex(line => line.trim().startsWith(headerPattern.trim()));
+        if (headerIndex === -1) {
+            return {
+                hasHeader: false,
+                headerLineIndex: -1,
+                insertLineIndex: -1,
+                existingTaskIds: new Set(),
+                existingTaskTitles: new Set(),
+                hasExistingContent: false
+            };
+        }
+
+        const existingTaskIds = new Set<string>();
+        const existingTaskTitles = new Set<string>();
+        let insertLineIndex = headerIndex + 1;
+        let hasExistingContent = false;
+
+        for (let i = headerIndex + 1; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+            if (this.isBlockBoundary(trimmed, headerPattern)) break;
+
+            if (this.isTaskLine(trimmed)) {
+                const id = this.extractDidaId(trimmed);
+                if (id) existingTaskIds.add(id);
+                const title = this.extractTaskTitle(trimmed);
+                if (title) existingTaskTitles.add(title);
+                hasExistingContent = true;
+                insertLineIndex = i + 1;
+            } else if (trimmed !== "") {
+                hasExistingContent = true;
+            }
+        }
+
+        return {
+            hasHeader: true,
+            headerLineIndex: headerIndex,
+            insertLineIndex,
+            existingTaskIds,
+            existingTaskTitles,
+            hasExistingContent
+        };
+    }
+
+    isTaskLine(line: string): boolean {
+        return /^(\s*>)?\s*[-*]\s\[.\]/.test(line);
+    }
+
+    isBlockBoundary(trimmedLine: string, headerPattern: string): boolean {
+        if (trimmedLine.startsWith("> ### ")) return false;
+        if (/^#{3,}\s+\d{4}-\d{2}-\d{2}/.test(trimmedLine)) return false;
+        if (headerPattern.trim().startsWith(">")) return !trimmedLine.startsWith(">");
+        return trimmedLine.startsWith("#");
+    }
+
+    extractDidaId(line: string): string | null {
+        const match = line.match(/didaId=([^&\)]+)/);
+        return match ? match[1] : null;
+    }
+
+    extractTaskTitle(line: string): string {
+        let text = line.replace(/^(\s*>)?\s*[-*]\s\[.\]\s*/, "");
+        text = text.replace(/\[[^\]]*Dida\]\(obsidian:\/\/dida-task\?didaId=[^\)]*\).*/, "");
+        text = text.replace(/\s+\d{4}-\d{2}-\d{2}\s*$/, "");
+        return this.normalizeTitle(text);
+    }
+
+    async resolveTargetDate(file: TFile): Promise<string | null> {
+        const nameMatch = file.basename.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (nameMatch) return nameMatch[1];
+
+        const cache = this.app.metadataCache.getFileCache(file);
+        if (cache && cache.frontmatter) {
+            const rawDate = cache.frontmatter.date || cache.frontmatter.data;
+            if (rawDate) {
+                const d = new Date(rawDate);
+                if (!isNaN(d.getTime())) return this.formatDateOnly(d);
+            }
+        }
+
+        return null;
+    }
+
+    createRange(type: TaskNoteSyncRangeType, baseDate: string, endDate?: string): TaskNoteSyncRange {
+        const base = this.parseDateOnly(baseDate);
+        if (type === "day") return { type, startDate: baseDate, endDate: baseDate };
+        if (type === "week") {
+            const weekStartsOnSunday = this.plugin.settings.taskNoteSyncWeekStart === "sunday";
+            const day = weekStartsOnSunday ? base.getDay() : (base.getDay() || 7) - 1;
+            const start = new Date(base);
+            start.setDate(base.getDate() - day);
+            const end = new Date(start);
+            end.setDate(start.getDate() + 6);
+            return { type, startDate: this.formatDateOnly(start), endDate: this.formatDateOnly(end) };
+        }
+        if (type === "month") {
+            const start = new Date(base.getFullYear(), base.getMonth(), 1);
+            const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+            return { type, startDate: this.formatDateOnly(start), endDate: this.formatDateOnly(end) };
+        }
+        if (type === "year") {
+            return { type, startDate: `${base.getFullYear()}-01-01`, endDate: `${base.getFullYear()}-12-31` };
+        }
+
+        const start = this.parseDateOnly(baseDate);
+        const end = this.parseDateOnly(endDate || baseDate);
+        if (end.getTime() < start.getTime()) {
+            return { type, startDate: this.formatDateOnly(end), endDate: this.formatDateOnly(start) };
+        }
+        return { type, startDate: this.formatDateOnly(start), endDate: this.formatDateOnly(end) };
+    }
+
+    selectTasksForRange(tasks: DidaTask[], range: TaskNoteSyncRange): DidaTask[] {
+        const start = this.parseDateOnly(range.startDate).getTime();
+        const end = this.parseDateOnly(range.endDate).getTime();
+        return tasks
+            .filter(task => {
+                const taskDate = this.getTaskLocalDate(task);
+                if (!taskDate) return false;
+                const time = this.parseDateOnly(taskDate).getTime();
+                return time >= start && time <= end;
+            })
+            .sort((a, b) => {
+                const da = this.getTaskLocalDate(a) || "";
+                const db = this.getTaskLocalDate(b) || "";
+                if (da !== db) return da.localeCompare(db);
+                return (a.title || "").localeCompare(b.title || "");
+            });
+    }
+
+    getTaskLocalDate(task: DidaTask): string | null {
+        const dateStr = task.dueDate || task.startDate;
+        if (!dateStr) return null;
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return null;
+        return this.formatDateOnly(date);
+    }
+
+    formatGroupedTasks(tasks: DidaTask[], taskPrefix: string, isCallout: boolean): string[] {
+        const lines: string[] = [];
+        let currentDate = "";
+        for (const task of tasks) {
+            const taskDate = this.getTaskLocalDate(task);
+            if (!taskDate) continue;
+            if (taskDate !== currentDate) {
+                currentDate = taskDate;
+                lines.push(`${isCallout ? "> " : ""}### ${taskDate}`);
+            }
+            lines.push(...this.formatTasks([task], taskDate, taskPrefix));
+        }
+        return lines;
+    }
+
+    formatTasks(tasks: DidaTask[], targetDate: string, prefix: string): string[] {
+        if (tasks.length === 0) return [`${prefix}无待办任务`];
+
+        return tasks.map(task => {
+            const isCompleted = task.status === 2 || task.completed === true;
+            const statusIcon = isCompleted ? "x" : " ";
+            const title = this.normalizeTitle(task.title);
+            const didaId = task.didaId || task.id;
+            return `${prefix}[${statusIcon}] ${title} [Dida](obsidian://dida-task?didaId=${didaId}) ${targetDate}`;
+        });
+    }
+
+    getRangeTitle(range: TaskNoteSyncRange): string {
+        if (range.type === "day") return range.startDate;
+        if (range.type === "week") return this.getIsoWeekFileStem(range.startDate);
+        if (range.type === "month") return range.startDate.slice(0, 7);
+        if (range.type === "year") return range.startDate.slice(0, 4);
+        return `${range.startDate} to ${range.endDate}`;
+    }
+
+    getIsoWeekFileStem(dateStr: string): string {
+        const date = this.parseDateOnly(dateStr);
+        const utc = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const day = utc.getUTCDay() || 7;
+        utc.setUTCDate(utc.getUTCDate() + 4 - day);
+        const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+        const week = Math.ceil((((utc.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+        return `${utc.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+    }
+
+    parseDateOnly(dateStr: string): Date {
+        const [year, month, day] = dateStr.split("-").map(Number);
+        return new Date(year, month - 1, day);
+    }
+
+    formatDateOnly(date: Date): string {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, "0");
+        const d = String(date.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
+    }
+
+    normalizeTitle(title: string): string {
+        return (title || "").replace(/\n/g, " ").trim();
+    }
+}

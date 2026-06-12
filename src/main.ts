@@ -1,7 +1,7 @@
 import { Editor, EditorPosition, getIconIds, Menu, Modal, Notice, Plugin, setIcon, TFile, normalizePath } from 'obsidian';
 import { DidaApiClient } from './api/DidaApiClient';
 import { RRuleParser } from './core/RRuleParser';
-import { DailyNoteManager } from './managers/DailyNoteManager';
+import { TaskNoteSyncManager } from './managers/TaskNoteSyncManager';
 import { McpServerManager } from './managers/McpServerManager';
 import { NativeTaskSyncManager } from './managers/NativeTaskSyncManager';
 import { RepeatTaskManager } from './managers/RepeatTaskManager';
@@ -13,6 +13,7 @@ import { ProjectCreateModal } from './modals/ProjectCreateModal';
 import { ProjectDeleteConfirmModal } from './modals/ProjectDeleteConfirmModal';
 import { ProjectIconPickerModal } from './modals/ProjectIconPickerModal';
 import { ProjectRenameModal } from './modals/ProjectRenameModal';
+import { TaskNoteSyncModal } from './modals/TaskNoteSyncModal';
 import { TaskSuggestionPopup } from './modals/TaskSuggestionPopup';
 import { TimelineViewModal } from './modals/TimelineViewModal';
 import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
@@ -44,7 +45,7 @@ export default class DidaSyncPlugin extends Plugin {
     mcpServerManager: McpServerManager;
     nativeTaskSyncManager: NativeTaskSyncManager;
     repeatTaskManager: RepeatTaskManager;
-    dailyNoteManager: DailyNoteManager;
+    taskNoteSyncManager: TaskNoteSyncManager;
     currentTaskActionMenu: TaskActionMenu | null = null;
     isTaskActionInProgress: boolean = false;
     isPluginActivated: boolean = false;
@@ -75,7 +76,7 @@ export default class DidaSyncPlugin extends Plugin {
         this.mcpServerManager = new McpServerManager(this);
         this.nativeTaskSyncManager = new NativeTaskSyncManager(this);
         this.repeatTaskManager = new RepeatTaskManager(this);
-        this.dailyNoteManager = new DailyNoteManager(this.app, this);
+        this.taskNoteSyncManager = new TaskNoteSyncManager(this.app, this);
 
         this.addSettingTab(new DidaSyncSettingTab(this.app, this));
 
@@ -123,9 +124,17 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.addCommand({
             id: 'sync-daily-tasks',
-            name: '同步今日任务到日记',
+            name: '同步任务到笔记（兼容旧入口）',
             callback: () => {
-                this.dailyNoteManager.syncTodayTasksToActiveNote();
+                this.showTaskNoteSyncModal();
+            }
+        });
+
+        this.addCommand({
+            id: 'sync-tasks-to-note',
+            name: '同步任务到笔记',
+            callback: () => {
+                this.showTaskNoteSyncModal();
             }
         });
 
@@ -972,6 +981,10 @@ export default class DidaSyncPlugin extends Plugin {
 
     showCompletedTasksModal() {
         new CompletedTasksModal(this.app, this).open();
+    }
+
+    showTaskNoteSyncModal() {
+        new TaskNoteSyncModal(this.app, this).open();
     }
 
     async restoreCompletedTask(task: DidaTask) {
