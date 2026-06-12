@@ -16,7 +16,7 @@ export const DEFAULT_SETTINGS = {
     taskNoteSyncFileNamePattern: "",
     taskNoteSyncCreateNewFile: false,
     taskNoteSyncWeekStart: "monday",
-    taskNoteSyncUseRemoteQuery: false,
+    taskNoteSyncUseRemoteQuery: true,
     projectCollapsedStates: {},
     projectOrder: [],
     projectIcons: {},

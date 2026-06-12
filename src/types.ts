@@ -180,7 +180,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     taskNoteSyncFileNamePattern: "",
     taskNoteSyncCreateNewFile: false,
     taskNoteSyncWeekStart: "monday",
-    taskNoteSyncUseRemoteQuery: false,
+    taskNoteSyncUseRemoteQuery: true,
     projectCollapsedStates: {},
     projectOrder: [],
     defaultViewMode: "task",
