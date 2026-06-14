@@ -1595,11 +1595,6 @@ export default class DidaSyncPlugin extends Plugin {
                 task.completedTime = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
                 task.completed = true;
 
-                if (RRuleParser.hasRepeatRule(task) && this.repeatTaskManager) {
-                    try {
-                        await this.repeatTaskManager.createRepeatTaskCopy(task);
-                    } catch (e) { }
-                }
             }
 
             task.updatedAt = new Date().toISOString();
@@ -1631,10 +1626,25 @@ export default class DidaSyncPlugin extends Plugin {
             }
 
             await this.saveSettings();
+            const completedRepeatTask = task.status === 2 && RRuleParser.hasRepeatRule(task);
             if (this.settings.accessToken && task.didaId) {
-                setTimeout(() => {
-                    this.toggleTaskInDidaList(task).catch(() => { });
+                setTimeout(async () => {
+                    try {
+                        await this.toggleTaskInDidaList(task);
+                        if (completedRepeatTask) {
+                            await this.syncManager.syncFromDidaList();
+                            setTimeout(() => {
+                                this.syncManager.syncFromDidaList().catch(() => { });
+                            }, 2000);
+                        }
+                    } catch (e) {
+                        if (completedRepeatTask) {
+                            new Notice("重复任务已在本地标记完成，但同步到滴答清单失败，请稍后手动同步");
+                        }
+                    }
                 }, 0);
+            } else if (completedRepeatTask) {
+                new Notice("重复任务已在本地标记完成；未连接滴答清单，未自动生成下一次任务");
             }
             this.refreshTaskView();
             if (task.didaId) {

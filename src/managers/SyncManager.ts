@@ -205,7 +205,12 @@ export class SyncManager {
                     const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === remote.id);
                     if (idx === -1) {
                         const proj = projectMap.get(remote.projectId) || { id: remote.projectId, name: remote.projectName || "未知项目" };
-                        await this.createTaskFromDida(remote, proj);
+                        const localCopyIndex = this.findLocalRepeatTaskCopyIndex(remote);
+                        if (localCopyIndex === -1) {
+                            await this.createTaskFromDida(remote, proj);
+                        } else {
+                            await this.mergeRemoteRepeatTaskIntoLocalCopy(localCopyIndex, remote, proj);
+                        }
                         updatedCount++;
                     } else {
                         const local = this.plugin.settings.tasks[idx];
@@ -698,6 +703,65 @@ export class SyncManager {
         } catch (e) {
             throw e;
         }
+    }
+
+    normalizeTaskDateForMatch(value: any): string {
+        if (!value || typeof value !== "string") return "";
+        const match = value.match(/\d{4}-\d{2}-\d{2}/);
+        return match ? match[0] : value;
+    }
+
+    normalizeProjectIdForMatch(value: any): string {
+        return value || "inbox";
+    }
+
+    findLocalRepeatTaskCopyIndex(remote: any): number {
+        if (!remote || !remote.repeatFlag || !remote.title) return -1;
+        const remoteProjectId = this.normalizeProjectIdForMatch(remote.projectId);
+        const remoteDueDate = this.normalizeTaskDateForMatch(remote.dueDate || remote.startDate);
+        if (!remoteDueDate) return -1;
+
+        return this.plugin.settings.tasks.findIndex((local: DidaTask) => {
+            if (!local || local.didaId || local.status === 2) return false;
+            if (!local.repeatFlag || local.repeatFlag !== remote.repeatFlag) return false;
+            if ((local.title || "").trim() !== String(remote.title || "").trim()) return false;
+            if (this.normalizeProjectIdForMatch(local.projectId) !== remoteProjectId) return false;
+            const localDueDate = this.normalizeTaskDateForMatch(local.dueDate || local.startDate);
+            return !!localDueDate && localDueDate === remoteDueDate;
+        });
+    }
+
+    async mergeRemoteRepeatTaskIntoLocalCopy(index: number, remote: any, project: any = null) {
+        const local = this.plugin.settings.tasks[index];
+        if (!local) return null;
+
+        local.didaId = remote.id;
+        local.projectId = remote.projectId || "inbox";
+        local.projectName = project ? project.name : remote.projectName || local.projectName;
+        local.createdAt = remote.createdTime || local.createdAt || new Date().toISOString();
+        local.updatedAt = new Date().toISOString();
+        local.dueDate = remote.dueDate || null;
+        local.startDate = remote.startDate || null;
+        local.etag = remote.etag || null;
+        local.isAllDay = remote.isAllDay || false;
+        local.kind = remote.kind || local.kind || "TEXT";
+        local.reminders = remote.reminders || [];
+        local.repeatFlag = remote.repeatFlag || local.repeatFlag || null;
+        local.priority = remote.priority || 0;
+        local.status = remote.status || 0;
+        local.completedTime = null;
+        local.projectColor = remote.projectColor || project?.color;
+        local.projectClosed = remote.projectClosed || project?.closed;
+        local.projectViewMode = remote.projectViewMode || project?.viewMode;
+        local.projectKind = remote.projectKind || project?.kind;
+        local.projectPermission = remote.projectPermission || project?.permission;
+        local.parentId = remote.parentId || null;
+        if (remote.content !== undefined) local.content = remote.content || "";
+        if (remote.desc !== undefined) local.desc = remote.desc || "";
+        if (remote.items && Array.isArray(remote.items)) local.items = remote.items;
+
+        await this.plugin.saveSettings();
+        return local;
     }
 
     async createTaskFromDida(task: any, project: any = null) {
