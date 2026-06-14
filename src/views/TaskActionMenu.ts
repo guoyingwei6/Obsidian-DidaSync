@@ -39,6 +39,26 @@ export class TaskActionMenu {
             if (!this.editor || !this.cursor) return null;
             var lineContent = this.editor.getLine(this.cursor.line);
             if (!lineContent) return null;
+            const parsed = parseTaskLine(lineContent);
+            if (parsed && parsed.didaId) {
+                let didaId = parsed.didaId;
+                var task = this.plugin.settings.tasks.find(t => t.didaId === didaId);
+                if (!task) return null;
+                var title = task.title || "";
+                let date = null;
+                if (task.dueDate) {
+                    const dateMatch = task.dueDate.match(/(\d{4}-\d{2}-\d{2})/);
+                    date = dateMatch ? dateMatch[1] : null;
+                }
+                var status = task.status || 0;
+                return {
+                    didaId: didaId,
+                    title: title,
+                    date: date,
+                    status: status,
+                    line: this.cursor.line
+                };
+            }
             var match = lineContent.match(/\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([a-f0-9]+)\)/);
             if (!match) return null;
             let didaId = match[1];
@@ -88,7 +108,8 @@ export class TaskActionMenu {
     isSamePosition(editor: Editor, cursor: EditorPosition) {
         if (!this.editor || !this.cursor || this.editor !== editor || this.cursor.line !== cursor.line) return false;
         const line = editor.getLine(cursor.line);
-        return !!line.match(/^(\s*)-\s*\[\s\]\s*(.*)$/);
+        const parsed = parseTaskLine(line);
+        return !!parsed && parsed.checkbox === " ";
     }
 
     open() {
@@ -271,12 +292,13 @@ export class TaskActionMenu {
                     const parsed = parseTaskLine(line);
                     if (parsed && parsed.didaId) {
                         const didaId = parsed.didaId;
-                        const status = line.match(/^(\s*)-\s\[x\]/i) ? 2 : 0;
+                        const status = parsed.checkbox === "x" ? 2 : 0;
                         let title = parsed.title;
                         const dateRegex = /^(\s*)-\s\[[ x]\]\s*(.+)📅\s*(\d{4}-\d{2}-\d{2})(.*)$/;
                         const dateMatch = line.match(dateRegex);
                         const newTitle = title;
-                        const newDate = dateMatch ? dateMatch[3] : null;
+                        const parsedDateMatch = parsed.dueDate ? parsed.dueDate.match(/(\d{4}-\d{2}-\d{2})/) : null;
+                        const newDate = parsedDateMatch ? parsedDateMatch[1] : (dateMatch ? dateMatch[3] : null);
                         let titleChanged = false;
                         let dateChanged = false;
                         let statusChanged = false;

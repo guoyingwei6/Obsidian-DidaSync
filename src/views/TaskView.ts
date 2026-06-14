@@ -2,7 +2,7 @@
 import DidaSyncPlugin from '../main';
 import { DatePickerModal } from '../modals/DatePickerModal';
 import { resolveTaskIndex } from '../taskIndex';
-import { formatTaskLine, formatTaskLineFromTask } from '../taskLineFormat';
+import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
 import { appendValidatedSvg, debounce, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
 
@@ -3445,6 +3445,18 @@ export class TaskView extends ItemView {
                     let updated = false;
                     for (let i = 0; i < lines.length; i++) {
                         const line = lines[i];
+                        const parsed = parseTaskLine(line);
+                        if (parsed && parsed.didaId === task.didaId) {
+                            lines[i] = formatTaskLine(line, {
+                                startDate: task.startDate || null,
+                                dueDate: newDueDate || null,
+                                isAllDay: task.isAllDay,
+                                priority: task.priority || 0,
+                                repeatFlag: task.repeatFlag || null
+                            });
+                            updated = lines[i] !== line;
+                            continue;
+                        }
                         if (line.includes(`[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
                             lines[i] = formatTaskLine(line, {
                                 startDate: task.startDate || null,
@@ -3486,6 +3498,12 @@ export class TaskView extends ItemView {
                     let updated = false;
                     for (let i = 0; i < lines.length; i++) {
                         let line = lines[i];
+                        const parsed = parseTaskLine(line);
+                        if (parsed && parsed.didaId === task.didaId) {
+                            lines[i] = formatTaskLine(line, { title: newTitle });
+                            updated = lines[i] !== line;
+                            continue;
+                        }
                         if (line.includes(`[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
                             const prefixMatch = line.match(/^(\s*-\s*\[[ x]\]\s*)/);
                             const linkMatch = line.match(/\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[a-zA-Z0-9]+\)/);
@@ -3519,6 +3537,12 @@ export class TaskView extends ItemView {
                     let updated = false;
                     for (let i = 0; i < lines.length; i++) {
                         const line = lines[i];
+                        const parsed = parseTaskLine(line);
+                        if (parsed && parsed.didaId === task.didaId) {
+                            lines[i] = formatTaskLine(line, { checkbox: completed ? "x" : " " });
+                            updated = lines[i] !== line;
+                            continue;
+                        }
                         if (line.includes(`[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
                             const indentMatch = line.match(/^(\s*)/);
                             const taskMatch = line.match(/^(\s*)-\s*\[[ x]\]\s*(.*)/);

@@ -18,7 +18,7 @@ import { TaskSuggestionPopup } from './modals/TaskSuggestionPopup';
 import { TimelineViewModal } from './modals/TimelineViewModal';
 import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
 import { CompletedTasksQuery, DEFAULT_SETTINGS, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry } from './types';
-import { applyParsedLineToTask, formatTaskLine, makeLocalDateTime, parseTaskLine, TaskLineMetadata } from './taskLineFormat';
+import { applyParsedLineToTask, formatTaskLine, formatTaskLineFromTask, makeLocalDateTime, parseTaskLine, TaskLineMetadata } from './taskLineFormat';
 import { normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes } from './utils';
 import { DidaTimeBlockView, TIME_BLOCK_VIEW_TYPE } from './views/DidaTimeBlockView';
 import { TaskActionMenu } from './views/TaskActionMenu';
@@ -1707,6 +1707,45 @@ export default class DidaSyncPlugin extends Plugin {
                     }, 10);
                 }
                 if (this.settings.enableNativeTaskSync) {
+                    const parsedCalloutLine = parseTaskLine(line);
+                    if (parsedCalloutLine && parsedCalloutLine.quotePrefix && parsedCalloutLine.didaId) {
+                        const didaId = parsedCalloutLine.didaId;
+                        const isCompleted = parsedCalloutLine.checkbox === "x";
+                        const task = this.settings.tasks.find(t => t.didaId === didaId);
+                        if (task) {
+                            const status = isCompleted ? 2 : 0;
+                            if (task.status !== status) {
+                                if (this._taskStatusChangeTimeout) {
+                                    clearTimeout(this._taskStatusChangeTimeout);
+                                    this._taskStatusChangeTimeout = null;
+                                }
+                                this._taskStatusChangeTimeout = window.setTimeout(async () => {
+                                    try {
+                                        this._isUpdatingNativeTaskStatus = true;
+                                        if (status === 2 && RRuleParser.hasRepeatRule(task)) {
+                                            const idx = this.settings.tasks.findIndex(t => t.didaId === didaId);
+                                            if (idx !== -1) await this.toggleTask(idx);
+                                        } else {
+                                            this.updateTaskStatusDirectly(task, status);
+                                            await this.saveSettings();
+                                            this.refreshTaskView();
+                                            if (this.settings.accessToken) {
+                                                setTimeout(async () => {
+                                                    try {
+                                                        await this.toggleTaskInDidaList(task);
+                                                    } catch (e) { }
+                                                }, 0);
+                                            }
+                                        }
+                                    } catch (e) { }
+                                    finally {
+                                        this._isUpdatingNativeTaskStatus = false;
+                                        this._taskStatusChangeTimeout = null;
+                                    }
+                                }, 300);
+                            }
+                        }
+                    }
                     const completedMatch = line.match(/^(\s*)-\s\[x\]\s.*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([a-f0-9]+)\)/i);
                     const incompleteMatch = line.match(/^(\s*)-\s\[\s\]\s.*\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=([a-f0-9]+)\)/);
                     if (completedMatch || incompleteMatch) {
@@ -1751,7 +1790,8 @@ export default class DidaSyncPlugin extends Plugin {
                         clearTimeout(this.taskActionMenuDebounceTimer);
                         this.taskActionMenuDebounceTimer = null;
                     }
-                    if (prefix.match(/^(\s*)-\s*\[\s\]\s*(.*)$/)) {
+                    const parsedTaskActionPrefix = parseTaskLine(prefix);
+                    if (parsedTaskActionPrefix && parsedTaskActionPrefix.checkbox === " ") {
                         if (this.isTaskActionInProgress) return;
                         if (this.currentTaskActionMenu && this.currentTaskActionMenu.isOpen && this.currentTaskActionMenu.isSamePosition(editor, cursor)) return;
                         if (Date.now() - this.lastTaskMenuTriggerTime < 300) return;
@@ -1936,29 +1976,11 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     linkTaskToLine(editor: Editor, cursor: EditorPosition, task: DidaTask) {
-        const line = editor.getLine(cursor.line);
-        const linkRegex = /\[🔗Dida\]\(obsidian:\/\/dida-task\?didaId=[^)]+\)/;
-        const newLink = `[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`;
-
-        if (linkRegex.test(line)) {
-            const newLine = line.replace(linkRegex, newLink);
-            editor.setLine(cursor.line, newLine);
-        } else {
-            const match = line.match(/^(\s*)-\s\[[ x]\]\s*(.*)$/);
-            if (match) {
-                const content = match[2].trim();
-                if (!content) {
-                    const newLine = `${match[1]}- [ ] ${task.title} ${newLink}`;
-                    editor.setLine(cursor.line, newLine);
-                } else {
-                    const newLine = line.trimEnd() + " " + newLink;
-                    editor.setLine(cursor.line, newLine);
-                }
-            } else {
-                const newLine = line.trimEnd() + " " + newLink;
-                editor.setLine(cursor.line, newLine);
-            }
-        }
+        const existingLine = editor.getLine(cursor.line);
+        const existingParsed = parseTaskLine(existingLine);
+        const fullTaskLine = formatTaskLineFromTask(task, existingParsed?.indent || "", existingParsed?.quotePrefix || "");
+        editor.setLine(cursor.line, fullTaskLine);
+        editor.setCursor({ line: cursor.line, ch: fullTaskLine.length });
     }
 
     showTaskActionMenu(editor: Editor, cursor: EditorPosition) {

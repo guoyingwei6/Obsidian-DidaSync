@@ -1,5 +1,6 @@
 import { App, normalizePath, Notice, TFile } from "obsidian";
 import DidaSyncPlugin from "../main";
+import { formatTaskLineFromTask, parseTaskLine } from "../taskLineFormat";
 import { DidaTask } from "../types";
 
 export type TaskNoteSyncRangeType = "day" | "week" | "month" | "year" | "custom";
@@ -240,7 +241,7 @@ export class TaskNoteSyncManager {
     }
 
     isTaskLine(line: string): boolean {
-        return /^(\s*>)?\s*[-*]\s\[.\]/.test(line);
+        return !!parseTaskLine(line) || /^(\s*>\s*)*\s*[-*]\s\[.\]/.test(line);
     }
 
     isBlockBoundary(trimmedLine: string, headerPattern: string): boolean {
@@ -261,6 +262,8 @@ export class TaskNoteSyncManager {
     }
 
     extractTaskTitle(line: string): string {
+        const parsed = parseTaskLine(line);
+        if (parsed) return this.normalizeTitle(parsed.title);
         let text = line.replace(/^(\s*>)?\s*[-*]\s\[.\]\s*/, "");
         text = text.replace(/\[[^\]]*Dida\]\(obsidian:\/\/dida-task\?didaId=[^\)]*\).*/, "");
         text = text.replace(/\s+\d{4}-\d{2}-\d{2}\s*$/, "");
@@ -397,11 +400,17 @@ export class TaskNoteSyncManager {
         if (tasks.length === 0) return [`${prefix}无待办任务`];
 
         return tasks.map(task => {
-            const isCompleted = task.status === 2 || task.completed === true;
-            const statusIcon = isCompleted ? "x" : " ";
-            const title = this.normalizeTitle(task.title);
-            const didaId = task.didaId || task.id;
-            return `${prefix}[${statusIcon}] ${title} [Dida](obsidian://dida-task?didaId=${didaId}) ${targetDate}`;
+            const quotePrefix = prefix.trimStart().startsWith(">") ? "> " : "";
+            const normalizedTask = {
+                ...task,
+                title: this.normalizeTitle(task.title),
+                didaId: task.didaId || task.id,
+                dueDate: task.dueDate || task.startDate || `${targetDate}T00:00:00+0800`,
+                startDate: task.startDate || task.dueDate || `${targetDate}T00:00:00+0800`,
+                isAllDay: task.isAllDay !== false,
+                status: task.status === 2 || task.completed === true ? 2 : 0
+            };
+            return formatTaskLineFromTask(normalizedTask as DidaTask, "", quotePrefix);
         });
     }
 
