@@ -62,4 +62,53 @@ const didaId = "6a24462bc500bf31a90ce7dd";
     assert.ok(line.includes("every week"));
 }
 
+{
+    const lines = [
+        `> - [ ] 旧标题 [Dida](obsidian://dida-task?didaId=${didaId}) 2026-06-09`,
+        `> - [ ] 新标题 [Dida](obsidian://dida-task?didaId=${didaId}) 2026-06-09`
+    ];
+    let updated = false;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        lines[i] = formatTaskLine(line, { title: "新标题" });
+        updated = updated || lines[i] !== line;
+    }
+    assert.equal(updated, true);
+    assert.ok(lines[0].includes("新标题"));
+    assert.ok(lines[1].includes("新标题"));
+}
+
+{
+    const lines = [
+        `> - [ ] 任务 [Dida](obsidian://dida-task?didaId=${didaId}) 2026-06-09`,
+        `> - [ ] 任务 [Dida](obsidian://dida-task?didaId=${didaId}) 📅 2026-06-10`
+    ];
+    let updated = false;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        lines[i] = formatTaskLine(line, {
+            dueDate: "2026-06-10T00:00:00+0800",
+            isAllDay: true
+        });
+        updated = updated || lines[i] !== line;
+    }
+    assert.equal(updated, true);
+    assert.ok(lines.every(line => line.includes("2026-06-10")));
+}
+
+{
+    const lines = [
+        `> - [ ] 任务 [Dida](obsidian://dida-task?didaId=${didaId}) 2026-06-09`,
+        `> - [x] 任务 [Dida](obsidian://dida-task?didaId=${didaId}) 2026-06-09`
+    ];
+    let updated = false;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        lines[i] = formatTaskLine(line, { checkbox: "x" });
+        updated = updated || lines[i] !== line;
+    }
+    assert.equal(updated, true);
+    assert.ok(lines.every(line => line.startsWith("> - [x]")));
+}
+
 console.log("taskLineFormat tests passed");

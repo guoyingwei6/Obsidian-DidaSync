@@ -3454,7 +3454,7 @@ export class TaskView extends ItemView {
                                 priority: task.priority || 0,
                                 repeatFlag: task.repeatFlag || null
                             });
-                            updated = lines[i] !== line;
+                            updated = updated || lines[i] !== line;
                             continue;
                         }
                         if (line.includes(`[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
@@ -3501,7 +3501,7 @@ export class TaskView extends ItemView {
                         const parsed = parseTaskLine(line);
                         if (parsed && parsed.didaId === task.didaId) {
                             lines[i] = formatTaskLine(line, { title: newTitle });
-                            updated = lines[i] !== line;
+                            updated = updated || lines[i] !== line;
                             continue;
                         }
                         if (line.includes(`[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
@@ -3540,7 +3540,7 @@ export class TaskView extends ItemView {
                         const parsed = parseTaskLine(line);
                         if (parsed && parsed.didaId === task.didaId) {
                             lines[i] = formatTaskLine(line, { checkbox: completed ? "x" : " " });
-                            updated = lines[i] !== line;
+                            updated = updated || lines[i] !== line;
                             continue;
                         }
                         if (line.includes(`[🔗Dida](obsidian://dida-task?didaId=${task.didaId})`)) {
