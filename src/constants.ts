@@ -13,7 +13,12 @@ export const DEFAULT_SETTINGS = {
     enableNativeTaskSync: true,
     taskNoteSyncTargetBlockHeader: "> [!todo]",
     taskNoteSyncFolder: "DidaSync",
-    taskNoteSyncFileNamePattern: "",
+    taskNoteSyncPathPatterns: {
+        day: "",
+        week: "",
+        month: "",
+        year: ""
+    },
     taskNoteSyncCreateNewFile: false,
     taskNoteSyncWeekStart: "monday",
     taskNoteSyncUseRemoteQuery: true,

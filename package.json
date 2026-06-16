@@ -6,6 +6,8 @@
     "scripts": {
         "dev": "node esbuild.config.mjs",
         "build": "node esbuild.config.mjs production",
+        "test:task-note-context": "npx tsc --module commonjs --target ES2019 --esModuleInterop --outDir .tmp-test tests/taskNoteContext.test.ts src/taskNoteContext.ts src/taskNotePath.ts src/types.ts && node .tmp-test/tests/taskNoteContext.test.js",
+        "test:task-note-path": "npx tsc --module commonjs --target ES2019 --esModuleInterop --outDir .tmp-test tests/taskNotePath.test.ts src/taskNotePath.ts src/types.ts && node .tmp-test/tests/taskNotePath.test.js",
         "test:task-index": "rm -rf .tmp-test && ./node_modules/.bin/tsc --module commonjs --target ES2019 --esModuleInterop --outDir .tmp-test tests/taskIndex.test.ts src/taskIndex.ts && node .tmp-test/tests/taskIndex.test.js",
         "test:mcp": "node -e \"require('fs').rmSync('.tmp-test',{recursive:true,force:true}); require('fs').mkdirSync('.tmp-test',{recursive:true})\" && node -e \"require('esbuild').buildSync({entryPoints:['tests/mcpServerManager.test.ts','src/managers/McpServerManager.ts','src/types.ts'],outdir:'.tmp-test',platform:'node',format:'cjs',bundle:false})\" && node .tmp-test/tests/mcpServerManager.test.js",
         "test:repeat-cloud-authority": "node -e \"require('fs').rmSync('.tmp-test',{recursive:true,force:true}); require('fs').mkdirSync('.tmp-test',{recursive:true})\" && node -e \"require('esbuild').buildSync({entryPoints:['tests/repeatTaskCloudAuthority.test.ts','src/managers/SyncManager.ts','src/types.ts'],outdir:'.tmp-test',platform:'node',format:'cjs',bundle:false})\" && node .tmp-test/tests/repeatTaskCloudAuthority.test.js",
@@ -27,5 +29,8 @@
         "obsidian": "latest",
         "tslib": "2.4.0",
         "typescript": "4.9.5"
+    },
+    "dependencies": {
+        "date-fns": "^2.30.0"
     }
 }

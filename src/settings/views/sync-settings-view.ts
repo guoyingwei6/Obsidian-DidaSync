@@ -103,7 +103,7 @@ export class SyncSettingsView extends AbstractSettingsView {
 
         new Setting(containerEl)
             .setName("写入区块")
-            .setDesc("任务会写入这个 Markdown 区块；目标笔记中没有该区块时会自动创建。")
+            .setDesc("任务会写入这个标题下；未找到时自动创建。支持普通标题或 callout，例如 > [!todo]。")
             .addText((text) => text
                 .setPlaceholder("输入目标区块标题")
                 .setValue(this.plugin.settings.taskNoteSyncTargetBlockHeader)
@@ -112,20 +112,74 @@ export class SyncSettingsView extends AbstractSettingsView {
                     await this.plugin.saveSettings();
                 }));
 
-        new Setting(containerEl)
+        const rootFolderSetting = new Setting(containerEl)
             .setName("笔记保存位置")
-            .setDesc("自动创建任务汇总笔记的文件夹。留空则保存到仓库根目录。")
+            .setDesc("自动创建任务汇总笔记的根文件夹。留空则保存到仓库根目录。")
             .addText((text) => text
                 .setPlaceholder("DidaSync")
                 .setValue(this.plugin.settings.taskNoteSyncFolder || "DidaSync")
                 .onChange(async (value) => {
                     this.plugin.settings.taskNoteSyncFolder = value;
                     await this.plugin.saveSettings();
+                    rootFolderPreview.setText(`当前预览：${this.getTaskNoteRootFolderPreview()}`);
                 }));
+        const rootFolderPreview = this.appendSettingPreview(rootFolderSetting, `当前预览：${this.getTaskNoteRootFolderPreview()}`);
+
+        const dayPathSetting = new Setting(containerEl)
+            .setName("日记路径模式")
+            .setDesc("相对根文件夹的路径，可包含子文件夹。")
+            .addText((text) => text
+                .setPlaceholder("YYYY/日记/YYYY-MM-DD")
+                .setValue(this.plugin.settings.taskNoteSyncPathPatterns?.day || "")
+                .onChange(async (value) => {
+                    this.plugin.settings.taskNoteSyncPathPatterns.day = value;
+                    await this.plugin.saveSettings();
+                    dayPathPreview.setText(this.getTaskNotePathPreviewText("day"));
+                }));
+        const dayPathPreview = this.appendSettingPreview(dayPathSetting, this.getTaskNotePathPreviewText("day"));
+
+        const weekPathSetting = new Setting(containerEl)
+            .setName("周记路径模式")
+            .setDesc("相对根文件夹的路径，可包含子文件夹。支持 gggg、ww，并跟随“一周开始于”设置。")
+            .addText((text) => text
+                .setPlaceholder("gggg/周记/[W]ww")
+                .setValue(this.plugin.settings.taskNoteSyncPathPatterns?.week || "")
+                .onChange(async (value) => {
+                    this.plugin.settings.taskNoteSyncPathPatterns.week = value;
+                    await this.plugin.saveSettings();
+                    weekPathPreview.setText(this.getTaskNotePathPreviewText("week"));
+                }));
+        const weekPathPreview = this.appendSettingPreview(weekPathSetting, this.getTaskNotePathPreviewText("week"));
+
+        const monthPathSetting = new Setting(containerEl)
+            .setName("月记路径模式")
+            .setDesc("相对根文件夹的路径，可包含子文件夹。")
+            .addText((text) => text
+                .setPlaceholder("YYYY/月记/YYYY-MM")
+                .setValue(this.plugin.settings.taskNoteSyncPathPatterns?.month || "")
+                .onChange(async (value) => {
+                    this.plugin.settings.taskNoteSyncPathPatterns.month = value;
+                    await this.plugin.saveSettings();
+                    monthPathPreview.setText(this.getTaskNotePathPreviewText("month"));
+                }));
+        const monthPathPreview = this.appendSettingPreview(monthPathSetting, this.getTaskNotePathPreviewText("month"));
+
+        const yearPathSetting = new Setting(containerEl)
+            .setName("年记路径模式")
+            .setDesc("相对根文件夹的路径。")
+            .addText((text) => text
+                .setPlaceholder("YYYY")
+                .setValue(this.plugin.settings.taskNoteSyncPathPatterns?.year || "")
+                .onChange(async (value) => {
+                    this.plugin.settings.taskNoteSyncPathPatterns.year = value;
+                    await this.plugin.saveSettings();
+                    yearPathPreview.setText(this.getTaskNotePathPreviewText("year"));
+                }));
+        const yearPathPreview = this.appendSettingPreview(yearPathSetting, this.getTaskNotePathPreviewText("year"));
 
         new Setting(containerEl)
             .setName("默认每次生成新笔记")
-            .setDesc("开启后每次同步都会生成新笔记；关闭后默认写入同名笔记，不存在时再创建。")
+            .setDesc("开启后每次都新建；关闭后优先写入同名笔记，不存在时再创建。")
             .addToggle((toggle) => toggle
                 .setValue(this.plugin.settings.taskNoteSyncCreateNewFile)
                 .onChange(async (value) => {
@@ -135,7 +189,7 @@ export class SyncSettingsView extends AbstractSettingsView {
 
         new Setting(containerEl)
             .setName("一周开始于")
-            .setDesc("决定“某周”同步范围的起止日期。")
+            .setDesc("影响周记的起止日期，以及 gggg / ww 的编号结果。")
             .addDropdown((dropdown) => dropdown
                 .addOption("monday", "周一")
                 .addOption("sunday", "周日")
@@ -143,11 +197,12 @@ export class SyncSettingsView extends AbstractSettingsView {
                 .onChange(async (value) => {
                     this.plugin.settings.taskNoteSyncWeekStart = value as "monday" | "sunday";
                     await this.plugin.saveSettings();
+                    weekPathPreview.setText(this.getTaskNotePathPreviewText("week"));
                 }));
 
         new Setting(containerEl)
             .setName("同步前查询远端任务")
-            .setDesc("开启后会按所选时间段向滴答清单查询最新任务；关闭后只使用本地缓存。")
+            .setDesc("开启后先按时间范围查询滴答最新任务；关闭后仅使用本地缓存。")
             .addToggle((toggle) => toggle
                 .setValue(this.plugin.settings.taskNoteSyncUseRemoteQuery)
                 .onChange(async (value) => {
@@ -188,31 +243,40 @@ export class SyncSettingsView extends AbstractSettingsView {
                     });
             });
 
-        new Setting(containerEl)
-            .setName("文件名规则")
-            .setDesc("预留给后续模板扩展。当前留空即可，插件会按任务范围自动命名。")
-            .addText((text) => text
-                .setPlaceholder("留空使用默认规则")
-                .setValue(this.plugin.settings.taskNoteSyncFileNamePattern || "")
-                .onChange(async (value) => {
-                    this.plugin.settings.taskNoteSyncFileNamePattern = value;
-                    await this.plugin.saveSettings();
-                }));
     }
 
     getTaskNoteProjectScopePreviewText(): string {
         const scope = this.plugin.settings.taskNoteSyncProjectScope || "all";
-        if (scope === "all") return "同步任务到笔记时默认使用全部清单。";
+        if (scope === "all") return "同步到笔记时默认包含全部清单。";
         if (scope === "visible") {
             const visibleCount = this.plugin.getAvailableProjectConfigs()
                 .filter((project) => this.plugin.settings.showArchivedProjects || !project.isArchived)
                 .filter((project) => this.plugin.isProjectVisible(project.id, project.name))
                 .length;
-            return `同步任务到笔记时默认使用侧边栏可见清单（${visibleCount} 个）。`;
+            return `同步到笔记时默认包含侧边栏可见清单（${visibleCount} 个）。`;
         }
         const keys = Array.isArray(this.plugin.settings.taskNoteSyncProjectKeys)
             ? this.plugin.settings.taskNoteSyncProjectKeys
             : [];
-        return `同步任务到笔记时默认使用自定义清单（已选择 ${keys.length} 个）。`;
+        return `同步到笔记时默认包含自定义清单（已选择 ${keys.length} 个）。`;
+    }
+
+    getTaskNoteRootFolderPreview(): string {
+        const rootFolder = (this.plugin.settings.taskNoteSyncFolder || "").trim();
+        return rootFolder || "/";
+    }
+
+    getTaskNotePathPreviewText(rangeType: "day" | "week" | "month" | "year"): string {
+        const exampleDate = "2026-01-19";
+        const range = this.plugin.taskNoteSyncManager.createRange(rangeType, exampleDate);
+        const preview = this.plugin.taskNoteSyncManager.buildRelativeTargetPath(range);
+        return `当前预览：${preview}`;
+    }
+
+    appendSettingPreview(setting: Setting, text: string): HTMLDivElement {
+        return setting.descEl.createDiv({
+            cls: "dida-settings-preview dida-settings-preview--muted",
+            text
+        });
     }
 }

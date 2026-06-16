@@ -306,6 +306,16 @@
     color: #0066cc;
 }
 
+.dida-settings-preview {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.dida-settings-preview--muted {
+    color: var(--text-muted);
+}
+
 .dida-settings-config {
     margin: 10px 0;
 }

@@ -87,6 +87,13 @@ export interface PomodoroSettings {
     totalFocusMinutes: number;
 }
 
+export interface TaskNoteSyncPathPatterns {
+    day: string;
+    week: string;
+    month: string;
+    year: string;
+}
+
 export interface DidaSyncSettings {
     clientId: string;
     clientSecret: string;
@@ -118,7 +125,7 @@ export interface DidaSyncSettings {
     // Task note sync settings
     taskNoteSyncTargetBlockHeader: string;
     taskNoteSyncFolder: string;
-    taskNoteSyncFileNamePattern: string;
+    taskNoteSyncPathPatterns: TaskNoteSyncPathPatterns;
     taskNoteSyncCreateNewFile: boolean;
     taskNoteSyncWeekStart: "monday" | "sunday";
     taskNoteSyncUseRemoteQuery: boolean;
@@ -181,7 +188,12 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     enableNativeTaskSync: true,
     taskNoteSyncTargetBlockHeader: "> [!todo]",
     taskNoteSyncFolder: "DidaSync",
-    taskNoteSyncFileNamePattern: "",
+    taskNoteSyncPathPatterns: {
+        day: "",
+        week: "",
+        month: "",
+        year: ""
+    },
     taskNoteSyncCreateNewFile: false,
     taskNoteSyncWeekStart: "monday",
     taskNoteSyncUseRemoteQuery: true,

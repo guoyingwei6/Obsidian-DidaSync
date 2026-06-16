@@ -186,8 +186,9 @@ export default class DidaSyncPlugin extends Plugin {
         const legacySettings = this.settings as any;
         if (loadedSettings?.dailySyncTargetBlockHeader && !loadedSettings?.taskNoteSyncTargetBlockHeader) {
             this.settings.taskNoteSyncTargetBlockHeader = loadedSettings.dailySyncTargetBlockHeader;
-            delete legacySettings.dailySyncTargetBlockHeader;
         }
+        delete legacySettings.dailySyncTargetBlockHeader;
+        delete legacySettings.taskNoteSyncFileNamePattern;
         if (!this.settings.tasks) this.settings.tasks = [];
         this.settings.tasks.forEach(t => {
             if (t.content === undefined) t.content = "";
@@ -201,6 +202,14 @@ export default class DidaSyncPlugin extends Plugin {
         if (!Array.isArray(this.settings.hiddenProjectKeys)) this.settings.hiddenProjectKeys = [];
         if (!["all", "visible", "custom"].includes(this.settings.taskNoteSyncProjectScope)) this.settings.taskNoteSyncProjectScope = "all";
         if (!Array.isArray(this.settings.taskNoteSyncProjectKeys)) this.settings.taskNoteSyncProjectKeys = [];
+        if (!this.settings.taskNoteSyncPathPatterns || typeof this.settings.taskNoteSyncPathPatterns !== "object") {
+            this.settings.taskNoteSyncPathPatterns = { ...DEFAULT_SETTINGS.taskNoteSyncPathPatterns };
+        } else {
+            this.settings.taskNoteSyncPathPatterns = {
+                ...DEFAULT_SETTINGS.taskNoteSyncPathPatterns,
+                ...this.settings.taskNoteSyncPathPatterns
+            };
+        }
         if (!Array.isArray(this.settings.projectCatalog)) this.settings.projectCatalog = [];
         this.settings.projectCatalog = this.normalizeProjectCatalog(this.settings.projectCatalog);
         await this.ensureProjectCatalogFromTasks();
@@ -1063,6 +1072,7 @@ export default class DidaSyncPlugin extends Plugin {
             kind: task.kind || "TEXT",
             reminders: task.reminders || [],
             repeatFlag: task.repeatFlag || null,
+            priority: task.priority ?? 0,
             status: task.status || 0,
             completed: task.status === 2,
             completedTime: task.completedTime || null,
