@@ -1,7 +1,9 @@
 import { App, Modal, Notice, Setting, TFile } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { TaskNoteSyncRangeType } from "../managers/TaskNoteSyncManager";
+import { ProjectCatalogEntry } from "../types";
 import { DatePickerModal } from "./DatePickerModal";
+import { TaskNoteProjectPickerModal } from "./TaskNoteProjectPickerModal";
 
 export class TaskNoteSyncModal extends Modal {
     plugin: DidaSyncPlugin;
@@ -10,6 +12,8 @@ export class TaskNoteSyncModal extends Modal {
     baseDate = "";
     startDate = "";
     endDate = "";
+    projectScope: "all" | "visible" | "custom" = "all";
+    selectedProjectKeys: string[] = [];
     previewEl: HTMLElement | null = null;
 
     constructor(app: App, plugin: DidaSyncPlugin) {
@@ -28,6 +32,10 @@ export class TaskNoteSyncModal extends Modal {
         this.startDate = this.baseDate;
         this.endDate = this.baseDate;
         this.createNewFile = this.plugin.settings.taskNoteSyncCreateNewFile;
+        this.projectScope = this.plugin.settings.taskNoteSyncProjectScope || "all";
+        this.selectedProjectKeys = Array.isArray(this.plugin.settings.taskNoteSyncProjectKeys)
+            ? [...this.plugin.settings.taskNoteSyncProjectKeys]
+            : [];
         this.render();
     }
 
@@ -68,6 +76,25 @@ export class TaskNoteSyncModal extends Modal {
         }
 
         new Setting(contentEl)
+            .setName("清单来源")
+            .setDesc("选择要写入笔记的任务来源清单。")
+            .addDropdown((dropdown) => dropdown
+                .addOption("all", "全部清单")
+                .addOption("visible", "仅侧边栏可见清单")
+                .addOption("custom", "自定义清单")
+                .setValue(this.projectScope)
+                .onChange(async (value) => {
+                    this.projectScope = value as "all" | "visible" | "custom";
+                    this.plugin.settings.taskNoteSyncProjectScope = this.projectScope;
+                    await this.plugin.saveSettings();
+                    this.render();
+                }));
+
+        if (this.projectScope === "custom") {
+            this.renderProjectPickerEntry(contentEl);
+        }
+
+        new Setting(contentEl)
             .setName("每次生成新笔记")
             .setDesc("开启后不会复用旧文件，会自动追加序号创建新笔记。关闭后优先写入同名笔记，不存在时再创建。")
             .addToggle((toggle) => toggle
@@ -88,10 +115,16 @@ export class TaskNoteSyncModal extends Modal {
         syncButton.onclick = async () => {
             const range = this.buildRange();
             if (!range) return;
+            if (this.projectScope === "custom" && this.selectedProjectKeys.length === 0) {
+                new Notice("请至少选择一个清单");
+                return;
+            }
             this.close();
             await this.plugin.taskNoteSyncManager.syncTasksToNote({
                 range,
-                createNewFile: this.createNewFile
+                createNewFile: this.createNewFile,
+                projectScope: this.projectScope,
+                projectKeys: this.getSelectedProjectKeysForSync()
             });
         };
     }
@@ -119,6 +152,47 @@ export class TaskNoteSyncModal extends Modal {
                     ).open();
                 });
             });
+    }
+
+    renderProjectPickerEntry(containerEl: HTMLElement) {
+        const projects = this.getProjectOptions();
+        if (projects.length === 0) {
+            const empty = containerEl.createDiv("dida-settings-info");
+            empty.setText("暂无可选清单，请先同步任务。");
+            return;
+        }
+
+        new Setting(containerEl)
+            .setName("自定义清单")
+            .setDesc(`已选择 ${this.selectedProjectKeys.length} / ${projects.length} 个清单。`)
+            .addButton((button) => button
+                .setButtonText("选择清单")
+                .onClick(() => {
+                    new TaskNoteProjectPickerModal(this.app, this.plugin, this.selectedProjectKeys, (keys) => {
+                        this.selectedProjectKeys = keys;
+                        this.updatePreview();
+                    }).open();
+                }));
+    }
+
+    getProjectOptions(): ProjectCatalogEntry[] {
+        return this.plugin.getAvailableProjectConfigs()
+            .filter((project) => this.plugin.settings.showArchivedProjects || !project.isArchived);
+    }
+
+    async saveProjectSelection() {
+        this.plugin.settings.taskNoteSyncProjectKeys = [...this.selectedProjectKeys];
+        await this.plugin.saveSettings();
+    }
+
+    getSelectedProjectKeysForSync() {
+        if (this.projectScope === "all") return [];
+        if (this.projectScope === "visible") {
+            return this.getProjectOptions()
+                .filter((project) => this.plugin.isProjectVisible(project.id, project.name))
+                .map((project) => this.plugin.getProjectFilterKey(project.id, project.name));
+        }
+        return [...this.selectedProjectKeys];
     }
 
     buildRange() {
@@ -154,10 +228,22 @@ export class TaskNoteSyncModal extends Modal {
 
         const filePath = this.plugin.taskNoteSyncManager.buildTargetFilePath(range);
         const fileMode = this.createNewFile ? "生成新的笔记文件" : "写入同名笔记，若不存在则新建";
+        const projectLabel = this.getProjectScopePreviewText();
         this.previewEl.empty();
         this.previewEl.createDiv({ text: `任务范围：${range.startDate} 至 ${range.endDate}` });
+        this.previewEl.createDiv({ text: `清单来源：${projectLabel}` });
         this.previewEl.createDiv({ text: `写入方式：${fileMode}` });
         this.previewEl.createDiv({ text: `目标位置：${filePath}` });
+    }
+
+    getProjectScopePreviewText() {
+        if (this.projectScope === "all") return "全部清单";
+        const keys = this.getSelectedProjectKeysForSync();
+        if (this.projectScope === "visible") return `仅侧边栏可见清单（${keys.length} 个）`;
+        const names = this.getProjectOptions()
+            .filter((project) => keys.includes(this.plugin.getProjectFilterKey(project.id, project.name)))
+            .map((project) => project.name);
+        return names.length > 0 ? names.join("、") : "未选择清单";
     }
 
     onClose() {

@@ -14,6 +14,8 @@ export interface TaskNoteSyncRange {
 export interface TaskNoteSyncOptions {
     range: TaskNoteSyncRange;
     createNewFile?: boolean;
+    projectScope?: "all" | "visible" | "custom";
+    projectKeys?: string[];
 }
 
 interface ParsedTaskBlock {
@@ -40,7 +42,7 @@ export class TaskNoteSyncManager {
             const file = await this.resolveTargetFile(options);
             const targetHeader = this.plugin.settings.taskNoteSyncTargetBlockHeader;
             const isCallout = targetHeader.trim().startsWith(">");
-            const tasks = await this.getTasksForRange(options.range);
+            const tasks = await this.getTasksForRange(options.range, options.projectKeys || [], options.projectScope || "all");
             await this.smartAppendTasksToHeader(file, targetHeader, tasks, options.range, isCallout);
             await this.app.workspace.getLeaf(false).openFile(file);
         } catch (e) {
@@ -56,27 +58,38 @@ export class TaskNoteSyncManager {
         return await this.ensureMarkdownFile(path, this.buildInitialContent(options.range));
     }
 
-    async getTasksForRange(range: TaskNoteSyncRange): Promise<DidaTask[]> {
+    async getTasksForRange(range: TaskNoteSyncRange, projectKeys: string[] = [], projectScope: "all" | "visible" | "custom" = "all"): Promise<DidaTask[]> {
+        const shouldFilterProjects = projectScope !== "all";
+        const normalizedProjectKeys = Array.isArray(projectKeys) ? projectKeys.filter(Boolean) : [];
+        if (shouldFilterProjects && normalizedProjectKeys.length === 0) return [];
+
         if (this.plugin.settings.taskNoteSyncUseRemoteQuery && this.plugin.settings.accessToken) {
             try {
                 const start = this.parseDateOnly(range.startDate);
                 start.setHours(0, 0, 0, 0);
                 const end = this.parseDateOnly(range.endDate);
                 end.setHours(23, 59, 59, 999);
+                const projectIds = shouldFilterProjects
+                    ? normalizedProjectKeys
+                        .filter((key) => key.startsWith("id:"))
+                        .map((key) => key.substring(3))
+                        .filter(Boolean)
+                    : [];
                 const remoteTasks = await this.plugin.apiClient.filterTasks({
+                    projectIds,
                     startDate: this.plugin.formatDidaDateTime(start),
                     endDate: this.plugin.formatDidaDateTime(end)
                 });
                 const normalized = Array.isArray(remoteTasks)
                     ? remoteTasks.map((task) => this.plugin.normalizeRemoteTask(task))
                     : [];
-                return this.selectTasksForRange(normalized, range);
+                return this.selectTasksForRange(normalized, range, normalizedProjectKeys, shouldFilterProjects);
             } catch (e) {
                 console.error(e);
                 new Notice("主动查询任务失败，已改用本地缓存任务");
             }
         }
-        return this.selectTasksForRange(this.plugin.settings.tasks || [], range);
+        return this.selectTasksForRange(this.plugin.settings.tasks || [], range, normalizedProjectKeys, shouldFilterProjects);
     }
 
     buildInitialContent(range: TaskNoteSyncRange): string {
@@ -315,11 +328,12 @@ export class TaskNoteSyncManager {
         return { type, startDate: this.formatDateOnly(start), endDate: this.formatDateOnly(end) };
     }
 
-    selectTasksForRange(tasks: DidaTask[], range: TaskNoteSyncRange): DidaTask[] {
+    selectTasksForRange(tasks: DidaTask[], range: TaskNoteSyncRange, projectKeys: string[] = [], shouldFilterProjects = false): DidaTask[] {
         const start = this.parseDateOnly(range.startDate).getTime();
         const end = this.parseDateOnly(range.endDate).getTime();
         return tasks
             .filter(task => {
+                if (shouldFilterProjects && !this.matchesProjectFilter(task, projectKeys)) return false;
                 const taskDate = this.getTaskLocalDate(task);
                 if (!taskDate) return false;
                 const time = this.parseDateOnly(taskDate).getTime();
@@ -331,6 +345,12 @@ export class TaskNoteSyncManager {
                 if (da !== db) return da.localeCompare(db);
                 return (a.title || "").localeCompare(b.title || "");
             });
+    }
+
+    matchesProjectFilter(task: DidaTask, projectKeys: string[]) {
+        if (!Array.isArray(projectKeys) || projectKeys.length === 0) return false;
+        const info = this.plugin.resolveTaskProjectInfo(task);
+        return this.plugin.getProjectFilterKeyAliases(info.id, info.name).some((key) => projectKeys.includes(key));
     }
 
     getTaskLocalDate(task: DidaTask): string | null {

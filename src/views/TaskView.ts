@@ -1368,6 +1368,7 @@ export class TaskView extends ItemView {
                     this.plugin.getAvailableProjectConfigs().forEach((project) => {
                         if (!project || !project.name) return;
                         if (!this.plugin.settings.showArchivedProjects && project.isArchived) return;
+                        if (!this.plugin.isProjectVisible(project.id, project.name)) return;
                         if (this.searchQuery && this.searchQuery.trim()) {
                             const query = this.searchQuery.toLowerCase().trim();
                             if (!project.name.toLowerCase().includes(query)) return;
@@ -1387,28 +1388,13 @@ export class TaskView extends ItemView {
                 tasks.forEach((task) => {
                     if (!task.parentId && task.status !== 2) {
                         task.content = typeof task.content === "string" ? task.content : (task.content || "");
-                        let projectName = "本地任务";
-                        let projectId = "local";
-
-                        if (task.projectName && task.projectId) {
-                            projectName = task.projectName;
-                            projectId = task.projectId;
-                        } else if (task.projectId) {
-                            if (task.projectId === "inbox" || task.projectId.includes("inbox")) {
-                                projectName = "收集箱";
-                                projectId = "inbox";
-                            } else {
-                                projectName = task.projectId;
-                                projectId = task.projectId;
-                            }
-                        } else if (task.projectName) {
-                            projectName = task.projectName;
-                            projectId = task.projectId || "inbox";
-                        }
-
-                        const isArchived = task.projectClosed === true;
+                        const projectInfo = this.plugin.resolveTaskProjectInfo(task);
+                        const projectName = projectInfo.name;
+                        const projectId = projectInfo.id;
+                        const isArchived = projectInfo.isArchived;
 
                         if (this.plugin.settings.showArchivedProjects || !isArchived) {
+                            if (!this.plugin.isProjectVisible(projectId, projectName)) return;
                             // Filter logic
                             if (this.dateFilter) {
                                 const today = new Date();
@@ -1448,7 +1434,7 @@ export class TaskView extends ItemView {
                                     name: projectName,
                                     id: projectId,
                                     isArchived: isArchived,
-                                    isLocalOnly: !projectId || projectId === "local"
+                                    isLocalOnly: projectInfo.isLocalOnly
                                 });
                             }
                             projectMap.get(projectName).push(task);
@@ -2865,20 +2851,9 @@ export class TaskView extends ItemView {
         const projectMap = new Map<string, boolean>();
         this.plugin.settings.tasks.forEach(task => {
             if (!task.parentId && task.status !== 2) {
-                let pName = "本地任务";
-                if (task.projectName && task.projectId) {
-                    pName = task.projectName;
-                } else if (task.projectId) {
-                    if (task.projectId === "inbox" || task.projectId.includes("inbox")) {
-                        pName = "收集箱";
-                    } else {
-                        pName = task.projectId;
-                    }
-                } else if (task.projectName) {
-                    pName = task.projectName;
-                }
-
-                if (this.plugin.settings.showArchivedProjects || task.projectClosed !== true) {
+                const projectInfo = this.plugin.resolveTaskProjectInfo(task);
+                const pName = projectInfo.name;
+                if ((this.plugin.settings.showArchivedProjects || projectInfo.isArchived !== true) && this.plugin.isProjectVisible(projectInfo.id, projectInfo.name)) {
                     if (!projectMap.has(pName)) {
                         projectMap.set(pName, true);
                     }

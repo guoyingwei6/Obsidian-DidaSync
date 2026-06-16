@@ -1,5 +1,7 @@
 import { App, Setting } from "obsidian";
 import DidaSyncPlugin from "../../main";
+import { ProjectVisibilityModal } from "../../modals/ProjectVisibilityModal";
+import { TaskNoteProjectPickerModal } from "../../modals/TaskNoteProjectPickerModal";
 import { AbstractSettingsView } from "./abstract-settings-view";
 
 export class SyncSettingsView extends AbstractSettingsView {
@@ -32,6 +34,29 @@ export class SyncSettingsView extends AbstractSettingsView {
                     this.plugin.settings.showArchivedProjects = value === "true";
                     await this.plugin.saveSettings();
                     this.plugin.refreshTaskView();
+                }));
+
+        containerEl.createEl("h3", { text: "清单显示设置" });
+
+        const projectVisibilityInfo = containerEl.createDiv("dida-settings-info dida-settings-info--primary");
+        projectVisibilityInfo.setText("隐藏后的清单不会出现在侧边栏任务清单中，也可以在导入笔记时选择仅同步侧边栏可见清单。");
+
+        const configurableProjects = this.plugin.getAvailableProjectConfigs()
+            .filter((project) => this.plugin.settings.showArchivedProjects || !project.isArchived)
+            .filter((project) => !this.plugin.isInboxProject(project.id, project.name));
+        const hiddenCount = configurableProjects
+            .filter((project) => !this.plugin.isProjectVisible(project.id, project.name))
+            .length;
+        new Setting(containerEl)
+            .setName("清单显示")
+            .setDesc(`收集箱固定显示；当前隐藏 ${hiddenCount} / ${configurableProjects.length} 个清单。`)
+            .addButton((button) => button
+                .setButtonText("管理清单显示")
+                .onClick(() => {
+                    new ProjectVisibilityModal(this.app, this.plugin, () => {
+                        containerEl.empty();
+                        this.render(containerEl);
+                    }).open();
                 }));
 
         new Setting(containerEl)
@@ -131,6 +156,39 @@ export class SyncSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
+            .setName("默认清单来源")
+            .setDesc(this.getTaskNoteProjectScopePreviewText())
+            .addDropdown((dropdown) => dropdown
+                .addOption("all", "全部清单")
+                .addOption("visible", "仅侧边栏可见清单")
+                .addOption("custom", "自定义清单")
+                .setValue(this.plugin.settings.taskNoteSyncProjectScope || "all")
+                .onChange(async (value) => {
+                    this.plugin.settings.taskNoteSyncProjectScope = value as "all" | "visible" | "custom";
+                    await this.plugin.saveSettings();
+                    containerEl.empty();
+                    this.render(containerEl);
+                }))
+            .addButton((button) => {
+                const isCustom = this.plugin.settings.taskNoteSyncProjectScope === "custom";
+                button
+                    .setButtonText("选择清单")
+                    .setDisabled(!isCustom)
+                    .onClick(() => {
+                        if (!isCustom) return;
+                        new TaskNoteProjectPickerModal(
+                            this.app,
+                            this.plugin,
+                            this.plugin.settings.taskNoteSyncProjectKeys || [],
+                            () => {
+                                containerEl.empty();
+                                this.render(containerEl);
+                            }
+                        ).open();
+                    });
+            });
+
+        new Setting(containerEl)
             .setName("文件名规则")
             .setDesc("预留给后续模板扩展。当前留空即可，插件会按任务范围自动命名。")
             .addText((text) => text
@@ -140,5 +198,21 @@ export class SyncSettingsView extends AbstractSettingsView {
                     this.plugin.settings.taskNoteSyncFileNamePattern = value;
                     await this.plugin.saveSettings();
                 }));
+    }
+
+    getTaskNoteProjectScopePreviewText(): string {
+        const scope = this.plugin.settings.taskNoteSyncProjectScope || "all";
+        if (scope === "all") return "同步任务到笔记时默认使用全部清单。";
+        if (scope === "visible") {
+            const visibleCount = this.plugin.getAvailableProjectConfigs()
+                .filter((project) => this.plugin.settings.showArchivedProjects || !project.isArchived)
+                .filter((project) => this.plugin.isProjectVisible(project.id, project.name))
+                .length;
+            return `同步任务到笔记时默认使用侧边栏可见清单（${visibleCount} 个）。`;
+        }
+        const keys = Array.isArray(this.plugin.settings.taskNoteSyncProjectKeys)
+            ? this.plugin.settings.taskNoteSyncProjectKeys
+            : [];
+        return `同步任务到笔记时默认使用自定义清单（已选择 ${keys.length} 个）。`;
     }
 }
