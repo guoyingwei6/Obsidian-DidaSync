@@ -194,6 +194,9 @@ export default class DidaSyncPlugin extends Plugin {
         if (this.settings.autoCleanInterval === undefined) this.settings.autoCleanInterval = 1;
         if (this.settings.projectCollapsedStates === undefined) this.settings.projectCollapsedStates = {};
         if (!this.settings.projectIcons || typeof this.settings.projectIcons !== "object") this.settings.projectIcons = {};
+        if (!Array.isArray(this.settings.hiddenProjectKeys)) this.settings.hiddenProjectKeys = [];
+        if (!["all", "visible", "custom"].includes(this.settings.taskNoteSyncProjectScope)) this.settings.taskNoteSyncProjectScope = "all";
+        if (!Array.isArray(this.settings.taskNoteSyncProjectKeys)) this.settings.taskNoteSyncProjectKeys = [];
         if (!Array.isArray(this.settings.projectCatalog)) this.settings.projectCatalog = [];
         this.settings.projectCatalog = this.normalizeProjectCatalog(this.settings.projectCatalog);
         await this.ensureProjectCatalogFromTasks();
@@ -408,6 +411,73 @@ export default class DidaSyncPlugin extends Plugin {
             : `name:${(projectName || "").trim()}`;
     }
 
+    getProjectFilterKey(projectId: string, projectName: string) {
+        return this.getProjectIconConfigKey(projectId, projectName);
+    }
+
+    getProjectFilterKeyAliases(projectId: string, projectName: string) {
+        const aliases = new Set<string>();
+        const id = typeof projectId === "string" ? projectId.trim() : "";
+        const name = typeof projectName === "string" ? projectName.trim() : "";
+        if (id) aliases.add(`id:${id}`);
+        if (name) aliases.add(`name:${name}`);
+        aliases.add(this.getProjectFilterKey(id, name));
+        return Array.from(aliases).filter(Boolean);
+    }
+
+    isProjectHidden(projectId: string, projectName: string) {
+        const hidden = Array.isArray(this.settings.hiddenProjectKeys) ? this.settings.hiddenProjectKeys : [];
+        if (hidden.length === 0) return false;
+        return this.getProjectFilterKeyAliases(projectId, projectName).some((key) => hidden.includes(key));
+    }
+
+    isProjectVisible(projectId: string, projectName: string) {
+        return !this.isProjectHidden(projectId, projectName);
+    }
+
+    async setProjectHidden(projectId: string, projectName: string, hidden: boolean) {
+        if (!Array.isArray(this.settings.hiddenProjectKeys)) this.settings.hiddenProjectKeys = [];
+        const aliases = this.getProjectFilterKeyAliases(projectId, projectName);
+        const next = new Set(this.settings.hiddenProjectKeys.filter((key) => !aliases.includes(key)));
+        if (hidden) next.add(this.getProjectFilterKey(projectId, projectName));
+        this.settings.hiddenProjectKeys = Array.from(next);
+        await this.saveSettings();
+        this.refreshTaskView();
+    }
+
+    getTaskProjectFilterKey(task: DidaTask) {
+        const info = this.resolveTaskProjectInfo(task);
+        return this.getProjectFilterKey(info.id, info.name);
+    }
+
+    resolveTaskProjectInfo(task: DidaTask) {
+        let projectName = "本地任务";
+        let projectId = "local";
+
+        if (task.projectName && task.projectId) {
+            projectName = task.projectName;
+            projectId = task.projectId;
+        } else if (task.projectId) {
+            if (task.projectId === "inbox" || task.projectId.includes("inbox")) {
+                projectName = "收集箱";
+                projectId = "inbox";
+            } else {
+                projectName = task.projectId;
+                projectId = task.projectId;
+            }
+        } else if (task.projectName) {
+            projectName = task.projectName;
+            projectId = task.projectId || "inbox";
+        }
+
+        return {
+            id: projectId,
+            name: projectName,
+            isArchived: task.projectClosed === true,
+            isLocalOnly: !projectId || projectId === "local"
+        };
+    }
+
     // [Deprecated] 项目图标功能已移除，保留方法以保持向后兼容
     getProjectDefaultIconName(projectName: string) {
         return projectName === "收集箱" ? "inbox" : "list-checks";
@@ -474,6 +544,12 @@ export default class DidaSyncPlugin extends Plugin {
             item.setTitle("设置项目图标")
                 .setIcon("folder")
                 .onClick(() => this.openProjectIconPicker(project));
+        });
+        const hidden = this.isProjectHidden(project.id, project.name);
+        menu.addItem((item) => {
+            item.setTitle(hidden ? "在侧边栏显示" : "从侧边栏隐藏")
+                .setIcon(hidden ? "eye" : "eye-off")
+                .onClick(() => this.setProjectHidden(project.id, project.name, !hidden));
         });
         menu.addItem((item) => {
             item.setTitle("新增项目标题")
@@ -741,6 +817,11 @@ export default class DidaSyncPlugin extends Plugin {
             delete this.settings.projectIcons[idKey];
             delete this.settings.projectIcons[nameKey];
         }
+        if (Array.isArray(this.settings.hiddenProjectKeys)) {
+            const idKey = this.getProjectFilterKey(id, name);
+            const nameKey = this.getProjectFilterKey("", name);
+            this.settings.hiddenProjectKeys = this.settings.hiddenProjectKeys.filter((value) => value !== idKey && value !== nameKey);
+        }
         await this.saveSettings();
     }
 
@@ -832,6 +913,11 @@ export default class DidaSyncPlugin extends Plugin {
         }
         if (Array.isArray(this.settings.projectOrder)) {
             this.settings.projectOrder = this.settings.projectOrder.map((value) => value === oldName ? nextName : value);
+        }
+        if (!hasId && Array.isArray(this.settings.hiddenProjectKeys)) {
+            const oldKey = this.getProjectFilterKey("", oldName);
+            const newKey = this.getProjectFilterKey("", nextName);
+            this.settings.hiddenProjectKeys = this.settings.hiddenProjectKeys.map((value) => value === oldKey ? newKey : value);
         }
         if (!hasId && this.settings.projectIcons) {
             const oldKey = this.getProjectIconConfigKey("", oldName);

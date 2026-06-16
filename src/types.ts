@@ -98,6 +98,7 @@ export interface DidaSyncSettings {
 
     projectCatalog: ProjectCatalogEntry[];
     projectIcons: { [key: string]: string };
+    hiddenProjectKeys: string[];
 
     autoSync: boolean;
     syncInterval: number; // in minutes
@@ -121,6 +122,8 @@ export interface DidaSyncSettings {
     taskNoteSyncCreateNewFile: boolean;
     taskNoteSyncWeekStart: "monday" | "sunday";
     taskNoteSyncUseRemoteQuery: boolean;
+    taskNoteSyncProjectScope: "all" | "visible" | "custom";
+    taskNoteSyncProjectKeys: string[];
 
     // UI Settings
     projectCollapsedStates: { [key: string]: boolean };
@@ -163,6 +166,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     projects: [],
     projectCatalog: [],
     projectIcons: {},
+    hiddenProjectKeys: [],
     autoSync: true,
     syncInterval: 5,
     serverPort: 8080,
@@ -181,6 +185,8 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     taskNoteSyncCreateNewFile: false,
     taskNoteSyncWeekStart: "monday",
     taskNoteSyncUseRemoteQuery: true,
+    taskNoteSyncProjectScope: "all",
+    taskNoteSyncProjectKeys: [],
     projectCollapsedStates: {},
     projectOrder: [],
     defaultViewMode: "task",
