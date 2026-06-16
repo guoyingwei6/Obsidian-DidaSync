@@ -89,6 +89,9 @@ export default class DidaSyncPlugin extends Plugin {
         this.addRibbonIcon("calendar-check", "滴答时间线视图", () => {
             this.showTimelineView();
         });
+        this.addRibbonIcon("list-plus", "同步任务到笔记", () => {
+            this.showTaskNoteSyncModal();
+        });
 
         this.addCommand({
             id: 'open-dida-task-view',
@@ -147,6 +150,7 @@ export default class DidaSyncPlugin extends Plugin {
             }
         });
 
+        this.registerTaskNoteSyncMenuEntrypoints();
         this.initializePluginFeatures();
         this.mcpServerManager.start().catch((e) => this.mcpServerManager.notifyStartupError(e));
     }
@@ -1094,8 +1098,31 @@ export default class DidaSyncPlugin extends Plugin {
         new CompletedTasksModal(this.app, this).open();
     }
 
-    showTaskNoteSyncModal() {
-        new TaskNoteSyncModal(this.app, this).open();
+    showTaskNoteSyncModal(sourceFile?: TFile | null) {
+        new TaskNoteSyncModal(this.app, this, sourceFile || null).open();
+    }
+
+    registerTaskNoteSyncMenuEntrypoints() {
+        this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
+            if (!(file instanceof TFile) || file.extension !== "md") return;
+            menu.addItem((item) => {
+                item
+                    .setTitle("同步任务到笔记")
+                    .setIcon("list-plus")
+                    .onClick(() => this.showTaskNoteSyncModal(file));
+            });
+        }));
+
+        this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
+            const file = view?.file;
+            if (!(file instanceof TFile) || file.extension !== "md") return;
+            menu.addItem((item) => {
+                item
+                    .setTitle("同步任务到笔记")
+                    .setIcon("list-plus")
+                    .onClick(() => this.showTaskNoteSyncModal(file));
+            });
+        }));
     }
 
     async restoreCompletedTask(task: DidaTask) {

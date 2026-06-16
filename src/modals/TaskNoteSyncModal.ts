@@ -7,6 +7,7 @@ import { TaskNoteProjectPickerModal } from "./TaskNoteProjectPickerModal";
 
 export class TaskNoteSyncModal extends Modal {
     plugin: DidaSyncPlugin;
+    sourceFile: TFile | null;
     rangeType: TaskNoteSyncRangeType = "day";
     createNewFile = false;
     baseDate = "";
@@ -16,16 +17,17 @@ export class TaskNoteSyncModal extends Modal {
     selectedProjectKeys: string[] = [];
     previewEl: HTMLElement | null = null;
 
-    constructor(app: App, plugin: DidaSyncPlugin) {
+    constructor(app: App, plugin: DidaSyncPlugin, sourceFile: TFile | null = null) {
         super(app);
         this.plugin = plugin;
+        this.sourceFile = sourceFile;
     }
 
     async onOpen() {
         const today = this.plugin.taskNoteSyncManager.formatDateOnly(new Date());
-        const activeFile = this.app.workspace.getActiveFile();
-        const targetDate = activeFile instanceof TFile
-            ? await this.plugin.taskNoteSyncManager.resolveTargetDate(activeFile)
+        const targetFile = this.sourceFile || this.app.workspace.getActiveFile();
+        const targetDate = targetFile instanceof TFile
+            ? await this.plugin.taskNoteSyncManager.resolveTargetDate(targetFile)
             : null;
 
         this.baseDate = targetDate || today;
