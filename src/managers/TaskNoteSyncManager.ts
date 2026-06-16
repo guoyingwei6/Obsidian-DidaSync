@@ -1,6 +1,26 @@
 import { App, normalizePath, Notice, TFile } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { formatTaskLineFromTask, parseTaskLine } from "../taskLineFormat";
+import {
+    resolveTaskNoteContextFromFrontmatter,
+    resolveTaskNoteContextFromLegacyDate,
+    resolveTaskNoteContextFromLegacyFileName,
+    resolveTaskNoteContextFromTitle,
+    TaskNoteResolvedContext
+} from "../taskNoteContext";
+import {
+    buildDefaultTaskNoteFileName,
+    buildTaskNoteRelativePath,
+    buildTaskNoteTargetFilePath,
+    ensureMarkdownExtension,
+    formatDateOnly,
+    getTaskNotePathPattern,
+    getTaskNoteWeekRange,
+    getTaskNoteWeekStem,
+    getTaskNoteWeekInfo,
+    parseDateOnly,
+    renderTaskNotePathPattern
+} from "../taskNotePath";
 import { DidaTask } from "../types";
 
 export type TaskNoteSyncRangeType = "day" | "week" | "month" | "year" | "custom";
@@ -16,6 +36,13 @@ export interface TaskNoteSyncOptions {
     createNewFile?: boolean;
     projectScope?: "all" | "visible" | "custom";
     projectKeys?: string[];
+}
+
+export interface TaskNoteSyncResolvedContext {
+    rangeType: TaskNoteSyncRangeType;
+    baseDate: string;
+    startDate: string;
+    endDate: string;
 }
 
 interface ParsedTaskBlock {
@@ -93,13 +120,32 @@ export class TaskNoteSyncManager {
     }
 
     buildInitialContent(range: TaskNoteSyncRange): string {
-        return `# ${this.getRangeTitle(range)}\n\n${this.plugin.settings.taskNoteSyncTargetBlockHeader}\n`;
+        return [
+            "---",
+            `didaSyncRangeType: ${range.type}`,
+            `didaSyncStartDate: ${range.startDate}`,
+            `didaSyncEndDate: ${range.endDate}`,
+            "---",
+            `# ${this.getRangeTitle(range)}`,
+            "",
+            this.plugin.settings.taskNoteSyncTargetBlockHeader,
+            ""
+        ].join("\n");
     }
 
     buildTargetFilePath(range: TaskNoteSyncRange): string {
-        const folder = normalizePath((this.plugin.settings.taskNoteSyncFolder || "DidaSync").trim());
-        const fileName = this.buildTargetFileName(range);
-        return folder ? normalizePath(`${folder}/${fileName}`) : fileName;
+        return buildTaskNoteTargetFilePath(range, {
+            rootFolder: this.plugin.settings.taskNoteSyncFolder || "DidaSync",
+            weekStart: this.plugin.settings.taskNoteSyncWeekStart || "monday",
+            pathPatterns: this.plugin.settings.taskNoteSyncPathPatterns
+        });
+    }
+
+    buildRelativeTargetPath(range: TaskNoteSyncRange): string {
+        return buildTaskNoteRelativePath(range, {
+            weekStart: this.plugin.settings.taskNoteSyncWeekStart || "monday",
+            pathPatterns: this.plugin.settings.taskNoteSyncPathPatterns
+        });
     }
 
     async buildUniqueTargetFilePath(range: TaskNoteSyncRange): Promise<string> {
@@ -116,11 +162,19 @@ export class TaskNoteSyncManager {
     }
 
     buildTargetFileName(range: TaskNoteSyncRange): string {
-        if (range.type === "day") return `${range.startDate}.md`;
-        if (range.type === "week") return `${this.getIsoWeekFileStem(range.startDate)}.md`;
-        if (range.type === "month") return `${range.startDate.slice(0, 7)}.md`;
-        if (range.type === "year") return `${range.startDate.slice(0, 4)}.md`;
-        return `${range.startDate}_to_${range.endDate}.md`;
+        return buildDefaultTaskNoteFileName(range, this.plugin.settings.taskNoteSyncWeekStart || "monday");
+    }
+
+    getPathPatternForRange(range: TaskNoteSyncRange): string {
+        return getTaskNotePathPattern(range.type, this.plugin.settings.taskNoteSyncPathPatterns);
+    }
+
+    renderPathPattern(range: TaskNoteSyncRange, pattern: string): string {
+        return renderTaskNotePathPattern(range, pattern, this.plugin.settings.taskNoteSyncWeekStart || "monday");
+    }
+
+    ensureMarkdownExtension(path: string): string {
+        return ensureMarkdownExtension(path);
     }
 
     async ensureMarkdownFile(path: string, initialContent: string): Promise<TFile> {
@@ -283,33 +337,34 @@ export class TaskNoteSyncManager {
         return this.normalizeTitle(text);
     }
 
-    async resolveTargetDate(file: TFile): Promise<string | null> {
-        const nameMatch = file.basename.match(/^(\d{4}-\d{2}-\d{2})/);
-        if (nameMatch) return nameMatch[1];
-
+    async resolveTargetContext(file: TFile): Promise<TaskNoteSyncResolvedContext | null> {
         const cache = this.app.metadataCache.getFileCache(file);
-        if (cache && cache.frontmatter) {
-            const rawDate = cache.frontmatter.date || cache.frontmatter.data;
-            if (rawDate) {
-                const d = new Date(rawDate);
-                if (!isNaN(d.getTime())) return this.formatDateOnly(d);
-            }
-        }
+        const frontmatterContext = resolveTaskNoteContextFromFrontmatter(cache?.frontmatter);
+        if (frontmatterContext) return this.toResolvedContext(frontmatterContext);
+
+        const content = await this.app.vault.cachedRead(file);
+        const titleContext = this.parseRangeContextFromContent(content);
+        if (titleContext) return titleContext;
+
+        const fileNameContext = resolveTaskNoteContextFromLegacyFileName(file.basename);
+        if (fileNameContext) return this.toResolvedContext(fileNameContext);
+
+        const legacyDateContext = resolveTaskNoteContextFromLegacyDate(cache?.frontmatter?.date || cache?.frontmatter?.data);
+        if (legacyDateContext) return this.toResolvedContext(legacyDateContext);
 
         return null;
+    }
+
+    async resolveTargetDate(file: TFile): Promise<string | null> {
+        const context = await this.resolveTargetContext(file);
+        return context ? context.baseDate : null;
     }
 
     createRange(type: TaskNoteSyncRangeType, baseDate: string, endDate?: string): TaskNoteSyncRange {
         const base = this.parseDateOnly(baseDate);
         if (type === "day") return { type, startDate: baseDate, endDate: baseDate };
         if (type === "week") {
-            const weekStartsOnSunday = this.plugin.settings.taskNoteSyncWeekStart === "sunday";
-            const day = weekStartsOnSunday ? base.getDay() : (base.getDay() || 7) - 1;
-            const start = new Date(base);
-            start.setDate(base.getDate() - day);
-            const end = new Date(start);
-            end.setDate(start.getDate() + 6);
-            return { type, startDate: this.formatDateOnly(start), endDate: this.formatDateOnly(end) };
+            return { type, ...getTaskNoteWeekRange(baseDate, this.plugin.settings.taskNoteSyncWeekStart || "monday") };
         }
         if (type === "month") {
             const start = new Date(base.getFullYear(), base.getMonth(), 1);
@@ -436,32 +491,42 @@ export class TaskNoteSyncManager {
 
     getRangeTitle(range: TaskNoteSyncRange): string {
         if (range.type === "day") return range.startDate;
-        if (range.type === "week") return this.getIsoWeekFileStem(range.startDate);
+        if (range.type === "week") return this.getWeekStem(range.startDate);
         if (range.type === "month") return range.startDate.slice(0, 7);
         if (range.type === "year") return range.startDate.slice(0, 4);
         return `${range.startDate} to ${range.endDate}`;
     }
 
-    getIsoWeekFileStem(dateStr: string): string {
-        const date = this.parseDateOnly(dateStr);
-        const utc = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-        const day = utc.getUTCDay() || 7;
-        utc.setUTCDate(utc.getUTCDate() + 4 - day);
-        const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
-        const week = Math.ceil((((utc.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-        return `${utc.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+    getWeekStem(dateStr: string): string {
+        return getTaskNoteWeekStem(dateStr, this.plugin.settings.taskNoteSyncWeekStart || "monday");
+    }
+
+    getWeekPatternInfo(dateStr: string): { year: number; week: number } {
+        return getTaskNoteWeekInfo(dateStr, this.plugin.settings.taskNoteSyncWeekStart || "monday");
     }
 
     parseDateOnly(dateStr: string): Date {
-        const [year, month, day] = dateStr.split("-").map(Number);
-        return new Date(year, month - 1, day);
+        return parseDateOnly(dateStr);
     }
 
     formatDateOnly(date: Date): string {
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, "0");
-        const d = String(date.getDate()).padStart(2, "0");
-        return `${y}-${m}-${d}`;
+        return formatDateOnly(date);
+    }
+
+    parseRangeContextFromContent(content: string): TaskNoteSyncResolvedContext | null {
+        const match = content.match(/^#\s+(.+)$/m);
+        if (!match) return null;
+        const context = resolveTaskNoteContextFromTitle(match[1].trim(), this.plugin.settings.taskNoteSyncWeekStart || "monday");
+        return context ? this.toResolvedContext(context) : null;
+    }
+
+    toResolvedContext(context: TaskNoteResolvedContext): TaskNoteSyncResolvedContext {
+        return {
+            rangeType: context.rangeType,
+            baseDate: context.baseDate,
+            startDate: context.startDate,
+            endDate: context.endDate
+        };
     }
 
     normalizeTitle(title: string): string {

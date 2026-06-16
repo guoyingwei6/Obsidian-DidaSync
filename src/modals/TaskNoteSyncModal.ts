@@ -26,13 +26,14 @@ export class TaskNoteSyncModal extends Modal {
     async onOpen() {
         const today = this.plugin.taskNoteSyncManager.formatDateOnly(new Date());
         const targetFile = this.sourceFile || this.app.workspace.getActiveFile();
-        const targetDate = targetFile instanceof TFile
-            ? await this.plugin.taskNoteSyncManager.resolveTargetDate(targetFile)
+        const targetContext = targetFile instanceof TFile
+            ? await this.plugin.taskNoteSyncManager.resolveTargetContext(targetFile)
             : null;
 
-        this.baseDate = targetDate || today;
-        this.startDate = this.baseDate;
-        this.endDate = this.baseDate;
+        this.rangeType = targetContext?.rangeType || "day";
+        this.baseDate = targetContext?.baseDate || today;
+        this.startDate = targetContext?.startDate || this.baseDate;
+        this.endDate = targetContext?.endDate || this.baseDate;
         this.createNewFile = this.plugin.settings.taskNoteSyncCreateNewFile;
         this.projectScope = this.plugin.settings.taskNoteSyncProjectScope || "all";
         this.selectedProjectKeys = Array.isArray(this.plugin.settings.taskNoteSyncProjectKeys)
