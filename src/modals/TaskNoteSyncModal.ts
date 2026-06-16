@@ -3,6 +3,7 @@ import DidaSyncPlugin from "../main";
 import { TaskNoteSyncRangeType } from "../managers/TaskNoteSyncManager";
 import { ProjectCatalogEntry } from "../types";
 import { DatePickerModal } from "./DatePickerModal";
+import { TaskNoteProjectPickerModal } from "./TaskNoteProjectPickerModal";
 
 export class TaskNoteSyncModal extends Modal {
     plugin: DidaSyncPlugin;
@@ -90,7 +91,7 @@ export class TaskNoteSyncModal extends Modal {
                 }));
 
         if (this.projectScope === "custom") {
-            this.renderProjectPicker(contentEl);
+            this.renderProjectPickerEntry(contentEl);
         }
 
         new Setting(contentEl)
@@ -153,7 +154,7 @@ export class TaskNoteSyncModal extends Modal {
             });
     }
 
-    renderProjectPicker(containerEl: HTMLElement) {
+    renderProjectPickerEntry(containerEl: HTMLElement) {
         const projects = this.getProjectOptions();
         if (projects.length === 0) {
             const empty = containerEl.createDiv("dida-settings-info");
@@ -161,44 +162,17 @@ export class TaskNoteSyncModal extends Modal {
             return;
         }
 
-        const controls = new Setting(containerEl)
+        new Setting(containerEl)
             .setName("自定义清单")
-            .setDesc("勾选需要同步到笔记的清单。");
-        controls.addButton((button) => button
-            .setButtonText("全选")
-            .onClick(async () => {
-                this.selectedProjectKeys = projects.map((project) => this.plugin.getProjectFilterKey(project.id, project.name));
-                await this.saveProjectSelection();
-                this.render();
-            }));
-        controls.addButton((button) => button
-            .setButtonText("清空")
-            .onClick(async () => {
-                this.selectedProjectKeys = [];
-                await this.saveProjectSelection();
-                this.render();
-            }));
-
-        projects.forEach((project) => {
-            const key = this.plugin.getProjectFilterKey(project.id, project.name);
-            const taskCount = this.plugin.getProjectTaskCount(project);
-            const descParts = [`${taskCount} 个任务`];
-            if (!this.plugin.isProjectVisible(project.id, project.name)) descParts.push("侧边栏隐藏");
-            if (project.isArchived) descParts.push("已归档");
-            new Setting(containerEl)
-                .setName(project.name)
-                .setDesc(descParts.join("，"))
-                .addToggle((toggle) => toggle
-                    .setValue(this.selectedProjectKeys.includes(key))
-                    .onChange(async (value) => {
-                        const next = new Set(this.selectedProjectKeys);
-                        if (value) next.add(key);
-                        else next.delete(key);
-                        this.selectedProjectKeys = Array.from(next);
-                        await this.saveProjectSelection();
+            .setDesc(`已选择 ${this.selectedProjectKeys.length} / ${projects.length} 个清单。`)
+            .addButton((button) => button
+                .setButtonText("选择清单")
+                .onClick(() => {
+                    new TaskNoteProjectPickerModal(this.app, this.plugin, this.selectedProjectKeys, (keys) => {
+                        this.selectedProjectKeys = keys;
                         this.updatePreview();
-                    }));
-        });
+                    }).open();
+                }));
     }
 
     getProjectOptions(): ProjectCatalogEntry[] {

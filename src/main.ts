@@ -200,6 +200,7 @@ export default class DidaSyncPlugin extends Plugin {
         if (!Array.isArray(this.settings.projectCatalog)) this.settings.projectCatalog = [];
         this.settings.projectCatalog = this.normalizeProjectCatalog(this.settings.projectCatalog);
         await this.ensureProjectCatalogFromTasks();
+        this.sanitizeHiddenProjectKeys();
 
         if (this.settings.pomodoroSettings && typeof this.settings.pomodoroSettings === "object") {
             this.settings.pomodoroSettings = { ...DEFAULT_SETTINGS.pomodoroSettings, ...this.settings.pomodoroSettings };
@@ -435,12 +436,35 @@ export default class DidaSyncPlugin extends Plugin {
         return !this.isProjectHidden(projectId, projectName);
     }
 
+    sanitizeHiddenProjectKeys() {
+        if (!Array.isArray(this.settings.hiddenProjectKeys)) {
+            this.settings.hiddenProjectKeys = [];
+            return;
+        }
+        const inboxKeys = new Set<string>([
+            "id:inbox",
+            "name:inbox",
+            this.getProjectFilterKey("inbox", "收集箱"),
+            this.getProjectFilterKey("", "收集箱")
+        ]);
+        this.getAvailableProjectConfigs().forEach((project) => {
+            if (!this.isInboxProject(project.id, project.name)) return;
+            this.getProjectFilterKeyAliases(project.id, project.name).forEach((key) => inboxKeys.add(key));
+        });
+        this.settings.hiddenProjectKeys = this.settings.hiddenProjectKeys.filter((key) => {
+            if (!key) return false;
+            if (inboxKeys.has(key)) return false;
+            return true;
+        });
+    }
+
     async setProjectHidden(projectId: string, projectName: string, hidden: boolean) {
         if (!Array.isArray(this.settings.hiddenProjectKeys)) this.settings.hiddenProjectKeys = [];
         const aliases = this.getProjectFilterKeyAliases(projectId, projectName);
         const next = new Set(this.settings.hiddenProjectKeys.filter((key) => !aliases.includes(key)));
-        if (hidden) next.add(this.getProjectFilterKey(projectId, projectName));
+        if (hidden && !this.isInboxProject(projectId, projectName)) next.add(this.getProjectFilterKey(projectId, projectName));
         this.settings.hiddenProjectKeys = Array.from(next);
+        this.sanitizeHiddenProjectKeys();
         await this.saveSettings();
         this.refreshTaskView();
     }
@@ -545,18 +569,20 @@ export default class DidaSyncPlugin extends Plugin {
                 .setIcon("folder")
                 .onClick(() => this.openProjectIconPicker(project));
         });
-        const hidden = this.isProjectHidden(project.id, project.name);
-        menu.addItem((item) => {
-            item.setTitle(hidden ? "在侧边栏显示" : "从侧边栏隐藏")
-                .setIcon(hidden ? "eye" : "eye-off")
-                .onClick(() => this.setProjectHidden(project.id, project.name, !hidden));
-        });
+        const isInbox = this.isInboxProject(project.id, project.name);
+        if (!isInbox) {
+            const hidden = this.isProjectHidden(project.id, project.name);
+            menu.addItem((item) => {
+                item.setTitle(hidden ? "在侧边栏显示" : "从侧边栏隐藏")
+                    .setIcon(hidden ? "eye" : "eye-off")
+                    .onClick(() => this.setProjectHidden(project.id, project.name, !hidden));
+            });
+        }
         menu.addItem((item) => {
             item.setTitle("新增项目标题")
                 .setIcon("plus")
                 .onClick(() => this.openProjectCreateModal());
         });
-        const isInbox = this.isInboxProject(project.id, project.name);
         menu.addItem((item) => {
             item.setTitle(isInbox ? "收集箱不支持修改标题" : "修改项目标题")
                 .setIcon("pencil")
@@ -941,11 +967,12 @@ export default class DidaSyncPlugin extends Plugin {
         const map = new Map<string, ProjectCatalogEntry>();
         [...this.getProjectCatalog(), ...this.getTaskDerivedProjects()].forEach((entry) => {
             if (!entry || !entry.name) return;
-            const key = this.getProjectIconConfigKey(entry.id, entry.name);
+            const isInbox = this.isInboxProject(entry.id, entry.name);
+            const key = isInbox ? this.getProjectIconConfigKey("inbox", "收集箱") : this.getProjectIconConfigKey(entry.id, entry.name);
             if (!map.has(key)) {
                 map.set(key, {
-                    id: entry.id || "",
-                    name: entry.name,
+                    id: isInbox ? "inbox" : entry.id || "",
+                    name: isInbox ? "收集箱" : entry.name,
                     isArchived: entry.isArchived === true,
                     isLocalOnly: entry.isLocalOnly === true
                 });
