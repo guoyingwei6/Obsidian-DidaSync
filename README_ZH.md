@@ -5,6 +5,7 @@
 <p align="center">
 
 一个将 Dida365 或 TickTick 任务带入 Obsidian 的任务同步插件，提供时间线、时间块、番茄钟和侧边栏管理视图。
+感谢大家的任何issue和PR，这是我第一个收到issue和PR的开源项目，你们的建议就是我维护DidaSync开源项目的动力。
 
 </p>
 
