@@ -1,5 +1,10 @@
 import { App, normalizePath, Notice, TFile } from "obsidian";
 import DidaSyncPlugin from "../main";
+import {
+    parseDidaSyncBlocks,
+    quoteCalloutLine,
+    replaceDidaSyncBlockContent
+} from "../taskNoteBlock";
 import { formatTaskLineFromTask, parseTaskLine } from "../taskLineFormat";
 import {
     resolveTaskNoteContextFromFrontmatter,
@@ -75,6 +80,65 @@ export class TaskNoteSyncManager {
         } catch (e) {
             console.error(e);
             new Notice(`同步失败: ${e instanceof Error ? e.message : "未知错误"}`);
+        }
+    }
+
+    async syncDidaBlocksInFile(file: TFile) {
+        if (!(file instanceof TFile) || file.extension !== "md") {
+            new Notice("请选择一个 Markdown 文件");
+            return;
+        }
+
+        try {
+            const content = await this.app.vault.read(file);
+            const endsWithNewline = content.endsWith("\n");
+            let lines = content.split("\n");
+            if (endsWithNewline) lines = lines.slice(0, -1);
+
+            const blocks = parseDidaSyncBlocks(lines);
+            if (blocks.length === 0) {
+                new Notice("当前文件未找到 didasync 块");
+                return;
+            }
+
+            const replacements: Array<{ lineIndex: number; lines: string[] }> = [];
+            let syncedCount = 0;
+            let skippedCount = 0;
+
+            for (const block of blocks) {
+                if (block.error) {
+                    skippedCount++;
+                    continue;
+                }
+
+                const projectScope = block.projectKeys.length > 0 ? "custom" : "all";
+                const tasks = await this.getTasksForRange(block.range, block.projectKeys, projectScope);
+                replacements.push({
+                    lineIndex: block.lineIndex,
+                    lines: this.formatDidaBlockTasks(tasks, block.range)
+                });
+                syncedCount++;
+            }
+
+            if (replacements.length === 0) {
+                new Notice("未同步 didasync 块，请检查配置格式");
+                return;
+            }
+
+            let nextLines = lines;
+            const blocksByLine = new Map(blocks.map((block) => [block.lineIndex, block]));
+            for (const replacement of replacements.sort((a, b) => b.lineIndex - a.lineIndex)) {
+                const block = blocksByLine.get(replacement.lineIndex);
+                if (!block) continue;
+                nextLines = replaceDidaSyncBlockContent(nextLines, block, replacement.lines);
+            }
+
+            await this.app.vault.modify(file, nextLines.join("\n") + (endsWithNewline ? "\n" : ""));
+            const skippedText = skippedCount > 0 ? `，跳过 ${skippedCount} 个配置错误的块` : "";
+            new Notice(`已同步 ${syncedCount} 个 didasync 块${skippedText}`);
+        } catch (e) {
+            console.error(e);
+            new Notice(`同步 didasync 块失败: ${e instanceof Error ? e.message : "未知错误"}`);
         }
     }
 
@@ -487,6 +551,12 @@ export class TaskNoteSyncManager {
             };
             return formatTaskLineFromTask(normalizedTask as DidaTask, "", quotePrefix);
         });
+    }
+
+    formatDidaBlockTasks(tasks: DidaTask[], range: TaskNoteSyncRange): string[] {
+        if (tasks.length === 0) return [quoteCalloutLine("- [ ] 无待办任务")];
+        if (range.startDate === range.endDate) return this.formatTasks(tasks, range.startDate, "> - ");
+        return this.formatGroupedTasks(tasks, "> - ", true);
     }
 
     getRangeTitle(range: TaskNoteSyncRange): string {
