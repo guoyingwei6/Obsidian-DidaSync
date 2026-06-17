@@ -1,5 +1,6 @@
-import { App, Setting } from "obsidian";
+import { App, Notice, Setting } from "obsidian";
 import DidaSyncPlugin from "../../main";
+import { OAuthCallbackMode } from "../../types";
 import { AbstractSettingsView } from "./abstract-settings-view";
 import { debounce } from "../../utils";
 
@@ -28,21 +29,56 @@ export class OAuthSettingsView extends AbstractSettingsView {
 
         const step2Div = oauthContainer.createDiv("dida-settings-block");
         step2Div.createEl("p", {
-            text: "第 2 步：请将下面的 URI 复制到滴答清单开发者后台的 OAuth redirect URL，保存后点击 OAuth 认证按钮。"
+            text: "第 2 步：先设置回调地址和端口，再将下面的 URI 复制到滴答清单开发者后台的 OAuth redirect URL，保存后点击 OAuth 认证按钮。"
         });
 
+        new Setting(step2Div)
+            .setName("回调地址")
+            .setDesc("修改后请同步更新开发者后台的 redirect URL。")
+            .addDropdown((dropdown) => dropdown
+                .addOption("localhost", "localhost")
+                .addOption("ipv4", "127.0.0.1")
+                .setValue(this.getCallbackMode())
+                .onChange(async (value: OAuthCallbackMode) => {
+                    this.plugin.settings.oauthCallbackMode = value === "ipv4" ? "ipv4" : "localhost";
+                    await this.plugin.saveSettings();
+                    this.updateRedirectUriDisplay(step2Div, this.plugin.settings.serverPort);
+                    new Notice("OAuth 回调地址已切换，请将开发者后台 redirect URL 更新为当前显示的地址。");
+                }));
+
+        new Setting(step2Div)
+            .setName("服务器端口")
+            .setDesc("修改后请同步更新开发者后台的 redirect URL。")
+            .addText((text) => {
+                const debouncedSave = debounce(async (value: string) => {
+                    const port = parseInt(value, 10) || 8080;
+                    this.plugin.settings.serverPort = port;
+                    await this.plugin.saveSettings();
+                    this.updateRedirectUriDisplay(step2Div, port);
+                }, 300);
+
+                text
+                    .setPlaceholder("8080")
+                    .setValue(this.plugin.settings.serverPort.toString())
+                    .onChange(debouncedSave);
+            });
+
         const redirectDiv = step2Div.createDiv("dida-settings-code-box");
-        redirectDiv.createEl("strong", { text: "重定向 URI 配置：" });
+        redirectDiv.createEl("strong", { text: "重定向 URI：" });
         redirectDiv.createEl("br");
 
         const uriDiv = redirectDiv.createDiv("dida-settings-inline-row dida-settings-inline-margin");
         const redirectInput = uriDiv.createEl("input", {
             type: "text",
-            value: `http://localhost:${this.plugin.settings.serverPort}/callback`
+            value: this.getRedirectUri(this.plugin.settings.serverPort)
         });
         redirectInput.readOnly = true;
         redirectInput.addClass("dida-settings-readonly-input");
         redirectInput.onclick = () => redirectInput.select();
+
+        step2Div.createEl("p", {
+            text: "如果开发者后台已登记旧地址，可继续使用 localhost；如果 Windows 上授权后回调页空白或长时间无响应，可切换为 127.0.0.1。"
+        });
 
         new Setting(containerEl)
             .setName("Client ID")
@@ -67,23 +103,6 @@ export class OAuthSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
-            .setName("服务器端口")
-            .setDesc("OAuth 回调服务器端口，修改后需要同步更新重定向 URI 配置。")
-            .addText((text) => {
-                const debouncedSave = debounce(async (value: string) => {
-                    const port = parseInt(value, 10) || 8080;
-                    this.plugin.settings.serverPort = port;
-                    await this.plugin.saveSettings();
-                    this.updateRedirectUriDisplay(containerEl, port);
-                }, 300);
-
-                text
-                    .setPlaceholder("8080")
-                    .setValue(this.plugin.settings.serverPort.toString())
-                    .onChange(debouncedSave);
-            });
-
-        new Setting(containerEl)
             .setName("OAuth 认证")
             .setDesc("点击开始 OAuth 认证流程")
             .addButton((button) => button
@@ -102,11 +121,20 @@ export class OAuthSettingsView extends AbstractSettingsView {
         }
     }
 
+    private getCallbackMode(): OAuthCallbackMode {
+        return this.plugin.settings.oauthCallbackMode === "ipv4" ? "ipv4" : "localhost";
+    }
+
+    private getRedirectUri(port: number) {
+        const host = this.getCallbackMode() === "ipv4" ? "127.0.0.1" : "localhost";
+        return `http://${host}:${port}/callback`;
+    }
+
     private updateRedirectUriDisplay(containerEl: HTMLElement, port: number) {
         containerEl.querySelectorAll('input[readonly]').forEach((element) => {
             const input = element as HTMLInputElement;
             if (input.value && input.value.includes("/callback")) {
-                input.value = `http://localhost:${port}/callback`;
+                input.value = this.getRedirectUri(port);
             }
         });
     }

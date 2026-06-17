@@ -94,6 +94,8 @@ export interface TaskNoteSyncPathPatterns {
     year: string;
 }
 
+export type OAuthCallbackMode = "localhost" | "ipv4";
+
 export interface DidaSyncSettings {
     clientId: string;
     clientSecret: string;
@@ -110,6 +112,7 @@ export interface DidaSyncSettings {
     autoSync: boolean;
     syncInterval: number; // in minutes
     serverPort: number;
+    oauthCallbackMode: OAuthCallbackMode;
     enableMcpServer: boolean;
     mcpPort: number;
     mcpToken: string;
@@ -177,6 +180,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     autoSync: true,
     syncInterval: 5,
     serverPort: 8080,
+    oauthCallbackMode: "localhost",
     enableMcpServer: false,
     mcpPort: 35829,
     mcpToken: "",

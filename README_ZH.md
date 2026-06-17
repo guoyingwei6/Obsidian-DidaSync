@@ -155,7 +155,7 @@ DidaSync 通过官方 OAuth 2.0 流程连接，直接在 Dida365/TickTick 页面
 
 ## OAuth 认证
 
-DidaSync 采用官方 OAuth 2.0 流程，在 Dida365/TickTick 页面直接授权，Token 本地存储，插件从不接触用户名或密码。回调仅在 localhost 运行，不会暴露到网络。
+DidaSync 采用官方 OAuth 2.0 流程，在 Dida365/TickTick 页面直接授权，Token 本地存储，插件从不接触用户名或密码。默认使用 `localhost` 作为回调地址以兼容旧配置，本地监听仅绑定到回环地址，不会暴露到网络。
 
 ## OAuth 排查
 
@@ -165,8 +165,10 @@ DidaSync 采用官方 OAuth 2.0 流程，在 Dida365/TickTick 页面直接授权
 2. 如果当前网络环境访问 Dida 授权页不稳定，尝试切换代理或 VPN 状态后重试。
 3. 检查本地 `8080` 端口是否已被占用。
 4. 如果你在插件设置中修改了 OAuth 回调端口，也要同步更新 Dida 开发者后台中的 redirect URL。
+5. 默认请继续使用 `http://localhost:<端口>/callback`，这样已在开发者后台登记旧回调地址的用户无需迁移。
+6. 如果 Windows 上授权后回调页空白或长时间无响应，请将插件中的回调地址模式切换为 `127.0.0.1`，并把开发者后台的 redirect URL 一并改成 `http://127.0.0.1:<端口>/callback`。
 
-如果 `8080` 端口被占用，本地 OAuth 回调服务通常无法启动。这种情况下，请将 **设置 -> DidaSync -> OAuth 设置 -> 服务器端口** 改为其他可用端口，再更新 redirect URL 后重试。
+如果 `8080` 端口被占用，本地 OAuth 回调服务通常无法启动。这种情况下，请将 **设置 -> DidaSync -> OAuth 设置 -> 服务器端口** 改为其他可用端口，并确保开发者后台的 redirect URL 与插件设置页当前显示的地址保持一致后重试。
 
 ## MCP / AI 插件使用
 

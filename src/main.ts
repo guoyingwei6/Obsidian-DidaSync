@@ -249,6 +249,7 @@ export default class DidaSyncPlugin extends Plugin {
         this.settings.pomodoroSettings.completionHistory = normalizePomodoroCompletionHistory(
             this.settings.pomodoroSettings.completionHistory
         );
+        if (!["localhost", "ipv4"].includes(this.settings.oauthCallbackMode)) this.settings.oauthCallbackMode = "localhost";
         if (this.settings.enableMcpServer === undefined) this.settings.enableMcpServer = false;
         if (this.settings.mcpPort === undefined) this.settings.mcpPort = 35829;
         if (this.settings.mcpToken === undefined) this.settings.mcpToken = "";

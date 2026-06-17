@@ -152,7 +152,7 @@ This lets you check the task inside the note and jump back to the linked Dida ta
 
 ## OAuth Authentication
 
-DidaSync uses the official OAuth 2.0 flow — you authorize on Dida365/TickTick's page directly, and your token is stored locally. No username or password ever touches the plugin. The callback runs on localhost only and is never exposed to the network.
+DidaSync uses the official OAuth 2.0 flow — you authorize on Dida365/TickTick's page directly, and your token is stored locally. No username or password ever touches the plugin. By default, the callback uses `localhost` for compatibility with existing app registrations, and the local listener stays on loopback addresses only.
 
 ## OAuth Troubleshooting
 
@@ -162,8 +162,10 @@ OAuth authorization is supported out of the box. If authorization fails, check t
 2. If access to the Dida authorization page is unstable in your network environment, try switching your proxy or VPN state and test again.
 3. Check whether local port `8080` is already in use.
 4. If you changed the OAuth callback port in plugin settings, update the redirect URL in the Dida developer console as well.
+5. By default, keep using `http://localhost:<port>/callback` so existing app registrations continue to work.
+6. If Windows redirects back to a blank or unresponsive callback page, switch the plugin's callback mode to `127.0.0.1`, then update the Dida developer console to `http://127.0.0.1:<port>/callback`.
 
-If port `8080` is occupied, the local OAuth callback server usually cannot start. In that case, change **Settings -> DidaSync -> OAuth Settings -> Server Port** to another available port, then update the redirect URL and retry authorization.
+If port `8080` is occupied, the local OAuth callback server usually cannot start. In that case, change **Settings -> DidaSync -> OAuth Settings -> Server Port** to another available port, keep the redirect URL in sync with the mode shown in plugin settings, and retry authorization.
 
 ## MCP / AI Plugin Usage
 

@@ -5,11 +5,11 @@ import { Notice } from "obsidian";
 import * as querystring from "querystring";
 import DidaSyncPlugin from "../main";
 import { AuthUrlModal } from "../modals/AuthUrlModal";
-import { DidaSyncSettings, OAUTH_CONFIG } from "../types";
+import { DidaSyncSettings, OAUTH_CONFIG, OAuthCallbackMode } from "../types";
 
 export class DidaApiClient {
     plugin: DidaSyncPlugin;
-    oauthServer: http.Server | null = null;
+    oauthServers: http.Server[] = [];
     oauthTimeout: NodeJS.Timeout | null = null;
     oauthInProgress: boolean = false;
 
@@ -21,8 +21,31 @@ export class DidaApiClient {
         return this.plugin.settings;
     }
 
+    getCallbackMode(): OAuthCallbackMode {
+        return this.settings.oauthCallbackMode === "ipv4" ? "ipv4" : "localhost";
+    }
+
+    getRedirectHost() {
+        return this.getCallbackMode() === "ipv4" ? "127.0.0.1" : "localhost";
+    }
+
     getRedirectUri() {
-        return `http://localhost:${this.settings.serverPort}/callback`;
+        return `http://${this.getRedirectHost()}:${this.settings.serverPort}/callback`;
+    }
+
+    getCallbackBaseUrl() {
+        return `http://${this.getRedirectHost()}:${this.settings.serverPort}`;
+    }
+
+    getListenTargets() {
+        if (this.getCallbackMode() === "ipv4") {
+            return [{ host: "127.0.0.1", ipv6Only: false }];
+        }
+
+        return [
+            { host: "127.0.0.1", ipv6Only: false },
+            { host: "::1", ipv6Only: true }
+        ];
     }
 
     async startOAuthFlow() {
@@ -62,14 +85,19 @@ export class DidaApiClient {
     }
 
     async startOAuthServer() {
-        if (this.oauthServer) {
-            this.oauthServer.close();
-            this.oauthServer = null;
+        if (this.oauthTimeout) {
+            clearTimeout(this.oauthTimeout);
+            this.oauthTimeout = null;
         }
+        await this.stopOAuthServers();
         return new Promise<void>((resolve, reject) => {
-            this.oauthServer = http.createServer((req, res) => {
+            const startedServers: http.Server[] = [];
+            let pending = this.getListenTargets().length;
+            let settled = false;
+
+            const requestHandler = (req: http.IncomingMessage, res: http.ServerResponse) => {
                 try {
-                    var url = new URL(req.url || "", "http://localhost:" + this.settings.serverPort);
+                    var url = new URL(req.url || "", this.getCallbackBaseUrl());
                     if ("/callback" === url.pathname) {
                         var code = url.searchParams.get("code");
                         var error = url.searchParams.get("error");
@@ -94,7 +122,7 @@ export class DidaApiClient {
                                     <head><title>认证成功</title></head>
                                     <body>
                                         <h1>OAuth认证成功!</h1>
-                                        <p>您可以关闭此页面，返回Obsidian继续使用。</p>
+                                        <p>您可以关闭此页面，返回 Obsidian 继续使用。</p>
                                         <script>setTimeout(() => window.close(), 3000);</script>
                                     </body>
                                 </html>
@@ -120,20 +148,71 @@ export class DidaApiClient {
                 } catch (e) {
                     // Ignore errors during request handling
                 }
-            });
+            };
 
-            this.oauthServer.on("error", (err) => {
-                reject(err);
-            });
+            const fail = (error: Error) => {
+                if (settled) return;
+                settled = true;
+                if (this.oauthTimeout) {
+                    clearTimeout(this.oauthTimeout);
+                    this.oauthTimeout = null;
+                }
+                this.closeServers(startedServers);
+                this.oauthServers = [];
+                reject(error);
+            };
 
-            this.oauthServer.listen(this.settings.serverPort, "localhost", () => {
+            const succeed = () => {
+                if (settled) return;
+                settled = true;
+                this.oauthServers = startedServers;
                 resolve();
+            };
+
+            this.getListenTargets().forEach((target) => {
+                const server = http.createServer(requestHandler);
+                startedServers.push(server);
+                server.once("error", (err: NodeJS.ErrnoException) => {
+                    const hostLabel = target.host.includes(":") ? `[${target.host}]` : target.host;
+                    fail(new Error(`无法启动 OAuth 回调服务 ${hostLabel}:${this.settings.serverPort}: ${err.message}`));
+                });
+                server.listen({
+                    port: this.settings.serverPort,
+                    host: target.host,
+                    ipv6Only: target.ipv6Only
+                }, () => {
+                    pending -= 1;
+                    if (pending === 0) {
+                        succeed();
+                    }
+                });
             });
 
             this.oauthTimeout = setTimeout(() => {
                 this.handleOAuthError("OAuth认证超时");
-            }, 600000); // 10 minutes timeout
+            }, 600000);
         });
+    }
+
+    closeServers(servers: http.Server[]) {
+        for (const server of servers) {
+            try {
+                server.close();
+            } catch (e) { }
+        }
+    }
+
+    async stopOAuthServers() {
+        if (this.oauthServers.length === 0) return;
+        const servers = this.oauthServers;
+        this.oauthServers = [];
+        await Promise.all(servers.map((server) => new Promise<void>((resolve) => {
+            try {
+                server.close(() => resolve());
+            } catch (e) {
+                resolve();
+            }
+        })));
     }
 
     cleanupOAuthServer() {
@@ -141,10 +220,8 @@ export class DidaApiClient {
             clearTimeout(this.oauthTimeout);
             this.oauthTimeout = null;
         }
-        if (this.oauthServer) {
-            this.oauthServer.close();
-            this.oauthServer = null;
-        }
+        this.closeServers(this.oauthServers);
+        this.oauthServers = [];
         this.oauthInProgress = false;
     }
 
@@ -314,7 +391,6 @@ export class DidaApiClient {
                             await this.refreshAccessToken();
                             reqOptions.headers.Authorization = "Bearer " + this.settings.accessToken;
 
-                            // Retry request
                             var retryReq = client.request(reqOptions, (retryRes) => {
                                 let retryBody = "";
                                 retryRes.on("data", (chunk) => {
@@ -361,8 +437,6 @@ export class DidaApiClient {
         });
     }
 
-    // --- Task API Wrappers ---
-
     async getProjects(): Promise<any[]> {
         const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/project");
         if (res.ok) return await res.json();
@@ -370,7 +444,6 @@ export class DidaApiClient {
     }
 
     async getProjectTasks(projectId: string): Promise<any[]> {
-        // Try multiple endpoints as in original code
         for (const url of [`https://api.dida365.com/open/v1/project/${projectId}/task`, `https://api.dida365.com/open/v1/project/${projectId}/data`, `https://api.dida365.com/open/v1/task?projectId=${projectId}`]) {
             try {
                 const res = await this.makeAuthenticatedRequest(url);
@@ -386,7 +459,6 @@ export class DidaApiClient {
     }
 
     async getAllTasks(): Promise<any[]> {
-        // Combined logic handled in SyncManager usually, but here we can expose raw fetches
         return [];
     }
 
