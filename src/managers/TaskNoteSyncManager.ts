@@ -95,7 +95,7 @@ export class TaskNoteSyncManager {
             let lines = content.split("\n");
             if (endsWithNewline) lines = lines.slice(0, -1);
 
-            const blocks = parseDidaSyncBlocks(lines);
+            const blocks = parseDidaSyncBlocks(lines, this.plugin.settings.taskNoteSyncTargetBlockHeader);
             if (blocks.length === 0) {
                 new Notice("当前文件未找到 didasync 块");
                 return;
@@ -115,7 +115,7 @@ export class TaskNoteSyncManager {
                 const tasks = await this.getTasksForRange(block.range, block.projectKeys, projectScope);
                 replacements.push({
                     lineIndex: block.lineIndex,
-                    lines: this.formatDidaBlockTasks(tasks, block.range)
+                    lines: this.formatDidaBlockTasks(tasks, block.range, block.isCallout)
                 });
                 syncedCount++;
             }
@@ -553,10 +553,11 @@ export class TaskNoteSyncManager {
         });
     }
 
-    formatDidaBlockTasks(tasks: DidaTask[], range: TaskNoteSyncRange): string[] {
-        if (tasks.length === 0) return [quoteCalloutLine("- [ ] 无待办任务")];
-        if (range.startDate === range.endDate) return this.formatTasks(tasks, range.startDate, "> - ");
-        return this.formatGroupedTasks(tasks, "> - ", true);
+    formatDidaBlockTasks(tasks: DidaTask[], range: TaskNoteSyncRange, isCallout: boolean): string[] {
+        const taskPrefix = isCallout ? "> - " : "- ";
+        if (tasks.length === 0) return [isCallout ? quoteCalloutLine("- [ ] 无待办任务") : "- [ ] 无待办任务"];
+        if (range.startDate === range.endDate) return this.formatTasks(tasks, range.startDate, taskPrefix);
+        return this.formatGroupedTasks(tasks, taskPrefix, isCallout);
     }
 
     getRangeTitle(range: TaskNoteSyncRange): string {

@@ -16,6 +16,7 @@ export interface DidaSyncBlockRange {
 
 export interface ParsedDidaSyncBlock {
     lineIndex: number;
+    isCallout: boolean;
     config: DidaSyncBlockConfig;
     range: DidaSyncBlockRange;
     projectKeys: string[];
@@ -25,16 +26,18 @@ export interface ParsedDidaSyncBlock {
     error?: string;
 }
 
-export function parseDidaSyncBlocks(lines: string[]): ParsedDidaSyncBlock[] {
+export function parseDidaSyncBlocks(lines: string[], targetHeader?: string): ParsedDidaSyncBlock[] {
     const blocks: ParsedDidaSyncBlock[] = [];
+    const headers = getDidaSyncCandidateHeaders(targetHeader);
     for (let i = 0; i < lines.length; i++) {
-        const configText = extractDidaSyncConfigText(lines[i]);
-        if (configText === null) continue;
+        const declaration = extractDidaSyncConfigText(lines[i], headers);
+        if (declaration === null) continue;
 
-        const parsed = parseDidaSyncBlockConfig(configText);
-        const markerRange = findManagedMarkerRange(lines, i);
+        const parsed = parseDidaSyncBlockConfig(declaration.configText);
+        const markerRange = findManagedMarkerRange(lines, i, declaration.isCallout, headers);
         blocks.push({
             lineIndex: i,
+            isCallout: declaration.isCallout,
             config: parsed.config,
             range: parsed.range,
             projectKeys: parsed.projectKeys,
@@ -53,9 +56,9 @@ export function replaceDidaSyncBlockContent(
     generatedLines: string[]
 ): string[] {
     const replacement = [
-        quoteCalloutLine(DIDASYNC_BLOCK_START_MARKER),
+        quoteManagedLine(DIDASYNC_BLOCK_START_MARKER, block.isCallout),
         ...generatedLines,
-        quoteCalloutLine(DIDASYNC_BLOCK_END_MARKER)
+        quoteManagedLine(DIDASYNC_BLOCK_END_MARKER, block.isCallout)
     ];
 
     if (block.startMarkerIndex !== -1 && block.endMarkerIndex !== -1 && block.endMarkerIndex >= block.startMarkerIndex) {
@@ -73,11 +76,22 @@ export function replaceDidaSyncBlockContent(
     ];
 }
 
-export function extractDidaSyncConfigText(line: string): string | null {
-    const match = line.match(/^>\s*\[!didasync\]\s*(.*)$/);
-    if (!match) return null;
-    const configText = (match[1] || "").trim();
-    return configText || "{}";
+export function extractDidaSyncConfigText(
+    line: string,
+    headers: string[] = getDidaSyncCandidateHeaders()
+): { configText: string; isCallout: boolean } | null {
+    for (const header of headers) {
+        const normalizedHeader = header.trim();
+        if (!normalizedHeader || !line.trimStart().startsWith(normalizedHeader)) continue;
+
+        const rest = line.trimStart().slice(normalizedHeader.length).trim();
+        if (!rest.startsWith("{")) continue;
+        return {
+            configText: rest,
+            isCallout: normalizedHeader.startsWith(">")
+        };
+    }
+    return null;
 }
 
 export function parseDidaSyncBlockConfig(configText: string): {
@@ -132,17 +146,22 @@ export function quoteCalloutLine(content: string): string {
     return content ? `> ${content}` : ">";
 }
 
-function findManagedMarkerRange(lines: string[], configLineIndex: number): {
+export function quoteManagedLine(content: string, isCallout: boolean): string {
+    if (!isCallout) return content;
+    return quoteCalloutLine(content);
+}
+
+function findManagedMarkerRange(lines: string[], configLineIndex: number, isCallout: boolean, headers: string[]): {
     startMarkerIndex: number;
     endMarkerIndex: number;
     insertIndex: number;
 } {
-    const blockEnd = findDidaSyncCalloutEnd(lines, configLineIndex);
+    const blockEnd = findDidaSyncBlockEnd(lines, configLineIndex, isCallout, headers);
     let startMarkerIndex = -1;
     let endMarkerIndex = -1;
 
     for (let i = configLineIndex + 1; i < blockEnd; i++) {
-        const content = unquoteCalloutLine(lines[i]).trim();
+        const content = unquoteManagedLine(lines[i], isCallout).trim();
         if (content === DIDASYNC_BLOCK_START_MARKER) startMarkerIndex = i;
         if (content === DIDASYNC_BLOCK_END_MARKER) {
             endMarkerIndex = i;
@@ -157,16 +176,26 @@ function findManagedMarkerRange(lines: string[], configLineIndex: number): {
     };
 }
 
-function findDidaSyncCalloutEnd(lines: string[], configLineIndex: number): number {
+function findDidaSyncBlockEnd(lines: string[], configLineIndex: number, isCallout: boolean, headers: string[]): number {
     for (let i = configLineIndex + 1; i < lines.length; i++) {
-        if (extractDidaSyncConfigText(lines[i]) !== null) return i;
-        if (!lines[i].trim().startsWith(">")) return i;
+        if (extractDidaSyncConfigText(lines[i], headers) !== null) return i;
+        const trimmed = lines[i].trim();
+        if (isCallout && !trimmed.startsWith(">")) return i;
+        if (!isCallout && /^#{1,6}\s+/.test(trimmed)) return i;
     }
     return lines.length;
 }
 
-function unquoteCalloutLine(line: string): string {
+function unquoteManagedLine(line: string, isCallout: boolean): string {
+    if (!isCallout) return line;
     return line.replace(/^>\s?/, "");
+}
+
+function getDidaSyncCandidateHeaders(targetHeader?: string): string[] {
+    const headers = [targetHeader || "", "> [!didasync]"]
+        .map((header) => (header || "").trim())
+        .filter(Boolean);
+    return Array.from(new Set(headers));
 }
 
 function normalizeProjectKey(project: string): string {

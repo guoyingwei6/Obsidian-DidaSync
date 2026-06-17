@@ -64,6 +64,7 @@ import {
     const blocks = parseDidaSyncBlocks(lines);
     assert.equal(blocks.length, 2);
     assert.equal(blocks[0].lineIndex, 1);
+    assert.equal(blocks[0].isCallout, true);
     assert.equal(blocks[0].insertIndex, 2);
     assert.equal(blocks[1].lineIndex, 4);
     assert.equal(blocks[1].startMarkerIndex, 5);
@@ -76,6 +77,46 @@ import {
         "> - [ ] new task",
         `> ${DIDASYNC_BLOCK_END_MARKER}`,
         "> trailing line"
+    ]);
+}
+
+{
+    const lines = [
+        "> [!todo]",
+        '> [!todo] {"range":"2026-06-17"}',
+        "> old task",
+        '> [!didasync] {"range":"2026-06-18"}'
+    ];
+    const blocks = parseDidaSyncBlocks(lines, "> [!todo]");
+    assert.equal(blocks.length, 2);
+    assert.equal(blocks[0].lineIndex, 1);
+    assert.equal(blocks[0].isCallout, true);
+    assert.equal(blocks[0].range.startDate, "2026-06-17");
+    assert.equal(blocks[1].lineIndex, 3);
+    assert.equal(blocks[1].range.startDate, "2026-06-18");
+}
+
+{
+    const lines = [
+        '## Tasks {"range":"2026-06-17"}',
+        "<!-- didasync:start -->",
+        "- [ ] old task",
+        "<!-- didasync:end -->",
+        "## Next"
+    ];
+    const blocks = parseDidaSyncBlocks(lines, "## Tasks");
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0].isCallout, false);
+    assert.equal(blocks[0].startMarkerIndex, 1);
+    assert.equal(blocks[0].endMarkerIndex, 3);
+
+    const replaced = replaceDidaSyncBlockContent(lines, blocks[0], ["- [ ] new task"]);
+    assert.deepEqual(replaced.slice(0, 5), [
+        '## Tasks {"range":"2026-06-17"}',
+        DIDASYNC_BLOCK_START_MARKER,
+        "- [ ] new task",
+        DIDASYNC_BLOCK_END_MARKER,
+        "## Next"
     ]);
 }
 
