@@ -320,6 +320,44 @@
     margin: 10px 0;
 }
 
+.dida-task-note-block-status {
+    line-height: 1.5;
+}
+
+.dida-task-note-block-editor {
+    margin: 14px 0;
+    padding: 12px 14px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    background: var(--background-secondary);
+}
+
+.dida-task-note-config-preview {
+    margin: 10px 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--background-primary);
+    color: var(--text-muted);
+    font-family: var(--font-monospace);
+    font-size: 12px;
+    line-height: 1.5;
+    word-break: break-all;
+}
+
+.dida-task-note-block-list {
+    margin: 12px 0;
+}
+
+.dida-task-note-block-row {
+    padding: 8px 0;
+    border-top: 1px solid var(--background-modifier-border);
+    line-height: 1.45;
+}
+
+.dida-task-note-block-row:first-child {
+    border-top: 0;
+}
+
 .dida-settings-config-input {
     width: 100%;
     min-height: 220px;

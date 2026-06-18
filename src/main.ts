@@ -134,14 +134,6 @@ export default class DidaSyncPlugin extends Plugin {
         });
 
         this.addCommand({
-            id: 'sync-didasync-blocks-in-note',
-            name: '同步当前笔记中的 DidaSync 块',
-            callback: () => {
-                this.syncDidaBlocksInActiveFile();
-            }
-        });
-
-        this.addCommand({
             id: 'insert-create-dida-task',
             name: '插入/创建滴答任务',
             editorCallback: (editor: Editor) => {
@@ -1121,15 +1113,6 @@ export default class DidaSyncPlugin extends Plugin {
         new TaskNoteSyncModal(this.app, this, sourceFile || null).open();
     }
 
-    async syncDidaBlocksInActiveFile() {
-        const file = this.app.workspace.getActiveFile();
-        if (!(file instanceof TFile) || file.extension !== "md") {
-            new Notice("请选择一个 Markdown 文件");
-            return;
-        }
-        await this.taskNoteSyncManager.syncDidaBlocksInFile(file);
-    }
-
     registerTaskNoteSyncMenuEntrypoints() {
         this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
             if (!(file instanceof TFile) || file.extension !== "md") return;
@@ -1138,12 +1121,6 @@ export default class DidaSyncPlugin extends Plugin {
                     .setTitle("同步任务到笔记")
                     .setIcon("list-plus")
                     .onClick(() => this.showTaskNoteSyncModal(file));
-            });
-            menu.addItem((item) => {
-                item
-                    .setTitle("同步当前笔记中的 DidaSync 块")
-                    .setIcon("refresh-cw")
-                    .onClick(() => this.taskNoteSyncManager.syncDidaBlocksInFile(file));
             });
         }));
 
@@ -1155,12 +1132,6 @@ export default class DidaSyncPlugin extends Plugin {
                     .setTitle("同步任务到笔记")
                     .setIcon("list-plus")
                     .onClick(() => this.showTaskNoteSyncModal(file));
-            });
-            menu.addItem((item) => {
-                item
-                    .setTitle("同步当前笔记中的 DidaSync 块")
-                    .setIcon("refresh-cw")
-                    .onClick(() => this.taskNoteSyncManager.syncDidaBlocksInFile(file));
             });
         }));
     }

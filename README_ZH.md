@@ -136,7 +136,7 @@ DidaSync 通过官方 OAuth 2.0 流程连接，直接在 Dida365/TickTick 页面
 > [!todo] {"range":"2026-01-01~2026-12-31","projects":["project1"]}
 ```
 
-运行命令面板中的 `同步当前笔记中的 DidaSync 块` 后，插件会刷新当前文件内所有 `didasync` 块。当前版本支持 `range` 和 `projects`，其中 `range` 支持 `YYYY-MM-DD` 或 `YYYY-MM-DD~YYYY-MM-DD`，`projects` 可填写项目名或 `id:<项目ID>`；标签和标题匹配暂不支持。
+打开 `同步任务到笔记` 弹窗后，若当前文件存在 didasync 块，弹窗会默认切换到“同步当前文件块”模式。你也可以在该模式中插入新的同步块，或选中已有块后用日期选择器和清单选择器保存配置，无需手写 JSON。同步执行时仍以文件中的块配置为准；当前版本支持 `range` 和 `projects`，其中 `range` 支持 `YYYY-MM-DD` 或 `YYYY-MM-DD~YYYY-MM-DD`，`projects` 可填写项目名或 `id:<项目ID>`；标签和标题匹配暂不支持。
 
 ### 使用 Obsidian 原生任务语法 `- [ ]`
 

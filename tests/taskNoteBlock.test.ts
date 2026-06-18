@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import {
     DIDASYNC_BLOCK_END_MARKER,
     DIDASYNC_BLOCK_START_MARKER,
+    insertDidaSyncBlock,
     parseDidaSyncBlocks,
     parseDidaSyncBlockConfig,
-    replaceDidaSyncBlockContent
+    replaceDidaSyncBlockContent,
+    replaceDidaSyncBlockDeclaration,
+    serializeDidaSyncBlockConfig
 } from "../src/taskNoteBlock";
 
 {
@@ -15,6 +18,7 @@ import {
         startDate: "2026-01-01",
         endDate: "2026-12-31"
     });
+    assert.deepEqual(parsed.config.projects, ["project1", "id:abc"]);
     assert.deepEqual(parsed.projectKeys, ["name:project1", "id:abc"]);
 }
 
@@ -46,6 +50,17 @@ import {
 {
     const parsed = parseDidaSyncBlockConfig('{"range":"2026-99-99"}');
     assert.equal(parsed.error, "Invalid didasync range");
+}
+
+{
+    assert.equal(
+        serializeDidaSyncBlockConfig({ range: "2026-06-17", projects: [] }),
+        '{"range":"2026-06-17"}'
+    );
+    assert.equal(
+        serializeDidaSyncBlockConfig({ range: "2026-01-01~2026-12-31", projects: ["project1", "id:abc"] }),
+        '{"range":"2026-01-01~2026-12-31","projects":["project1","id:abc"]}'
+    );
 }
 
 {
@@ -117,6 +132,93 @@ import {
         "- [ ] new task",
         DIDASYNC_BLOCK_END_MARKER,
         "## Next"
+    ]);
+}
+
+{
+    const lines = [
+        '> [!didasync] {"range":"2026-06-17"}',
+        `> ${DIDASYNC_BLOCK_START_MARKER}`,
+        "> - [ ] existing task",
+        `> ${DIDASYNC_BLOCK_END_MARKER}`
+    ];
+    const [block] = parseDidaSyncBlocks(lines);
+    const replaced = replaceDidaSyncBlockDeclaration(lines, block, "> [!todo]", {
+        range: "2026-06-18",
+        projects: ["project1"]
+    });
+    assert.deepEqual(replaced, [
+        '> [!todo] {"range":"2026-06-18","projects":["project1"]}',
+        `> ${DIDASYNC_BLOCK_START_MARKER}`,
+        "> - [ ] existing task",
+        `> ${DIDASYNC_BLOCK_END_MARKER}`
+    ]);
+}
+
+{
+    const lines = [
+        '> [!didasync] {"range":"2026-06-17"}',
+        `> ${DIDASYNC_BLOCK_START_MARKER}`,
+        "> - [ ] existing task",
+        `> ${DIDASYNC_BLOCK_END_MARKER}`
+    ];
+    const [block] = parseDidaSyncBlocks(lines);
+    const replaced = replaceDidaSyncBlockDeclaration(lines, block, "## Tasks", {
+        range: "2026-06-18",
+        projects: []
+    });
+    assert.deepEqual(replaced, [
+        '## Tasks {"range":"2026-06-18"}',
+        DIDASYNC_BLOCK_START_MARKER,
+        "- [ ] existing task",
+        DIDASYNC_BLOCK_END_MARKER
+    ]);
+}
+
+{
+    const lines = [
+        '## Tasks {"range":"2026-06-17"}',
+        DIDASYNC_BLOCK_START_MARKER,
+        "- [ ] existing task",
+        DIDASYNC_BLOCK_END_MARKER
+    ];
+    const [block] = parseDidaSyncBlocks(lines, "## Tasks");
+    const replaced = replaceDidaSyncBlockDeclaration(lines, block, "> [!todo]", {
+        range: "2026-06-18",
+        projects: []
+    });
+    assert.deepEqual(replaced, [
+        '> [!todo] {"range":"2026-06-18"}',
+        `> ${DIDASYNC_BLOCK_START_MARKER}`,
+        "> - [ ] existing task",
+        `> ${DIDASYNC_BLOCK_END_MARKER}`
+    ]);
+}
+
+{
+    const inserted = insertDidaSyncBlock(["# Note"], 1, {
+        header: "> [!todo]",
+        config: { range: "2026-06-17", projects: [] }
+    });
+    assert.deepEqual(inserted, [
+        "# Note",
+        '> [!todo] {"range":"2026-06-17"}',
+        `> ${DIDASYNC_BLOCK_START_MARKER}`,
+        `> ${DIDASYNC_BLOCK_END_MARKER}`
+    ]);
+}
+
+{
+    const inserted = insertDidaSyncBlock(["# Note", "body"], 1, {
+        header: "## Tasks",
+        config: { range: "2026-06-17", projects: ["project1"] }
+    });
+    assert.deepEqual(inserted, [
+        "# Note",
+        '## Tasks {"range":"2026-06-17","projects":["project1"]}',
+        DIDASYNC_BLOCK_START_MARKER,
+        DIDASYNC_BLOCK_END_MARKER,
+        "body"
     ]);
 }
 

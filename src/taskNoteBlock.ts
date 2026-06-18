@@ -8,6 +8,12 @@ export interface DidaSyncBlockConfig {
     projects: string[];
 }
 
+export interface DidaSyncBlockWriteOptions {
+    header: string;
+    config: DidaSyncBlockConfig;
+    isCallout?: boolean;
+}
+
 export interface DidaSyncBlockRange {
     type: TaskNoteSyncRangeType;
     startDate: string;
@@ -76,6 +82,61 @@ export function replaceDidaSyncBlockContent(
     ];
 }
 
+export function serializeDidaSyncBlockConfig(config: DidaSyncBlockConfig): string {
+    const payload: any = { range: (config.range || "").trim() };
+    const projects = Array.isArray(config.projects)
+        ? config.projects.map((project) => project.trim()).filter(Boolean)
+        : [];
+    if (projects.length > 0) payload.projects = projects;
+    return JSON.stringify(payload);
+}
+
+export function buildDidaSyncBlockDeclaration(header: string, config: DidaSyncBlockConfig): string {
+    return `${header.trim()} ${serializeDidaSyncBlockConfig(config)}`;
+}
+
+export function replaceDidaSyncBlockDeclaration(
+    lines: string[],
+    block: ParsedDidaSyncBlock,
+    header: string,
+    config: DidaSyncBlockConfig
+): string[] {
+    const next = [...lines];
+    const nextIsCallout = header.trim().startsWith(">");
+    next[block.lineIndex] = buildDidaSyncBlockDeclaration(header, config);
+    if (
+        block.isCallout !== nextIsCallout &&
+        block.startMarkerIndex !== -1 &&
+        block.endMarkerIndex !== -1 &&
+        block.endMarkerIndex >= block.startMarkerIndex
+    ) {
+        for (let i = block.startMarkerIndex; i <= block.endMarkerIndex; i++) {
+            next[i] = quoteManagedLine(unquoteManagedLine(next[i], block.isCallout), nextIsCallout);
+        }
+    }
+    return next;
+}
+
+export function insertDidaSyncBlock(
+    lines: string[],
+    index: number,
+    options: DidaSyncBlockWriteOptions
+): string[] {
+    const boundedIndex = Math.max(0, Math.min(index, lines.length));
+    const header = options.header.trim();
+    const isCallout = options.isCallout ?? header.startsWith(">");
+    const blockLines = [
+        buildDidaSyncBlockDeclaration(header, options.config),
+        quoteManagedLine(DIDASYNC_BLOCK_START_MARKER, isCallout),
+        quoteManagedLine(DIDASYNC_BLOCK_END_MARKER, isCallout)
+    ];
+    return [
+        ...lines.slice(0, boundedIndex),
+        ...blockLines,
+        ...lines.slice(boundedIndex)
+    ];
+}
+
 export function extractDidaSyncConfigText(
     line: string,
     headers: string[] = getDidaSyncCandidateHeaders()
@@ -112,7 +173,7 @@ export function parseDidaSyncBlockConfig(configText: string): {
     if (!range) return invalidConfig("Invalid didasync range");
 
     const projects = Array.isArray(raw?.projects)
-        ? raw.projects.filter((project: unknown): project is string => typeof project === "string" && project.trim() !== "").map((project: string) => normalizeProjectKey(project))
+        ? raw.projects.filter((project: unknown): project is string => typeof project === "string" && project.trim() !== "").map((project: string) => project.trim())
         : [];
 
     return {
@@ -121,7 +182,7 @@ export function parseDidaSyncBlockConfig(configText: string): {
             projects
         },
         range,
-        projectKeys: projects
+        projectKeys: projects.map((project) => normalizeProjectKey(project))
     };
 }
 
