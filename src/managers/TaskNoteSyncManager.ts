@@ -1,5 +1,13 @@
 import { App, normalizePath, Notice, TFile } from "obsidian";
 import DidaSyncPlugin from "../main";
+import {
+    DidaSyncBlockConfig,
+    insertDidaSyncBlock,
+    parseDidaSyncBlocks,
+    quoteCalloutLine,
+    replaceDidaSyncBlockContent,
+    replaceDidaSyncBlockDeclaration
+} from "../taskNoteBlock";
 import { formatTaskLineFromTask, parseTaskLine } from "../taskLineFormat";
 import {
     resolveTaskNoteContextFromFrontmatter,
@@ -45,6 +53,32 @@ export interface TaskNoteSyncResolvedContext {
     endDate: string;
 }
 
+export interface TaskNoteDidaBlockSummaryItem {
+    blockIndex: number;
+    lineIndex: number;
+    title: string;
+    header: string;
+    isCallout: boolean;
+    config: DidaSyncBlockConfig;
+    rangeText: string;
+    projectsText: string;
+    error?: string;
+}
+
+export interface TaskNoteDidaBlockAnalysis {
+    file: TFile;
+    totalBlocks: number;
+    validBlocks: number;
+    invalidBlocks: number;
+    items: TaskNoteDidaBlockSummaryItem[];
+}
+
+export interface SaveDidaBlockConfigOptions {
+    blockIndex?: number;
+    header: string;
+    config: DidaSyncBlockConfig;
+}
+
 interface ParsedTaskBlock {
     hasHeader: boolean;
     headerLineIndex: number;
@@ -76,6 +110,118 @@ export class TaskNoteSyncManager {
             console.error(e);
             new Notice(`同步失败: ${e instanceof Error ? e.message : "未知错误"}`);
         }
+    }
+
+    async syncDidaBlocksInFile(file: TFile) {
+        if (!(file instanceof TFile) || file.extension !== "md") {
+            new Notice("请选择一个 Markdown 文件");
+            return;
+        }
+
+        try {
+            const content = await this.app.vault.read(file);
+            const endsWithNewline = content.endsWith("\n");
+            let lines = content.split("\n");
+            if (endsWithNewline) lines = lines.slice(0, -1);
+
+            const blocks = parseDidaSyncBlocks(lines, this.plugin.settings.taskNoteSyncTargetBlockHeader);
+            if (blocks.length === 0) {
+                new Notice("当前文件未找到 didasync 块");
+                return;
+            }
+
+            const replacements: Array<{ lineIndex: number; lines: string[] }> = [];
+            let syncedCount = 0;
+            let skippedCount = 0;
+
+            for (const block of blocks) {
+                if (block.error) {
+                    skippedCount++;
+                    continue;
+                }
+
+                const projectScope = block.projectKeys.length > 0 ? "custom" : "all";
+                const tasks = await this.getTasksForRange(block.range, block.projectKeys, projectScope);
+                replacements.push({
+                    lineIndex: block.lineIndex,
+                    lines: this.formatDidaBlockTasks(tasks, block.range, block.isCallout)
+                });
+                syncedCount++;
+            }
+
+            if (replacements.length === 0) {
+                new Notice("未同步 didasync 块，请检查配置格式");
+                return;
+            }
+
+            let nextLines = lines;
+            const blocksByLine = new Map(blocks.map((block) => [block.lineIndex, block]));
+            for (const replacement of replacements.sort((a, b) => b.lineIndex - a.lineIndex)) {
+                const block = blocksByLine.get(replacement.lineIndex);
+                if (!block) continue;
+                nextLines = replaceDidaSyncBlockContent(nextLines, block, replacement.lines);
+            }
+
+            await this.app.vault.modify(file, nextLines.join("\n") + (endsWithNewline ? "\n" : ""));
+            const skippedText = skippedCount > 0 ? `，跳过 ${skippedCount} 个配置错误的块` : "";
+            new Notice(`已同步 ${syncedCount} 个 didasync 块${skippedText}`);
+        } catch (e) {
+            console.error(e);
+            new Notice(`同步 didasync 块失败: ${e instanceof Error ? e.message : "未知错误"}`);
+        }
+    }
+
+    async analyzeDidaBlocksInFile(file: TFile | null): Promise<TaskNoteDidaBlockAnalysis | null> {
+        if (!(file instanceof TFile) || file.extension !== "md") return null;
+
+        const content = await this.app.vault.read(file);
+        const lines = content.endsWith("\n")
+            ? content.slice(0, -1).split("\n")
+            : content.split("\n");
+        const blocks = parseDidaSyncBlocks(lines, this.plugin.settings.taskNoteSyncTargetBlockHeader);
+        const items = blocks.map((block, blockIndex) => ({
+            blockIndex,
+            lineIndex: block.lineIndex,
+            title: lines[block.lineIndex]?.trim() || "",
+            header: this.extractDidaBlockHeader(lines[block.lineIndex] || ""),
+            isCallout: block.isCallout,
+            config: { ...block.config },
+            rangeText: this.formatDidaBlockRange(block.range),
+            projectsText: block.config.projects.length > 0 ? block.config.projects.join(", ") : "全部清单",
+            error: block.error
+        }));
+
+        return {
+            file,
+            totalBlocks: blocks.length,
+            validBlocks: items.filter((item) => !item.error).length,
+            invalidBlocks: items.filter((item) => !!item.error).length,
+            items
+        };
+    }
+
+    async saveDidaBlockConfigInFile(file: TFile, options: SaveDidaBlockConfigOptions): Promise<TaskNoteDidaBlockAnalysis | null> {
+        if (!(file instanceof TFile) || file.extension !== "md") return null;
+
+        const content = await this.app.vault.read(file);
+        const endsWithNewline = content.endsWith("\n");
+        let lines = content.length > 0 ? content.split("\n") : [];
+        if (endsWithNewline) lines = lines.slice(0, -1);
+
+        const blocks = parseDidaSyncBlocks(lines, this.plugin.settings.taskNoteSyncTargetBlockHeader);
+        const header = (options.header || this.plugin.settings.taskNoteSyncTargetBlockHeader || "> [!didasync]").trim();
+
+        if (typeof options.blockIndex === "number" && options.blockIndex >= 0 && options.blockIndex < blocks.length) {
+            lines = replaceDidaSyncBlockDeclaration(lines, blocks[options.blockIndex], header, options.config);
+        } else {
+            lines = insertDidaSyncBlock(lines, lines.length, {
+                header,
+                config: options.config
+            });
+        }
+
+        await this.app.vault.modify(file, lines.join("\n") + (endsWithNewline ? "\n" : ""));
+        return await this.analyzeDidaBlocksInFile(file);
     }
 
     async resolveTargetFile(options: TaskNoteSyncOptions): Promise<TFile> {
@@ -487,6 +633,25 @@ export class TaskNoteSyncManager {
             };
             return formatTaskLineFromTask(normalizedTask as DidaTask, "", quotePrefix);
         });
+    }
+
+    formatDidaBlockTasks(tasks: DidaTask[], range: TaskNoteSyncRange, isCallout: boolean): string[] {
+        const taskPrefix = isCallout ? "> - " : "- ";
+        if (tasks.length === 0) return [isCallout ? quoteCalloutLine("- [ ] 无待办任务") : "- [ ] 无待办任务"];
+        if (range.startDate === range.endDate) return this.formatTasks(tasks, range.startDate, taskPrefix);
+        return this.formatGroupedTasks(tasks, taskPrefix, isCallout);
+    }
+
+    formatDidaBlockRange(range: TaskNoteSyncRange): string {
+        return range.startDate === range.endDate
+            ? range.startDate
+            : `${range.startDate} ~ ${range.endDate}`;
+    }
+
+    extractDidaBlockHeader(line: string): string {
+        const trimmed = (line || "").trim();
+        const jsonIndex = trimmed.indexOf("{");
+        return jsonIndex >= 0 ? trimmed.slice(0, jsonIndex).trim() : trimmed;
     }
 
     getRangeTitle(range: TaskNoteSyncRange): string {
