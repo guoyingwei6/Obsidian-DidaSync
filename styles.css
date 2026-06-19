@@ -358,6 +358,231 @@
     border-top: 0;
 }
 
+.dida-task-note-sync-modal-shell {
+    width: min(780px, 92vw);
+}
+
+.dida-task-note-sync-modal {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dida-task-note-sync-modal h3 {
+    margin: 0 0 2px;
+}
+
+.dida-task-note-legacy-mode {
+    display: none;
+}
+
+.dida-task-note-mode-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    width: fit-content;
+    min-width: min(360px, 100%);
+    padding: 4px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 10px;
+    background: var(--background-secondary);
+}
+
+.dida-task-note-mode-tab {
+    min-width: 0;
+    padding: 7px 16px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.dida-task-note-mode-tab:hover {
+    color: var(--text-normal);
+    background: var(--background-primary);
+}
+
+.dida-task-note-mode-tab.is-active {
+    color: var(--text-normal);
+    background: var(--background-primary);
+    border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+}
+
+.dida-task-note-mode-tab-label {
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.2;
+    text-align: center;
+}
+
+.dida-task-note-mode-tab-desc {
+    display: none;
+}
+
+.dida-task-note-summary-panel,
+.dida-task-note-block-status,
+.dida-task-note-config-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0;
+    padding: 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+}
+
+.dida-task-note-summary-panel>div:not(.dida-task-note-summary-item),
+.dida-task-note-block-status>div:not(.dida-task-note-summary-item),
+.dida-task-note-config-preview>div:not(.dida-task-note-summary-item),
+.dida-task-note-block-row>div:not(.dida-task-note-block-row-main):not(.dida-task-note-block-row-meta) {
+    display: none;
+}
+
+.dida-task-note-summary-item {
+    min-width: 0;
+    flex: 1 1 150px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    background: var(--background-primary);
+    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
+}
+
+.dida-task-note-summary-label {
+    margin-bottom: 2px;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.2;
+}
+
+.dida-task-note-summary-value {
+    color: var(--text-normal);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.dida-task-note-summary-item--path .dida-task-note-summary-value {
+    font-family: var(--font-monospace);
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.dida-task-note-summary-item--error {
+    border-color: color-mix(in srgb, var(--text-error) 55%, var(--background-modifier-border));
+}
+
+.dida-task-note-summary-item--error .dida-task-note-summary-value {
+    color: var(--text-error);
+}
+
+.dida-task-note-block-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 8px 0;
+    padding: 8px 12px;
+}
+
+.dida-task-note-block-editor .setting-item {
+    padding: 7px 0;
+    min-height: 0;
+}
+
+.dida-task-note-config-preview {
+    align-items: center;
+    font-family: inherit;
+    font-size: inherit;
+    word-break: normal;
+}
+
+.dida-task-note-block-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 6px 0;
+}
+
+.dida-task-note-block-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(0, 1.4fr);
+    gap: 8px;
+    padding: 7px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 7px;
+    background: var(--background-primary);
+}
+
+.dida-task-note-block-row.has-error {
+    border-color: color-mix(in srgb, var(--text-error) 40%, var(--background-modifier-border));
+}
+
+.dida-task-note-block-row-main {
+    min-width: 0;
+}
+
+.dida-task-note-block-row-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.dida-task-note-block-row-index {
+    flex: 0 0 auto;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.dida-task-note-block-row-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-normal);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.dida-task-note-block-row-line {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.dida-task-note-block-row-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.dida-task-note-block-row-meta .dida-task-note-summary-item--error {
+    grid-column: 1 / -1;
+}
+
+@media (max-width: 700px) {
+    .dida-task-note-mode-tabs,
+    .dida-task-note-summary-panel,
+    .dida-task-note-block-status,
+    .dida-task-note-config-preview,
+    .dida-task-note-block-row,
+    .dida-task-note-block-row-meta {
+        grid-template-columns: 1fr;
+    }
+
+    .dida-task-note-mode-tabs {
+        width: 100%;
+    }
+}
+
 .dida-settings-config-input {
     width: 100%;
     min-height: 220px;

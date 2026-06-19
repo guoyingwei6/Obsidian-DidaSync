@@ -41,6 +41,7 @@ export class TaskNoteSyncModal extends Modal {
     }
 
     async onOpen() {
+        this.modalEl.addClass("dida-task-note-sync-modal-shell");
         const today = this.plugin.taskNoteSyncManager.formatDateOnly(new Date());
         this.targetFile = this.sourceFile || this.app.workspace.getActiveFile();
         const targetContext = this.targetFile instanceof TFile
@@ -65,9 +66,11 @@ export class TaskNoteSyncModal extends Modal {
     render() {
         const { contentEl } = this;
         contentEl.empty();
+        contentEl.addClass("dida-task-note-sync-modal");
         contentEl.createEl("h3", { text: "同步任务到笔记" });
 
         new Setting(contentEl)
+            .setClass("dida-task-note-legacy-mode")
             .setName("同步模式")
             .setDesc("选择写入汇总笔记，或刷新当前文件中的 didasync 块。")
             .addDropdown((dropdown) => dropdown
@@ -78,6 +81,8 @@ export class TaskNoteSyncModal extends Modal {
                     this.mode = value as TaskNoteSyncModalMode;
                     this.render();
                 }));
+
+        this.renderModeTabs(contentEl);
 
         if (this.mode === "blocks") {
             this.renderBlockMode(contentEl);
@@ -116,6 +121,26 @@ export class TaskNoteSyncModal extends Modal {
                 projectKeys: this.getSelectedProjectKeysForSync()
             });
         };
+    }
+
+    renderModeTabs(contentEl: HTMLElement) {
+        const tabs = contentEl.createDiv("dida-task-note-mode-tabs");
+        const options: Array<{ mode: TaskNoteSyncModalMode; label: string; desc: string }> = [
+            { mode: "note", label: "汇总笔记", desc: "按日期写入任务汇总" },
+            { mode: "blocks", label: "当前文件块", desc: "编辑并刷新 didasync 块" }
+        ];
+        options.forEach((option) => {
+            const tab = tabs.createDiv({
+                cls: `dida-task-note-mode-tab${this.mode === option.mode ? " is-active" : ""}`
+            });
+            tab.createDiv({ cls: "dida-task-note-mode-tab-label", text: option.label });
+            tab.createDiv({ cls: "dida-task-note-mode-tab-desc", text: option.desc });
+            tab.onclick = () => {
+                if (this.mode === option.mode) return;
+                this.mode = option.mode;
+                this.render();
+            };
+        });
     }
 
     renderNoteMode(contentEl: HTMLElement) {
@@ -181,7 +206,7 @@ export class TaskNoteSyncModal extends Modal {
                     this.updatePreview();
                 }));
 
-        this.previewEl = contentEl.createDiv("dida-settings-info dida-settings-info--primary");
+        this.previewEl = contentEl.createDiv("dida-task-note-summary-panel");
         this.updatePreview();
     }
 
@@ -200,6 +225,11 @@ export class TaskNoteSyncModal extends Modal {
         info.createDiv({ text: `当前文件：${this.blockAnalysis.file.path}` });
         info.createDiv({ text: `检测到 ${this.blockAnalysis.totalBlocks} 个 didasync 块` });
         info.createDiv({ text: `可同步 ${this.blockAnalysis.validBlocks} 个，配置错误 ${this.blockAnalysis.invalidBlocks} 个` });
+
+        this.renderSummaryItem(info, "当前文件", this.blockAnalysis.file.path, "dida-task-note-summary-item--path");
+        this.renderSummaryItem(info, "检测块数", `${this.blockAnalysis.totalBlocks}`);
+        this.renderSummaryItem(info, "可同步", `${this.blockAnalysis.validBlocks}`);
+        this.renderSummaryItem(info, "配置错误", `${this.blockAnalysis.invalidBlocks}`, this.blockAnalysis.invalidBlocks > 0 ? "dida-task-note-summary-item--error" : "");
 
         const editorEl = contentEl.createDiv("dida-task-note-block-editor");
         this.renderBlockEditor(editorEl);
@@ -298,6 +328,10 @@ export class TaskNoteSyncModal extends Modal {
         }
 
         const preview = contentEl.createDiv("dida-task-note-config-preview");
+        const blockConfig = this.buildBlockConfig();
+        this.renderSummaryItem(preview, "范围", blockConfig.range);
+        this.renderSummaryItem(preview, "清单", blockConfig.projects.length > 0 ? blockConfig.projects.join("、") : "全部清单");
+        this.renderSummaryItem(preview, "写入配置", this.selectedBlockIndex >= 0 ? "更新所选块" : "插入新同步块");
         preview.createDiv({ text: `配置预览：${JSON.stringify(this.buildBlockConfig())}` });
 
         new Setting(contentEl)
@@ -312,7 +346,16 @@ export class TaskNoteSyncModal extends Modal {
     renderBlockSummary(contentEl: HTMLElement) {
         const list = contentEl.createDiv("dida-task-note-block-list");
         this.blockAnalysis?.items.forEach((item, index) => {
-            const row = list.createDiv("dida-task-note-block-row");
+            const row = list.createDiv(`dida-task-note-block-row${item.error ? " has-error" : ""}`);
+            const main = row.createDiv("dida-task-note-block-row-main");
+            const title = main.createDiv("dida-task-note-block-row-title");
+            title.createSpan({ cls: "dida-task-note-block-row-index", text: `块 ${index + 1}` });
+            title.createSpan({ cls: "dida-task-note-block-row-name", text: item.title || "未命名块" });
+            main.createDiv({ cls: "dida-task-note-block-row-line", text: `第 ${item.lineIndex + 1} 行` });
+            const meta = row.createDiv("dida-task-note-block-row-meta");
+            this.renderSummaryItem(meta, "范围", item.rangeText);
+            this.renderSummaryItem(meta, "清单", item.projectsText);
+            if (item.error) this.renderSummaryItem(meta, "错误", item.error, "dida-task-note-summary-item--error");
             row.createDiv({ text: `块 ${index + 1}：${item.title || "未命名块"}` });
             row.createDiv({ text: `范围：${item.rangeText}` });
             row.createDiv({ text: `清单：${item.projectsText}` });
@@ -502,6 +545,12 @@ export class TaskNoteSyncModal extends Modal {
         return this.plugin.taskNoteSyncManager.createRange(this.rangeType, this.baseDate);
     }
 
+    renderSummaryItem(containerEl: HTMLElement, label: string, value: string, extraClass: string = "") {
+        const item = containerEl.createDiv({ cls: `dida-task-note-summary-item ${extraClass}`.trim() });
+        item.createDiv({ cls: "dida-task-note-summary-label", text: label });
+        item.createDiv({ cls: "dida-task-note-summary-value", text: value });
+    }
+
     updatePreview() {
         if (!this.previewEl) return;
         if (this.rangeType === "custom" && (!this.startDate || !this.endDate)) {
@@ -521,6 +570,10 @@ export class TaskNoteSyncModal extends Modal {
         const fileMode = this.createNewFile ? "生成新的笔记文件" : "写入同名笔记，若不存在则新建";
         const projectLabel = this.getProjectScopePreviewText();
         this.previewEl.empty();
+        this.renderSummaryItem(this.previewEl, "任务范围", `${range.startDate} 至 ${range.endDate}`);
+        this.renderSummaryItem(this.previewEl, "清单来源", projectLabel);
+        this.renderSummaryItem(this.previewEl, "写入方式", fileMode);
+        this.renderSummaryItem(this.previewEl, "目标位置", filePath, "dida-task-note-summary-item--path");
         this.previewEl.createDiv({ text: `任务范围：${range.startDate} 至 ${range.endDate}` });
         this.previewEl.createDiv({ text: `清单来源：${projectLabel}` });
         this.previewEl.createDiv({ text: `写入方式：${fileMode}` });
