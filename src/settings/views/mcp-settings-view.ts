@@ -72,6 +72,22 @@ export class McpSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
+            .setName("用户时区")
+            .setDesc("用于 MCP 工具描述和 Dida API timeZone 字段。请输入 IANA 时区，例如 Asia/Shanghai、America/New_York。")
+            .addText((text) => text
+                .setPlaceholder(this.plugin.detectSystemTimeZone())
+                .setValue(this.plugin.getUserTimeZone())
+                .onChange(async (value) => {
+                    const next = value.trim();
+                    if (!this.plugin.isValidTimeZone(next)) {
+                        new Notice(`无效时区：${next || "(空)"}`);
+                        return;
+                    }
+                    this.plugin.settings.userTimeZone = next;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
             .setName("MCP Token")
             .setDesc(this.plugin.settings.mcpToken ? "用于 AI 插件鉴权，请勿公开。可以直接复制下面展示的 token。" : "启用 MCP 服务时会自动生成。")
             .addButton((button) => button

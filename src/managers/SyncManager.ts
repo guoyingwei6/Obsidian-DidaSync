@@ -644,7 +644,7 @@ export class SyncManager {
             }
             if (task.isAllDay !== undefined) {
                 payload.isAllDay = task.isAllDay;
-                if (task.isAllDay) payload.timeZone = "Asia/Shanghai";
+                if (task.isAllDay) payload.timeZone = this.plugin.getUserTimeZone();
             }
             if (task.priority !== undefined) payload.priority = task.priority;
             if (task.parentId) payload.parentId = task.parentId;

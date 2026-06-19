@@ -470,7 +470,7 @@ export class DidaApiClient {
             taskData.startDate = taskData.startDate.replace("Z", "+0000");
         }
         if (taskData && taskData.isAllDay) {
-            taskData.timeZone = taskData.timeZone || "Asia/Shanghai";
+            taskData.timeZone = taskData.timeZone || this.plugin.getUserTimeZone();
         }
         const res = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task", {
             method: "POST",
@@ -488,7 +488,7 @@ export class DidaApiClient {
             taskData.startDate = taskData.startDate.replace("Z", "+0000");
         }
         if (taskData && taskData.isAllDay) {
-            taskData.timeZone = taskData.timeZone || "Asia/Shanghai";
+            taskData.timeZone = taskData.timeZone || this.plugin.getUserTimeZone();
         }
         if (taskData && taskData.status === 2 && !taskData.completedTime) {
             const now = new Date();

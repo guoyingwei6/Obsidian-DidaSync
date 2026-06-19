@@ -250,6 +250,7 @@ export default class DidaSyncPlugin extends Plugin {
             this.settings.pomodoroSettings.completionHistory
         );
         if (!["localhost", "ipv4"].includes(this.settings.oauthCallbackMode)) this.settings.oauthCallbackMode = "localhost";
+        if (!this.isValidTimeZone(this.settings.userTimeZone)) this.settings.userTimeZone = this.detectSystemTimeZone();
         if (this.settings.enableMcpServer === undefined) this.settings.enableMcpServer = false;
         if (this.settings.mcpPort === undefined) this.settings.mcpPort = 35829;
         if (this.settings.mcpToken === undefined) this.settings.mcpToken = "";
@@ -260,6 +261,68 @@ export default class DidaSyncPlugin extends Plugin {
 
     async saveSettings() {
         await this.saveData(this.settings);
+    }
+
+    detectSystemTimeZone() {
+        try {
+            const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            if (this.isValidTimeZone(timeZone)) return timeZone;
+        } catch (e) { }
+        return "Asia/Shanghai";
+    }
+
+    isValidTimeZone(timeZone: string | null | undefined) {
+        if (!timeZone || typeof timeZone !== "string") return false;
+        try {
+            Intl.DateTimeFormat(undefined, { timeZone });
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    getUserTimeZone() {
+        return this.isValidTimeZone(this.settings?.userTimeZone) ? this.settings.userTimeZone : this.detectSystemTimeZone();
+    }
+
+    getTimeZoneOffset(date: Date = new Date(), timeZone: string = this.getUserTimeZone()) {
+        try {
+            const parts = new Intl.DateTimeFormat("en-US", {
+                timeZone,
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false
+            }).formatToParts(date).reduce((acc: any, part) => {
+                if (part.type !== "literal") acc[part.type] = part.value;
+                return acc;
+            }, {});
+            const asUtc = Date.UTC(
+                Number(parts.year),
+                Number(parts.month) - 1,
+                Number(parts.day),
+                Number(parts.hour) % 24,
+                Number(parts.minute),
+                Number(parts.second)
+            );
+            const offsetMinutes = Math.round((asUtc - date.getTime()) / 60000);
+            const sign = offsetMinutes >= 0 ? "+" : "-";
+            const abs = Math.abs(offsetMinutes);
+            return `${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+        } catch (e) {
+            const offset = date.getTimezoneOffset();
+            const sign = offset <= 0 ? "+" : "-";
+            const abs = Math.abs(offset);
+            return `${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+        }
+    }
+
+    getUserTimeZoneDateTimeExample() {
+        const exampleDate = new Date(Date.UTC(2026, 5, 19, 3, 0, 0));
+        return `2026-06-19T11:00:00${this.getTimeZoneOffset(exampleDate, this.getUserTimeZone())}`;
     }
 
     async exportMcpSkillDocument() {
@@ -1641,7 +1704,7 @@ export default class DidaSyncPlugin extends Plugin {
             kind: "TEXT",
             priority: 0,
             sortOrder: 0,
-            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            timeZone: this.getUserTimeZone(),
             isFloating: false,
             isAllDay: false
         };

@@ -502,6 +502,7 @@ export class McpServerManager {
                 didaId: { type: "string", description: "Dida task id. Use either id or didaId." }
             }
         };
+        const dateInput = this.dateInputSchema();
         return [
             {
                 name: "dida_list_tasks",
@@ -512,8 +513,8 @@ export class McpServerManager {
                     additionalProperties: false,
                     properties: {
                         datePreset: { type: "string", enum: ["overdue", "today", "tomorrow", "this_week", "scheduled", "unscheduled"], description: "Shortcut date filter." },
-                        from: { type: "string", description: "Range start: YYYY-MM-DD for all-day, ISO datetime for timed tasks." },
-                        to: { type: "string", description: "Range end: YYYY-MM-DD for all-day, ISO datetime for timed tasks." },
+                        from: dateInput,
+                        to: dateInput,
                         dateField: { type: "string", enum: ["startDate", "dueDate", "either"], description: "Default either." },
                         projectId: { type: "string", description: "Exact project id. Defaults to inbox if omitted." },
                         projectName: { type: "string", description: "Partial project name. Use when the user names a project." },
@@ -577,8 +578,8 @@ export class McpServerManager {
                                 properties: {
                                     id: idInput.properties.id,
                                     didaId: idInput.properties.didaId,
-                                    startDate: { type: "string", description: "YYYY-MM-DD for all-day, ISO datetime for timed tasks." },
-                                    dueDate: { type: "string", description: "YYYY-MM-DD for all-day, ISO datetime for timed tasks. Must be >= startDate." },
+                                    startDate: dateInput,
+                                    dueDate: { ...dateInput, description: `${dateInput.description} Must be >= startDate.` },
                                     isAllDay: { type: "boolean", description: "true for all-day." }
                                 }
                             }
@@ -617,8 +618,8 @@ export class McpServerManager {
                             items: { type: "string" },
                             description: "Optional project ids."
                         },
-                        startDate: { type: "string", description: "Completed-time range start. ISO datetime with timezone." },
-                        endDate: { type: "string", description: "Completed-time range end. ISO datetime with timezone." },
+                        startDate: this.timedDateInputSchema("Completed-time range start"),
+                        endDate: this.timedDateInputSchema("Completed-time range end"),
                         query: { type: "string", description: "Optional text search over fetched completed tasks." },
                         limit: { type: "number", minimum: 1, maximum: 500, description: "Default 100, max 500." },
                         refresh: { type: "boolean", description: "Default true. Fetch latest from Dida before reading cache." }
@@ -629,21 +630,49 @@ export class McpServerManager {
     }
 
     private taskMutationProperties(includeRequestId: boolean) {
-        const commonDate = "YYYY-MM-DD for all-day, ISO datetime for timed tasks.";
+        const dateInput = this.dateInputSchema();
         const properties: any = {
             title: { type: "string", description: "Task title." },
             content: { type: "string", description: "Main note/body of the task." },
             desc: { type: "string", description: "Task description." },
             projectId: { type: "string", description: "Exact project id. Defaults to inbox if omitted." },
             projectName: { type: "string", description: "Partial project name. Use when the user names a project and projectId is unknown." },
-            dueDate: { type: "string", description: commonDate },
-            startDate: { type: "string", description: commonDate },
+            dueDate: dateInput,
+            startDate: dateInput,
             isAllDay: { type: "boolean", description: "true for date-only tasks." },
             priority: { type: "number", enum: [0, 1, 3, 5], description: "0 none, 1 low, 3 medium, 5 high." },
             sync: { type: "boolean", description: "Optional. Default true." }
         };
         if (includeRequestId) properties.requestId = { type: "string", description: "Idempotency key for retries." };
         return properties;
+    }
+
+    private dateInputSchema() {
+        const timeZone = this.getUserTimeZone();
+        const example = this.getUserDateTimeExample();
+        return {
+            type: "string",
+            pattern: "^(\\d{4}-\\d{2}-\\d{2}|\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:?\\d{2}))$",
+            description: `All-day: YYYY-MM-DD. Timed: ISO 8601 datetime WITH timezone offset for the user's timezone (${timeZone}), e.g. ${example}. Also accepts Z. Do NOT use timezone-naive values like 2026-06-19T11:00:00.`
+        };
+    }
+
+    private timedDateInputSchema(label: string) {
+        const timeZone = this.getUserTimeZone();
+        const example = this.getUserDateTimeExample();
+        return {
+            type: "string",
+            pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:?\\d{2})$",
+            description: `${label}. ISO 8601 datetime WITH timezone offset for the user's timezone (${timeZone}), e.g. ${example}. Do NOT use timezone-naive values like 2026-06-19T11:00:00.`
+        };
+    }
+
+    private getUserTimeZone() {
+        return typeof (this.plugin as any).getUserTimeZone === "function" ? (this.plugin as any).getUserTimeZone() : "Asia/Shanghai";
+    }
+
+    private getUserDateTimeExample() {
+        return typeof (this.plugin as any).getUserTimeZoneDateTimeExample === "function" ? (this.plugin as any).getUserTimeZoneDateTimeExample() : "2026-06-19T11:00:00+08:00";
     }
 
     private normalizeEnum(value: any, allowed: string[], name: string) {
@@ -734,8 +763,18 @@ export class McpServerManager {
 
     private validateDateValue(value: any, name: string) {
         if (value === null || value === "") return;
+        if (typeof value !== "string") throw new Error(`${name} must be a date string`);
+        const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
+        const timedWithTimezonePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/;
+        const timezoneNaivePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+        if (timezoneNaivePattern.test(value)) {
+            throw new Error(`${name} timed datetime must include timezone offset for ${this.getUserTimeZone()}, e.g. ${this.getUserDateTimeExample()}. Do not use ${value}`);
+        }
+        if (!dateOnlyPattern.test(value) && !timedWithTimezonePattern.test(value)) {
+            throw new Error(`${name} must be YYYY-MM-DD for all-day tasks or ISO datetime with timezone offset, e.g. ${this.getUserDateTimeExample()}`);
+        }
         const date = new Date(value);
-        if (isNaN(date.getTime())) throw new Error(`${name} must be a valid date string, for example 2026-05-25 or 2026-05-25T09:00:00+08:00`);
+        if (isNaN(date.getTime())) throw new Error(`${name} must be a valid date string, for example 2026-05-25 or ${this.getUserDateTimeExample()}`);
     }
 
     private normalizeBoolean(value: any, name: string, strict: boolean) {

@@ -125,7 +125,7 @@ export class AddTaskToProjectModal extends Modal {
                         kind: "TEXT",
                         priority: 0,
                         sortOrder: 0,
-                        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        timeZone: this.plugin.getUserTimeZone(),
                         isFloating: false
                     };
 

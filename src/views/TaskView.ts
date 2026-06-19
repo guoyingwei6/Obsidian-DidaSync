@@ -2315,7 +2315,7 @@ export class TaskView extends ItemView {
                             kind: "TEXT",
                             priority: 0,
                             sortOrder: 0,
-                            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                            timeZone: this.plugin.getUserTimeZone(),
                             isFloating: false
                         };
 
@@ -3159,7 +3159,7 @@ export class TaskView extends ItemView {
                         kind: "TEXT",
                         priority: 0,
                         sortOrder: 0,
-                        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        timeZone: this.plugin.getUserTimeZone(),
                         isFloating: false,
                         isAllDay: false
                     };

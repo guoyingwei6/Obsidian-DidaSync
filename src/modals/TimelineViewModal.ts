@@ -656,7 +656,7 @@ export class TimelineViewModal {
                 kind: "TEXT",
                 priority: 0,
                 sortOrder: 0,
-                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                timeZone: this.plugin.getUserTimeZone(),
                 isFloating: false,
                 isAllDay: true, // Default to all day if added from timeline fab? Source: hasTime: !1
                 didaId: null
@@ -855,7 +855,7 @@ export class TimelineViewModal {
                         kind: "TEXT",
                         priority: 0,
                         sortOrder: 0,
-                        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        timeZone: this.plugin.getUserTimeZone(),
                         isFloating: false,
                         isAllDay: false
                     } as any;

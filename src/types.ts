@@ -113,6 +113,7 @@ export interface DidaSyncSettings {
     syncInterval: number; // in minutes
     serverPort: number;
     oauthCallbackMode: OAuthCallbackMode;
+    userTimeZone: string;
     enableMcpServer: boolean;
     mcpPort: number;
     mcpToken: string;
@@ -181,6 +182,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     syncInterval: 5,
     serverPort: 8080,
     oauthCallbackMode: "localhost",
+    userTimeZone: "",
     enableMcpServer: false,
     mcpPort: 35829,
     mcpToken: "",
