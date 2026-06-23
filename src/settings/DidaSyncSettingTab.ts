@@ -1,4 +1,4 @@
-import { App, PluginSettingTab } from "obsidian";
+import { App, Platform, PluginSettingTab } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { AbstractSettingsView } from "./views/abstract-settings-view";
 import { OAuthSettingsView } from "./views/oauth-settings-view";
@@ -31,9 +31,12 @@ export class DidaSyncSettingTab extends PluginSettingTab {
             { id: "oauth", name: "OAuth", view: new OAuthSettingsView(this.app, this.plugin) },
             { id: "sync", name: "同步", view: new SyncSettingsView(this.app, this.plugin) },
             { id: "ui", name: "视图", view: new UISettingsView(this.app, this.plugin) },
-            { id: "mcp", name: "MCP", view: new McpSettingsView(this.app, this.plugin) },
+            ...(Platform.isMobile ? [] : [{ id: "mcp", name: "MCP", view: new McpSettingsView(this.app, this.plugin) }]),
             { id: "advanced", name: "高级", view: new AdvancedSettingsView(this.app, this.plugin) }
         ];
+        if (!tabs.some(tab => tab.id === this.activeTab)) {
+            this.activeTab = "oauth";
+        }
 
         tabs.forEach(tab => {
             const tabEl = tabsContainer.createDiv({ cls: "dida-settings-tab-item" });

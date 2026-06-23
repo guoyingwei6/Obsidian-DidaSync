@@ -1,8 +1,7 @@
-import { Editor, EditorPosition, getIconIds, Menu, Modal, Notice, Plugin, setIcon, TFile, normalizePath } from 'obsidian';
+import { Editor, EditorPosition, getIconIds, Menu, Modal, Notice, Platform, Plugin, setIcon, TFile, normalizePath } from 'obsidian';
 import { DidaApiClient } from './api/DidaApiClient';
 import { RRuleParser } from './core/RRuleParser';
 import { TaskNoteSyncManager } from './managers/TaskNoteSyncManager';
-import { McpServerManager } from './managers/McpServerManager';
 import { NativeTaskSyncManager } from './managers/NativeTaskSyncManager';
 import { RepeatTaskManager } from './managers/RepeatTaskManager';
 import { SyncManager } from './managers/SyncManager';
@@ -42,7 +41,7 @@ export default class DidaSyncPlugin extends Plugin {
     settings: DidaSyncSettings;
     apiClient: DidaApiClient;
     syncManager: SyncManager;
-    mcpServerManager: McpServerManager;
+    mcpServerManager: any | null = null;
     nativeTaskSyncManager: NativeTaskSyncManager;
     repeatTaskManager: RepeatTaskManager;
     taskNoteSyncManager: TaskNoteSyncManager;
@@ -73,7 +72,10 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.apiClient = new DidaApiClient(this);
         this.syncManager = new SyncManager(this);
-        this.mcpServerManager = new McpServerManager(this);
+        if (!Platform.isMobile) {
+            const { McpServerManager } = await import('./managers/McpServerManager');
+            this.mcpServerManager = new McpServerManager(this);
+        }
         this.nativeTaskSyncManager = new NativeTaskSyncManager(this);
         this.repeatTaskManager = new RepeatTaskManager(this);
         this.taskNoteSyncManager = new TaskNoteSyncManager(this.app, this);
@@ -152,7 +154,9 @@ export default class DidaSyncPlugin extends Plugin {
 
         this.registerTaskNoteSyncMenuEntrypoints();
         this.initializePluginFeatures();
-        this.mcpServerManager.start().catch((e) => this.mcpServerManager.notifyStartupError(e));
+        if (this.mcpServerManager) {
+            this.mcpServerManager.start().catch((e: any) => this.mcpServerManager?.notifyStartupError(e));
+        }
     }
 
     async onunload() {
@@ -1301,6 +1305,7 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     createStatusBarItem() {
+        if (Platform.isMobile) return;
         if (!this.statusBarItem) {
             this.statusBarItem = this.addStatusBarItem();
             this.updateStatusBar("未连接");
@@ -1906,6 +1911,17 @@ export default class DidaSyncPlugin extends Plugin {
             else if ((params as any).action) didaId = (params as any).action.split("/")[1];
             else if (typeof params === "string") didaId = (params as any).split("/").pop();
             if (didaId) this.openTaskDetails(didaId);
+        });
+        this.registerObsidianProtocolHandler("dida-oauth", (params) => {
+            const code = typeof params.code === "string" ? params.code : "";
+            const error = typeof params.error === "string" ? params.error : "";
+            if (error) {
+                this.apiClient.handleOAuthError(error);
+            } else if (code) {
+                this.apiClient.handleOAuthCallback(code);
+            } else {
+                new Notice("OAuth回调未包含授权码");
+            }
         });
     }
 
