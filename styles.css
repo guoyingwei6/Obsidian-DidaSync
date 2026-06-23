@@ -281,6 +281,98 @@
     margin-left: 10px;
 }
 
+.dida-task-create-modal {
+    width: min(420px, calc(100vw - 48px));
+}
+
+.dida-task-create-title {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 14px;
+    font-size: 15px;
+}
+
+.dida-task-create-project {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.dida-task-create-project label {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.dida-task-create-project select {
+    width: 100%;
+}
+
+.dida-task-create-schedule {
+    padding-top: 14px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.dida-schedule-mode-switch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 3px;
+    margin-bottom: 12px;
+    border-radius: 7px;
+    background: var(--background-secondary);
+}
+
+.dida-schedule-mode-switch button {
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.dida-schedule-mode-switch button.is-active {
+    background: var(--background-primary);
+    color: var(--text-normal);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+
+.dida-task-create-time-row {
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.dida-task-create-time-select {
+    min-width: 82px;
+}
+
+.dida-task-create-calendar .dida-calendar-grid {
+    margin-bottom: 4px;
+}
+
+.dida-task-create-calendar .dida-calendar-day {
+    width: auto;
+    height: 30px;
+    min-height: 30px;
+    padding: 0;
+    border-radius: 50%;
+}
+
+.dida-task-create-calendar .dida-calendar-day.today:not(.selected) {
+    background: transparent;
+    color: var(--interactive-accent);
+    opacity: 1;
+}
+
+.dida-task-create-auxiliary {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+}
+
 .dida-modal-actions-row {
     display: flex;
     justify-content: flex-end;
@@ -1980,11 +2072,27 @@
 
 /* 在日历弹窗中的时间容器样式 */
 .dida-calendar-popup .dida-time-container {
-    margin: 0;
-    gap: 1px;
+    margin: 0 0 8px;
+    gap: 5px;
+    flex-wrap: wrap;
     flex-shrink: 0;
     align-items: center;
-    margin-right: 4px;
+    justify-content: flex-start;
+}
+
+.dida-calendar-title .dida-time-container {
+    flex: 1;
+}
+
+.dida-time-end-container {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.dida-calendar-popup .dida-calendar-mode-switch {
+    flex: 0 0 100%;
+    margin-bottom: 4px;
 }
 
 .dida-time-label {
@@ -4420,6 +4528,16 @@ label+.dida-project-select {
     top: 0;
     height: 0.5px;
     background: var(--background-modifier-border);
+}
+
+.dida-time-block-quarter-line {
+    position: absolute;
+    left: 42px;
+    right: -8px;
+    height: 1px;
+    background: var(--background-modifier-border);
+    opacity: 0.28;
+    pointer-events: none;
 }
 
 /* 当前时间指示线 */

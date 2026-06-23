@@ -7,7 +7,7 @@ import { NativeTaskSyncManager } from './managers/NativeTaskSyncManager';
 import { RepeatTaskManager } from './managers/RepeatTaskManager';
 import { SyncManager } from './managers/SyncManager';
 import { DIDA_SKILL_DOC } from './skills/dida-skill-doc';
-import { AddTaskToProjectModal } from './modals/AddTaskToProjectModal';
+import { AddTaskModal } from './modals/AddTaskModal';
 import { CompletedTasksModal } from './modals/CompletedTasksModal';
 import { ProjectCreateModal } from './modals/ProjectCreateModal';
 import { ProjectDeleteConfirmModal } from './modals/ProjectDeleteConfirmModal';
@@ -17,7 +17,7 @@ import { TaskNoteSyncModal } from './modals/TaskNoteSyncModal';
 import { TaskSuggestionPopup } from './modals/TaskSuggestionPopup';
 import { TimelineViewModal } from './modals/TimelineViewModal';
 import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
-import { CompletedTasksQuery, DEFAULT_SETTINGS, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry } from './types';
+import { CompletedTasksQuery, DEFAULT_SETTINGS, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry, TaskScheduleInput } from './types';
 import { applyParsedLineToTask, formatTaskLine, formatTaskLineFromTask, makeLocalDateTime, parseTaskLine, TaskLineMetadata } from './taskLineFormat';
 import { normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes } from './utils';
 import { DidaTimeBlockView, TIME_BLOCK_VIEW_TYPE } from './views/DidaTimeBlockView';
@@ -1679,15 +1679,22 @@ export default class DidaSyncPlugin extends Plugin {
 
     showAddTaskToProjectModal(projectName?: string, projectId?: string, target?: HTMLElement) {
         if (this.isPluginActivated) {
-            const modal = new AddTaskToProjectModal(this.app, this);
-            modal.open();
+            const projects = this.getAvailableProjectConfigs().map(entry => ({ id: entry.id, name: entry.name }));
+            new AddTaskModal(this.app, async (title, project, schedule) => {
+                await this.addTask(title, project.name, project.id, true, null, schedule);
+            }, {
+                projects,
+                defaultProjectId: projectId || projects[0]?.id,
+                lockProject: false,
+                defaultDate: new Date()
+            }).open();
         } else {
             this.checkPluginStatusAndNotify();
         }
     }
 
     // Task Management
-    async addTask(title: string, projectName: string = "收集箱", projectId: string = "inbox", shouldSync: boolean = true, dueDate: string | null = null): Promise<DidaTask> {
+    async addTask(title: string, projectName: string = "收集箱", projectId: string = "inbox", shouldSync: boolean = true, dueDate: string | null = null, schedule?: TaskScheduleInput): Promise<DidaTask> {
         const newTask: DidaTask = {
             id: Date.now().toString(),
             title: title,
@@ -1700,13 +1707,15 @@ export default class DidaSyncPlugin extends Plugin {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             items: [],
-            dueDate: dueDate || undefined,
+            startDate: schedule?.startDate,
+            dueDate: schedule?.dueDate || dueDate || undefined,
             kind: "TEXT",
             priority: 0,
             sortOrder: 0,
             timeZone: this.getUserTimeZone(),
             isFloating: false,
-            isAllDay: false
+            isAllDay: schedule?.isAllDay ?? false,
+            repeatFlag: schedule?.repeatFlag || undefined
         };
 
         this.settings.tasks = this.settings.tasks || [];

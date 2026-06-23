@@ -1,5 +1,6 @@
 import { App } from "obsidian";
 import DidaSyncPlugin from "../main";
+import { roundDateUpToStep } from "../timeGrid";
 import { CompactRepeatSettings } from "./CompactRepeatSettings";
 
 export class DatePickerModal {
@@ -41,8 +42,12 @@ export class DatePickerModal {
         } else {
             this.isAllDay = false;
             const now = new Date();
-            this.selectedHour = now.getHours();
-            this.selectedMinute = now.getMinutes();
+            const roundedStart = roundDateUpToStep(now);
+            this.selectedHour = roundedStart.getHours();
+            this.selectedMinute = roundedStart.getMinutes();
+            if (roundedStart.getDate() !== now.getDate() || roundedStart.getMonth() !== now.getMonth() || roundedStart.getFullYear() !== now.getFullYear()) {
+                this.selectedDate = roundedStart;
+            }
         }
 
         if (this.plugin && null != this.taskIndex) {
@@ -65,15 +70,7 @@ export class DatePickerModal {
         this.displayMonth = (this.selectedDate || new Date()).getMonth();
 
         // End time defaults
-        const endTime = new Date();
-        endTime.setHours(endTime.getHours() + 1);
-        const endMin = 5 * Math.ceil(endTime.getMinutes() / 5);
-        if (endMin >= 60) {
-            endTime.setHours(endTime.getHours() + 1);
-            endTime.setMinutes(0);
-        } else {
-            endTime.setMinutes(endMin);
-        }
+        const endTime = roundDateUpToStep(new Date(Date.now() + 3600000));
         this.endHour = endTime.getHours();
         this.endMinute = endTime.getMinutes();
 
@@ -147,12 +144,11 @@ export class DatePickerModal {
         };
 
         const timeContainer = title.createEl("div", { cls: "dida-time-container" });
-        const allDayContainer = timeContainer.createEl("div", { cls: "dida-allday-container" });
-        const allDayCheckbox = allDayContainer.createEl("input", { type: "checkbox", cls: "dida-allday-checkbox" });
-        allDayCheckbox.checked = this.isAllDay;
-        allDayContainer.createEl("label", { text: "全天", cls: "dida-allday-label" });
+        const modeSwitch = timeContainer.createEl("div", { cls: "dida-schedule-mode-switch dida-calendar-mode-switch" });
+        const allDayModeBtn = modeSwitch.createEl("button", { text: "全天" });
+        const timedModeBtn = modeSwitch.createEl("button", { text: "时间段" });
 
-        const timeLabel = timeContainer.createEl("span", { text: "｜时间段", cls: "dida-time-label" });
+        const timeLabel = timeContainer.createEl("span", { text: "开始", cls: "dida-time-label" });
         const hourContainer = timeContainer.createDiv("dida-time-select-container");
         hourContainer.setCssStyles({ display: "inline-block", position: "relative", marginRight: "5px" });
         const hourDisplay = hourContainer.createEl("div", { text: this.selectedHour.toString().padStart(2, "0"), cls: "dida-time-display" });
@@ -192,14 +188,14 @@ export class DatePickerModal {
         timeContainer.createEl("span", { text: ":" });
         const minuteContainer = timeContainer.createDiv("dida-time-select-container");
         minuteContainer.setCssStyles({ display: "inline-block", position: "relative", marginLeft: "5px" });
-        const minuteDisplay = minuteContainer.createEl("div", { text: (5 * Math.floor(this.selectedMinute / 5)).toString().padStart(2, "0"), cls: "dida-time-display" });
+        const minuteDisplay = minuteContainer.createEl("div", { text: this.selectedMinute.toString().padStart(2, "0"), cls: "dida-time-display" });
         minuteDisplay.setCssStyles({ fontSize: "12px", border: "1px solid var(--background-modifier-border)", borderRadius: "4px", background: "var(--background-primary)", color: "var(--text-normal)", cursor: "pointer", minWidth: "25px", textAlign: "center", userSelect: "none" });
         const minuteDropdown = minuteContainer.createDiv("dida-time-dropdown");
         minuteDropdown.setCssStyles({ fontSize: "12px", position: "absolute", top: "100%", left: "0", background: "var(--background-primary)", border: "1px solid var(--background-modifier-border)", borderRadius: "4px", maxHeight: "150px", overflowY: "auto", zIndex: "1003", display: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" });
-        for (let i = 0; i < 60; i += 5) {
+        for (let i = 0; i < 60; i += 15) {
             const opt = minuteDropdown.createEl("div", { text: i.toString().padStart(2, "0"), cls: "dida-time-option" });
             opt.setCssStyles({ padding: "5px 10px", cursor: "pointer", borderBottom: "1px solid var(--background-modifier-border)", userSelect: "none" });
-            if (i === 5 * Math.floor(this.selectedMinute / 5)) {
+            if (i === this.selectedMinute) {
                 opt.setCssStyles({ background: "var(--interactive-accent)", color: "var(--text-on-accent)" });
             }
             opt.onclick = (e) => {
@@ -208,7 +204,7 @@ export class DatePickerModal {
                 minuteDisplay.textContent = i.toString().padStart(2, "0");
                 setDropdownOpen(minuteDropdown, false);
                 minuteDropdown.querySelectorAll(".dida-time-option").forEach((el, idx) => {
-                    if (5 * idx === i) {
+                    if (15 * idx === i) {
                         (el as HTMLElement).setCssStyles({ background: "var(--interactive-accent)", color: "var(--text-on-accent)" });
                     } else {
                         (el as HTMLElement).setCssStyles({ background: "", color: "" });
@@ -216,10 +212,10 @@ export class DatePickerModal {
                 });
             };
             opt.onmouseenter = () => {
-                if (i !== 5 * Math.floor(this.selectedMinute / 5)) opt.setCssStyles({ background: "var(--background-modifier-hover)" });
+                if (i !== this.selectedMinute) opt.setCssStyles({ background: "var(--background-modifier-hover)" });
             };
             opt.onmouseleave = () => {
-                if (i !== 5 * Math.floor(this.selectedMinute / 5)) opt.setCssStyles({ background: "" });
+                if (i !== this.selectedMinute) opt.setCssStyles({ background: "" });
             };
         }
         minuteDisplay.onclick = (e) => {
@@ -227,7 +223,7 @@ export class DatePickerModal {
             toggleDropdown(minuteDropdown);
         };
 
-        const endContainer = title.createEl("div", { cls: "dida-time-container" });
+        const endContainer = timeContainer.createEl("div", { cls: "dida-time-end-container" });
         endContainer.createEl("span", { text: "～", cls: "dida-time-label" });
         const endHourContainer = endContainer.createDiv("dida-time-select-container");
         endHourContainer.setCssStyles({ display: "inline-block", position: "relative", marginRight: "5px" });
@@ -268,14 +264,14 @@ export class DatePickerModal {
         endContainer.createEl("span", { text: ":" });
         const endMinuteContainer = endContainer.createDiv("dida-time-select-container");
         endMinuteContainer.setCssStyles({ display: "inline-block", position: "relative", marginLeft: "5px" });
-        const endMinuteDisplay = endMinuteContainer.createEl("div", { text: (5 * Math.floor(this.endMinute / 5)).toString().padStart(2, "0"), cls: "dida-time-display" });
+        const endMinuteDisplay = endMinuteContainer.createEl("div", { text: this.endMinute.toString().padStart(2, "0"), cls: "dida-time-display" });
         endMinuteDisplay.setCssStyles({ fontSize: "12px", border: "1px solid var(--background-modifier-border)", borderRadius: "4px", background: "var(--background-primary)", color: "var(--text-normal)", cursor: "pointer", minWidth: "25px", textAlign: "center", userSelect: "none" });
         const endMinuteDropdown = endMinuteContainer.createDiv("dida-time-dropdown");
         endMinuteDropdown.setCssStyles({ fontSize: "12px", position: "absolute", top: "100%", left: "0", background: "var(--background-primary)", border: "1px solid var(--background-modifier-border)", borderRadius: "4px", maxHeight: "150px", overflowY: "auto", zIndex: "1003", display: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" });
-        for (let i = 0; i < 60; i += 5) {
+        for (let i = 0; i < 60; i += 15) {
             const opt = endMinuteDropdown.createEl("div", { text: i.toString().padStart(2, "0"), cls: "dida-time-option" });
             opt.setCssStyles({ padding: "5px 10px", cursor: "pointer", borderBottom: "1px solid var(--background-modifier-border)", userSelect: "none" });
-            if (i === 5 * Math.floor(this.endMinute / 5)) {
+            if (i === this.endMinute) {
                 opt.setCssStyles({ background: "var(--interactive-accent)", color: "var(--text-on-accent)" });
             }
             opt.onclick = (e) => {
@@ -284,7 +280,7 @@ export class DatePickerModal {
                 endMinuteDisplay.textContent = i.toString().padStart(2, "0");
                 setDropdownOpen(endMinuteDropdown, false);
                 endMinuteDropdown.querySelectorAll(".dida-time-option").forEach((el, idx) => {
-                    if (5 * idx === i) {
+                    if (15 * idx === i) {
                         (el as HTMLElement).setCssStyles({ background: "var(--interactive-accent)", color: "var(--text-on-accent)" });
                     } else {
                         (el as HTMLElement).setCssStyles({ background: "", color: "" });
@@ -292,10 +288,10 @@ export class DatePickerModal {
                 });
             };
             opt.onmouseenter = () => {
-                if (i !== 5 * Math.floor(this.endMinute / 5)) opt.setCssStyles({ background: "var(--background-modifier-hover)" });
+                if (i !== this.endMinute) opt.setCssStyles({ background: "var(--background-modifier-hover)" });
             };
             opt.onmouseleave = () => {
-                if (i !== 5 * Math.floor(this.endMinute / 5)) opt.setCssStyles({ background: "" });
+                if (i !== this.endMinute) opt.setCssStyles({ background: "" });
             };
         }
         endMinuteDisplay.onclick = (e) => {
@@ -305,6 +301,8 @@ export class DatePickerModal {
 
         const updateVisibility = () => {
             const show = !this.isAllDay;
+            allDayModeBtn.toggleClass("is-active", this.isAllDay);
+            timedModeBtn.toggleClass("is-active", !this.isAllDay);
             timeLabel.setCssStyles({ display: show ? "inline-block" : "none" });
             hourContainer.setCssStyles({ display: show ? "inline-block" : "none" });
             minuteContainer.setCssStyles({ display: show ? "inline-block" : "none" });
@@ -313,19 +311,22 @@ export class DatePickerModal {
         updateVisibility();
         if (this.dateOnly) {
             this.isAllDay = true;
+            modeSwitch.setCssStyles({ display: "none" });
             timeContainer.setCssStyles({ display: "none" });
             endContainer.setCssStyles({ display: "none" });
             updateVisibility();
         }
-        allDayCheckbox.onchange = (e) => {
+        const setAllDay = (isAllDay: boolean) => {
             if (!this.selectedDate) {
                 const d = new Date();
                 d.setHours(0, 0, 0, 0);
                 this.selectedDate = d;
             }
-            this.isAllDay = (e.target as HTMLInputElement).checked;
+            this.isAllDay = isAllDay;
             updateVisibility();
         };
+        allDayModeBtn.onclick = () => setAllDay(true);
+        timedModeBtn.onclick = () => setAllDay(false);
 
         const closeDropdowns = (e: MouseEvent) => {
             if (!hourContainer.contains(e.target as Node)) setDropdownOpen(hourDropdown, false);

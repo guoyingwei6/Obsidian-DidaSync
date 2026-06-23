@@ -1,9 +1,11 @@
 ﻿import { ItemView, Notice, WorkspaceLeaf } from 'obsidian';
 import DidaSyncPlugin from '../main';
 import { DatePickerModal } from '../modals/DatePickerModal';
+import { AddTaskModal } from '../modals/AddTaskModal';
 import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
+import { clampMinutes, dateAtMinutes, getTimeGridDay, getTimeGridRange, gridStartMinutes, isAllDayTimeGridTask, snapDuration, snapMinutes, taskBelongsToTimeGridDate, TIME_GRID_STEP_MINUTES } from '../timeGrid';
 import { appendValidatedSvg, debounce, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
 
 export const TASK_VIEW_TYPE = "dida-task-view";
@@ -1814,7 +1816,7 @@ export class TaskView extends ItemView {
     renderTimeBlockView(container: HTMLElement) {
         container.empty();
         container.addClass("dida-time-block-view");
-        if (!this.selectedDate) this.selectedDate = new Date();
+        if (!this.selectedDate) this.selectedDate = getTimeGridDay(new Date(), this.plugin.settings.timeBlockStartHour || 0);
         this.renderTimeBlockDateSelector(container);
         this.renderTimeBlocks(container);
     }
@@ -1866,7 +1868,7 @@ export class TaskView extends ItemView {
             text: "今天",
             cls: "dida-timeline-expand-btn"
         }).onclick = () => {
-            this.selectedDate = new Date();
+            this.selectedDate = getTimeGridDay(new Date(), this.plugin.settings.timeBlockStartHour || 0);
             this.renderTaskList();
         };
 
@@ -1893,7 +1895,7 @@ export class TaskView extends ItemView {
             dayDiv.createDiv("dida-time-block-weekday").textContent = weekDays[i];
             dayDiv.createDiv("dida-time-block-date").textContent = String(date.getDate());
 
-            const tasks = this.getTasksForDate(date);
+            const tasks = this.getTasksForTimeBlockDate(date);
             const totalTasks = tasks.length;
 
             if (totalTasks > 0) {
@@ -1946,31 +1948,19 @@ export class TaskView extends ItemView {
         }
     }
 
-    getTasksForDate(date: Date): any[] {
+    getTasksForTimeBlockDate(date: Date): any[] {
         const tasks = this.plugin.settings.tasks || [];
-        const targetDate = new Date(date);
-        targetDate.setHours(0, 0, 0, 0);
-        return tasks.filter(task => {
-            if (task.parentId) return false;
-            if (!task.dueDate && !task.startDate) return false;
-            let taskDate = task.startDate || task.dueDate;
-            if (!taskDate) return false;
-            const d = new Date(taskDate);
-            d.setHours(0, 0, 0, 0);
-            return d.getTime() === targetDate.getTime();
-        });
+        const startHour = this.plugin.settings.timeBlockStartHour || 0;
+        return tasks.filter(task => taskBelongsToTimeGridDate(task, date, startHour));
     }
 
     isAllDayTask(task: any): boolean {
-        if (!task.dueDate) return false;
-        if (typeof task.isAllDay !== "undefined") return !!task.isAllDay;
-        const d = new Date(task.dueDate);
-        return d.getHours() === 0 && d.getMinutes() === 0;
+        return isAllDayTimeGridTask(task);
     }
 
     renderTimeBlocks(container: HTMLElement) {
         const blockContainer = container.createDiv("dida-time-block-container");
-        const tasks = this.getTasksForDate(this.selectedDate!);
+        const tasks = this.getTasksForTimeBlockDate(this.selectedDate!);
 
         const allDayTasks = tasks.filter(t => this.isAllDayTask(t));
         const timeTasks = tasks.filter(t => !this.isAllDayTask(t));
@@ -2160,7 +2150,7 @@ export class TaskView extends ItemView {
         const topY = Math.max(gridRect.top, Math.min(gridRect.bottom, clientY));
         const relativeTop = topY - gridRect.top;
         const topPct = (relativeTop / gridRect.height) * 100;
-        return Math.round((topPct / 100) * 1440 + (startHour * 60));
+        return gridStartMinutes((topPct / 100) * 1440, startHour);
     }
 
     async handleTaskTimeRescheduling(taskId: string, newStartDate: Date, newEndDate: Date) {
@@ -2194,21 +2184,18 @@ export class TaskView extends ItemView {
             const hourDiv = grid.createDiv("dida-time-block-hour");
             hourDiv.createDiv("dida-time-block-hour-label").textContent = hour.toString().padStart(2, "0") + ":00";
             hourDiv.createDiv("dida-time-block-hour-line");
+            for (let quarter = 1; quarter < 4; quarter++) {
+                const line = hourDiv.createDiv("dida-time-block-quarter-line");
+                line.setCssStyles({ top: `${quarter * 25}%` });
+            }
         }
 
         // Current time line
         const now = new Date();
-        const selected = new Date(this.selectedDate!);
-        now.setHours(0, 0, 0, 0);
-        selected.setHours(0, 0, 0, 0);
+        const gridRange = getTimeGridRange(this.selectedDate!, startHour);
 
-        if (now.getTime() === selected.getTime()) {
-            const current = new Date();
-            const h = current.getHours();
-            const m = current.getMinutes();
-            let minutesFromStart = (h - startHour) * 60 + m;
-            if (minutesFromStart < 0) minutesFromStart += 1440;
-            const topPercent = (minutesFromStart / 1440) * 100;
+        if (now.getTime() >= gridRange.start.getTime() && now.getTime() < gridRange.end.getTime()) {
+            const topPercent = ((now.getTime() - gridRange.start.getTime()) / (gridRange.end.getTime() - gridRange.start.getTime())) * 100;
 
             const line = grid.createDiv("dida-time-block-now-line");
             line.setCssStyles({ top: topPercent + "%" });
@@ -2230,17 +2217,8 @@ export class TaskView extends ItemView {
             const rect = grid.getBoundingClientRect();
             const startMins = this.calculateMinutesFromY(e.clientY, rect, startHour);
             const endMins = startMins + 60; // Default 1 hour duration
-
-            const startH = Math.floor(startMins / 60) % 24;
-            const startM = startMins % 60;
-            const endH = Math.floor(endMins / 60) % 24;
-            const endM = endMins % 60;
-
-            const sDate = new Date(this.selectedDate!);
-            sDate.setHours(startH, startM, 0, 0);
-
-            const eDate = new Date(this.selectedDate!);
-            eDate.setHours(endH, endM, 0, 0);
+            const sDate = dateAtMinutes(this.selectedDate!, startMins);
+            const eDate = dateAtMinutes(this.selectedDate!, endMins);
 
             await this.handleTaskTimeRescheduling(taskId, sDate, eDate);
         });
@@ -2280,21 +2258,12 @@ export class TaskView extends ItemView {
                     if (title) {
                         const topPct = (tempTask.offsetTop / height) * 100;
                         const heightPct = (tempTask.offsetHeight / height) * 100;
-                        const startMins = Math.round((topPct / 100) * 1440 + (startHour * 60)); // 24*60 = 1440
-                        const endMins = Math.round(((topPct + heightPct) / 100) * 1440 + (startHour * 60));
+                        const startMins = gridStartMinutes((topPct / 100) * 1440, startHour);
+                        const durationMins = snapDuration((heightPct / 100) * 1440);
+                        const endMins = Math.min(startHour * 60 + 1440, startMins + durationMins);
 
-                        // Handle wrap around 24h if needed, but simple logic for now
-
-                        const startH = Math.floor(startMins / 60) % 24;
-                        const startM = startMins % 60;
-                        const endH = Math.floor(endMins / 60) % 24;
-                        const endM = endMins % 60;
-
-                        const sDate = new Date(this.selectedDate!);
-                        sDate.setHours(startH, startM, 0, 0);
-
-                        const eDate = new Date(this.selectedDate!);
-                        eDate.setHours(endH, endM, 0, 0);
+                        const sDate = dateAtMinutes(this.selectedDate!, startMins);
+                        const eDate = dateAtMinutes(this.selectedDate!, endMins);
 
                         const newTask: DidaTask = {
                             id: Date.now().toString(),
@@ -2335,7 +2304,10 @@ export class TaskView extends ItemView {
             };
 
             const onMouseMove = (moveE: MouseEvent) => {
-                const currentY = moveE.clientY;
+                const stepHeight = height / (1440 / TIME_GRID_STEP_MINUTES);
+                const snapY = (clientY: number) => rect.top + Math.round((clampMinutes(clientY - rect.top, 0, height)) / stepHeight) * stepHeight;
+                const snappedStartY = snapY(startY);
+                const currentY = snapY(moveE.clientY);
                 const diff = currentY - startY;
 
                 if (!isDragging && Math.abs(diff) > 5) {
@@ -2361,9 +2333,9 @@ export class TaskView extends ItemView {
                 }
 
                 if (isDragging && tempTask) {
-                    const topY = Math.max(rect.top, Math.min(rect.bottom, Math.min(startY, currentY)));
-                    const bottomY = Math.max(rect.top, Math.min(rect.bottom, Math.max(startY, currentY)));
-                    const h = bottomY - topY;
+                    const topY = Math.max(rect.top, Math.min(rect.bottom, Math.min(snappedStartY, currentY)));
+                    const bottomY = Math.max(rect.top, Math.min(rect.bottom, Math.max(snappedStartY, currentY)));
+                    const h = Math.max(stepHeight, bottomY - topY);
                     const relativeTop = topY - rect.top;
 
                     const topPct = (relativeTop / height) * 100;
@@ -2377,8 +2349,8 @@ export class TaskView extends ItemView {
                     // Update time label
                     // ... calculation ...
                     if (timeLabel) {
-                        const startMins = Math.round((topPct / 100) * 1440 + (startHour * 60));
-                        const endMins = Math.round(((topPct + heightPct) / 100) * 1440 + (startHour * 60));
+                        const startMins = snapMinutes((topPct / 100) * 1440 + (startHour * 60));
+                        const endMins = snapMinutes(((topPct + heightPct) / 100) * 1440 + (startHour * 60));
                         const sH = Math.floor(startMins / 60) % 24;
                         const sM = startMins % 60;
                         const eH = Math.floor(endMins / 60) % 24;
@@ -2559,7 +2531,7 @@ export class TaskView extends ItemView {
             titleDiv.onblur = async () => {
                 const newTitle = titleDiv.textContent?.trim() || "";
                 if (newTitle && newTitle !== originalTitle) {
-                    const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId);
+                    const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
                     if (idx !== -1) {
                         const t = this.plugin.settings.tasks[idx];
                         const oldTitle = t.title;
@@ -2638,6 +2610,7 @@ export class TaskView extends ItemView {
 
             let durationMinutes = 60 * end.getHours() + end.getMinutes() - (60 * start.getHours() + start.getMinutes());
             if (durationMinutes < 0) durationMinutes += 1440;
+            durationMinutes = snapDuration(durationMinutes);
 
             block.addEventListener("mousedown", (e) => {
                 const target = e.target as HTMLElement;
@@ -2649,10 +2622,12 @@ export class TaskView extends ItemView {
                         if (height) {
                             const startY = e.clientY;
                             const startTop = block.offsetTop;
-                            const startHeight = block.offsetHeight;
+                            const stepHeight = height / (1440 / TIME_GRID_STEP_MINUTES);
+                            const startHeight = Math.max(stepHeight, durationMinutes / 1440 * height);
+                            block.setCssStyles({ height: `${startHeight / height * 100}%` });
                             const onMove = (ev: MouseEvent) => {
                                 const diff = ev.clientY - startY;
-                                let newTop = startTop + diff;
+                                let newTop = Math.round((startTop + diff) / stepHeight) * stepHeight;
                                 const maxTop = Math.max(0, height - startHeight);
                                 if (newTop < 0) newTop = 0;
                                 if (newTop > maxTop) newTop = maxTop;
@@ -2663,8 +2638,8 @@ export class TaskView extends ItemView {
                                         const startPct = block.offsetTop / parentHeight * 100;
                                         const endPct = (startPct + block.offsetHeight / parentHeight * 100) / 100 * 24 * 60;
                                         const startHour = this.plugin.settings.timeBlockStartHour || 0;
-                                        let startMin = Math.round(startPct / 100 * 24 * 60 + 60 * startHour);
-                                        let endMin = Math.round(endPct + 60 * startHour);
+                                        let startMin = snapMinutes(startPct / 100 * 24 * 60 + 60 * startHour);
+                                        let endMin = snapMinutes(endPct + 60 * startHour);
                                         if (startMin >= 1440) startMin -= 1440;
                                         if (endMin >= 1440) endMin -= 1440;
                                         if (startMin < 0) startMin = 0;
@@ -2684,23 +2659,12 @@ export class TaskView extends ItemView {
                                 if (parentHeight) {
                                     const startPct = block.offsetTop / parentHeight * 100;
                                     const startHour = this.plugin.settings.timeBlockStartHour || 0;
-                                    let startMin = Math.round(startPct / 100 * 24 * 60 + 60 * startHour);
-                                    if (startMin >= 1440) startMin -= 1440;
-                                    if (startMin < 0) startMin = 0;
+                                    const startMin = gridStartMinutes(startPct / 100 * 24 * 60, startHour);
                                     const endMin = startMin + durationMinutes;
-                                    let endVal = endMin >= 1440 ? endMin - 1440 : endMin;
-                                    const sh = Math.floor(startMin / 60);
-                                    const sm = startMin % 60;
-                                    const eh = Math.floor(endVal / 60);
-                                    const em = endVal % 60;
-                                    const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId);
+                                    const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
                                     if (idx !== -1) {
-                                        const base = new Date(this.selectedDate);
-                                        base.setHours(0, 0, 0, 0);
-                                        const startDate = new Date(base);
-                                        startDate.setHours(sh, sm, 0, 0);
-                                        const endDate = new Date(base);
-                                        endDate.setHours(eh, em, 0, 0);
+                                        const startDate = dateAtMinutes(this.selectedDate!, startMin);
+                                        const endDate = dateAtMinutes(this.selectedDate!, endMin);
                                         this.plugin.settings.tasks[idx].startDate = startDate.toISOString();
                                         this.plugin.settings.tasks[idx].dueDate = endDate.toISOString();
                                         this.plugin.settings.tasks[idx].updatedAt = new Date().toISOString();
@@ -2739,8 +2703,8 @@ export class TaskView extends ItemView {
                     const startPct = block.offsetTop / parentHeight * 100;
                     const endPct = (startPct + block.offsetHeight / parentHeight * 100) / 100 * 24 * 60;
                     const startHour = this.plugin.settings.timeBlockStartHour || 0;
-                    let startMin = Math.round(startPct / 100 * 24 * 60 + 60 * startHour);
-                    let endMin = Math.round(endPct + 60 * startHour);
+                    let startMin = snapMinutes(startPct / 100 * 24 * 60 + 60 * startHour);
+                    let endMin = snapMinutes(endPct + 60 * startHour);
                     if (startMin >= 1440) startMin -= 1440;
                     if (endMin >= 1440) endMin -= 1440;
                     if (startMin < 0) startMin = 0;
@@ -2758,8 +2722,20 @@ export class TaskView extends ItemView {
             resizing = true;
             activeHandle = handle;
             startY = e.clientY;
-            startHeight = block.offsetHeight;
-            startTop = block.offsetTop;
+            const parentHeight = block.parentElement ? block.parentElement.offsetHeight : 0;
+            if (parentHeight) {
+                const stepHeight = parentHeight / (1440 / TIME_GRID_STEP_MINUTES);
+                startTop = Math.round(block.offsetTop / stepHeight) * stepHeight;
+                const snappedBottom = Math.round((block.offsetTop + block.offsetHeight) / stepHeight) * stepHeight;
+                startHeight = Math.max(stepHeight, snappedBottom - startTop);
+                block.setCssStyles({
+                    top: `${startTop / parentHeight * 100}%`,
+                    height: `${startHeight / parentHeight * 100}%`
+                });
+            } else {
+                startHeight = block.offsetHeight;
+                startTop = block.offsetTop;
+            }
             e.preventDefault();
             e.stopPropagation();
         };
@@ -2772,14 +2748,18 @@ export class TaskView extends ItemView {
             const parentHeight = block.parentElement ? block.parentElement.offsetHeight : 0;
             if (!parentHeight) return;
             const diff = e.clientY - startY;
+            const stepHeight = parentHeight / (1440 / TIME_GRID_STEP_MINUTES);
             if (activeHandle === "top") {
-                const topPct = Math.max(0, Math.min(100, (startTop + diff) / parentHeight * 100));
+                const fixedBottom = startTop + startHeight;
+                const newTop = clampMinutes(Math.round((startTop + diff) / stepHeight) * stepHeight, 0, fixedBottom - stepHeight);
+                const topPct = newTop / parentHeight * 100;
                 block.setCssStyles({ top: topPct + "%" });
-                const newHeight = Math.max(5, startHeight - diff);
+                const newHeight = fixedBottom - newTop;
                 block.setCssStyles({ height: (newHeight / parentHeight) * 100 + "%" });
                 updateTimeLabel();
             } else if (activeHandle === "bottom") {
-                const newHeight = Math.max(5, startHeight + diff);
+                const bottom = clampMinutes(Math.round((startTop + startHeight + diff) / stepHeight) * stepHeight, startTop + stepHeight, parentHeight);
+                const newHeight = bottom - startTop;
                 block.setCssStyles({ height: (newHeight / parentHeight) * 100 + "%" });
                 updateTimeLabel();
             }
@@ -2793,24 +2773,12 @@ export class TaskView extends ItemView {
                 const startPct = block.offsetTop / parentHeight * 100;
                 const endPct = (startPct + block.offsetHeight / parentHeight * 100) / 100 * 24 * 60;
                 const startHour = this.plugin.settings.timeBlockStartHour || 0;
-                let startMin = Math.round(startPct / 100 * 24 * 60 + 60 * startHour);
-                let endMin = Math.round(endPct + 60 * startHour);
-                if (startMin >= 1440) startMin -= 1440;
-                if (endMin >= 1440) endMin -= 1440;
-                if (startMin < 0) startMin = 0;
-                if (endMin < 0) endMin = 0;
-                const sh = Math.floor(startMin / 60);
-                const sm = startMin % 60;
-                const eh = Math.floor(endMin / 60);
-                const em = endMin % 60;
-                const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId);
+                const startMin = gridStartMinutes(startPct / 100 * 24 * 60, startHour);
+                const endMin = startHour * 60 + clampMinutes(snapMinutes(endPct), TIME_GRID_STEP_MINUTES, 1440);
+                const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
                 if (idx !== -1) {
-                    const base = new Date(this.selectedDate);
-                    base.setHours(0, 0, 0, 0);
-                    const startDate = new Date(base);
-                    startDate.setHours(sh, sm, 0, 0);
-                    const endDate = new Date(base);
-                    endDate.setHours(eh, em, 0, 0);
+                    const startDate = dateAtMinutes(this.selectedDate!, startMin);
+                    const endDate = dateAtMinutes(this.selectedDate!, Math.max(startMin + TIME_GRID_STEP_MINUTES, endMin));
                     this.plugin.settings.tasks[idx].startDate = startDate.toISOString();
                     this.plugin.settings.tasks[idx].dueDate = endDate.toISOString();
                     this.plugin.settings.tasks[idx].updatedAt = new Date().toISOString();
@@ -2887,70 +2855,15 @@ export class TaskView extends ItemView {
     }
 
     showAddTaskModal(projectName: string, projectId: string, target: HTMLElement) {
-        const button = target || document.querySelector(".dida-project-add-task-btn");
-        if (button) {
-            const existing = document.querySelector(".dida-add-task-popup");
-            if (existing) existing.remove();
-            const popup = document.createElement("div");
-            popup.className = "dida-add-task-popup";
-            popup.createEl("h4", { text: `添加任务到 ${projectName}` });
-            const input = popup.createEl("input", {
-                type: "text",
-                cls: "task-title-input"
-            }) as HTMLInputElement;
-            input.placeholder = "输入任务标题...";
-            const buttonContainer = popup.createDiv("button-container");
-            const cancelBtn = buttonContainer.createEl("button", {
-                cls: "cancel-btn",
-                text: "取消"
-            }) as HTMLButtonElement;
-            const submitBtn = buttonContainer.createEl("button", {
-                cls: "submit-btn",
-                text: "添加"
-            }) as HTMLButtonElement;
-            document.body.appendChild(popup);
-            const rect = button.getBoundingClientRect();
-            popup.setCssStyles({
-                right: window.innerWidth - rect.right + "px",
-                top: rect.bottom + 8 + "px"
-            });
-            popup.classList.add("show");
-            input.focus();
-            const closePopup = () => {
-                popup.classList.remove("show");
-                setTimeout(() => {
-                    if (popup.parentNode) popup.parentNode.removeChild(popup);
-                }, 200);
-            };
-            const submit = () => {
-                const title = input.value.trim();
-                if (title) {
-                    this.plugin.addTask(title, projectName, projectId, true);
-                    this.renderTaskList();
-                    closePopup();
-                }
-            };
-            submitBtn.addEventListener("click", submit);
-            cancelBtn.addEventListener("click", closePopup);
-            input.addEventListener("keydown", (e) => {
-                if (e.key === "Enter") {
-                    e.preventDefault();
-                    submit();
-                } else if (e.key === "Escape") {
-                    e.preventDefault();
-                    closePopup();
-                }
-            });
-            const outsideHandler = (e: MouseEvent) => {
-                if (!popup.contains(e.target as Node)) {
-                    closePopup();
-                    document.removeEventListener("click", outsideHandler);
-                }
-            };
-            setTimeout(() => {
-                document.addEventListener("click", outsideHandler);
-            }, 100);
-        }
+        new AddTaskModal(this.app, async (title, project, schedule) => {
+            await this.plugin.addTask(title, project.name, project.id, true, null, schedule);
+            await this.renderTaskList();
+        }, {
+            projects: [{ id: projectId, name: projectName }],
+            defaultProjectId: projectId,
+            lockProject: true,
+            defaultDate: new Date()
+        }).open();
     }
 
     toggleTaskDetails(taskItem: HTMLElement, task: any, tab: string = "task-tab") {

@@ -94,6 +94,13 @@ export interface TaskNoteSyncPathPatterns {
     year: string;
 }
 
+export interface TaskScheduleInput {
+    startDate: string;
+    dueDate: string;
+    isAllDay: boolean;
+    repeatFlag?: string | null;
+}
+
 export type OAuthCallbackMode = "localhost" | "ipv4";
 
 export interface DidaSyncSettings {

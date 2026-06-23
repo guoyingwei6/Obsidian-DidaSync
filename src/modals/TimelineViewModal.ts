@@ -639,37 +639,15 @@ export class TimelineViewModal {
     }
 
     showAddTaskModal() {
-        new AddTaskModal(this.app, async (title) => {
-            const newTask: DidaTask = {
-                id: Date.now().toString(),
-                title: title,
-                completed: false,
-                status: 0,
-                dueDate: this.selectedDate.toISOString(),
-                projectName: "收集箱",
-                projectId: "inbox",
-                content: "",
-                desc: "",
-                items: [],
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                kind: "TEXT",
-                priority: 0,
-                sortOrder: 0,
-                timeZone: this.plugin.getUserTimeZone(),
-                isFloating: false,
-                isAllDay: true, // Default to all day if added from timeline fab? Source: hasTime: !1
-                didaId: null
-            };
-            this.plugin.settings.tasks = this.plugin.settings.tasks || [];
-            this.plugin.settings.tasks.push(newTask);
-            await this.plugin.saveSettings();
+        new AddTaskModal(this.app, async (title, project, schedule) => {
+            await this.plugin.addTask(title, project.name, project.id, true, null, schedule);
             this.renderTimelineView();
-
-            if (this.plugin.settings.accessToken) {
-                this.plugin.createTaskInDidaList(newTask).catch(console.error);
-            }
-        }, "收集箱").open();
+        }, {
+            projects: [{ id: "inbox", name: "收集箱" }],
+            defaultProjectId: "inbox",
+            lockProject: true,
+            defaultDate: this.selectedDate
+        }).open();
     }
 
     toggleTimelineTaskDetails(item: HTMLElement, task: DidaTask, tab: string = "task-tab") {
