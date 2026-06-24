@@ -36,15 +36,16 @@ export class AddTaskModal {
         this.popup.open(container => {
             const fields = container.createDiv("dida-task-create-fields");
             fields.createEl("h3", { text: "添加任务" });
-            const titleInput = fields.createEl("input", {
+            const primaryRow = fields.createDiv("dida-task-create-primary-row");
+            const titleInput = primaryRow.createEl("input", {
                 type: "text",
                 placeholder: "输入任务标题…",
                 cls: "dida-task-create-title"
             });
-
-            const projectRow = fields.createDiv("dida-task-create-project");
-            projectRow.createEl("label", { text: "项目" });
-            const projectSelect = projectRow.createEl("select");
+            const projectSelect = primaryRow.createEl("select", {
+                cls: "dida-task-create-project-select",
+                attr: { "aria-label": "项目", title: "选择项目" }
+            });
             this.options.projects.forEach(project => {
                 projectSelect.createEl("option", { text: project.name, value: project.id });
             });
