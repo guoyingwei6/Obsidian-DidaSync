@@ -101,6 +101,28 @@ export interface TaskScheduleInput {
     repeatFlag?: string | null;
 }
 
+export type PendingSyncOperationType = "upsert" | "complete" | "delete";
+
+export interface PendingSyncOperation {
+    localTaskId: string;
+    didaId?: string;
+    projectId?: string;
+    type: PendingSyncOperationType;
+    payload?: Partial<DidaTask>;
+    createdAt: string;
+    attempts: number;
+    lastError?: string;
+}
+
+export interface SyncResult {
+    outcome: "success" | "partial" | "failed" | "skipped";
+    uploaded: number;
+    downloaded: number;
+    failedScopes: string[];
+    failedOperations: string[];
+    cleanupPerformed: boolean;
+}
+
 export type OAuthCallbackMode = "localhost" | "ipv4";
 
 export interface DidaSyncSettings {
@@ -173,6 +195,7 @@ export interface DidaSyncSettings {
     completedTasks: DidaTask[];
     completedTasksLastFetchedAt: string;
     completedTasksQuery: CompletedTasksQuery;
+    pendingSyncOperations: PendingSyncOperation[];
 }
 
 export const DEFAULT_SETTINGS: DidaSyncSettings = {
@@ -232,7 +255,8 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     syncConsistencyMeta: {},
     completedTasks: [],
     completedTasksLastFetchedAt: "",
-    completedTasksQuery: {}
+    completedTasksQuery: {},
+    pendingSyncOperations: []
 };
 
 export const OAUTH_CONFIG = {

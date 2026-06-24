@@ -378,8 +378,9 @@ export class McpServerManager {
     }
 
     private async syncNow() {
-        await this.plugin.manualSync();
-        return { taskCount: this.plugin.settings.tasks.length };
+        const result = await this.plugin.manualSync();
+        if (result?.outcome === "failed") throw new Error("任务同步失败");
+        return { taskCount: this.plugin.settings.tasks.length, sync: result };
     }
 
     private listProjects(): DidaProject[] {

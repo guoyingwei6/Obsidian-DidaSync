@@ -3318,6 +3318,9 @@ export class TaskView extends ItemView {
                 if (titleChanged && task.didaId) {
                     await this.updateNativeTaskTitle(task, oldTitle, trimmed);
                 }
+                if (task.didaId) {
+                    this.plugin.syncTaskToDidaListInBackground(task);
+                }
             } else {
                 new Notice("任务标题不能为空");
             }

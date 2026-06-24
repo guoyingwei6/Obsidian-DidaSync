@@ -132,7 +132,7 @@ async function run() {
         plugin.clearAutoSync();
         let finishSync: (() => void) | undefined;
         plugin.syncManager = {
-            syncFromDidaList: () => new Promise<void>((resolve) => {
+            runBidirectionalSync: () => new Promise<void>((resolve) => {
                 finishSync = resolve;
             })
         };
@@ -157,10 +157,10 @@ async function run() {
                 statuses.push(status);
             };
             plugin.syncManager = {
-                async syncNewTasksToDidaList() {
+                async runBidirectionalSync() {
+                    plugin.updateStatusBar("双向同步中...");
                     assert.deepEqual(statuses, ["双向同步中..."], "safe manual sync should show progress before uploading");
-                },
-                async syncFromDidaList() { }
+                }
             };
             await plugin.safeManualSync();
         } finally {

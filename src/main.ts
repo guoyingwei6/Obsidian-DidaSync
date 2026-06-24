@@ -163,6 +163,7 @@ export default class DidaSyncPlugin extends Plugin {
             await this.mcpServerManager.stop();
         }
         this.clearAutoSync();
+        this.syncManager?.dispose();
         try {
             if (this._handleOnlineForAutoSync) {
                 window.removeEventListener("online", this._handleOnlineForAutoSync);
@@ -193,6 +194,7 @@ export default class DidaSyncPlugin extends Plugin {
         delete legacySettings.dailySyncTargetBlockHeader;
         delete legacySettings.taskNoteSyncFileNamePattern;
         if (!this.settings.tasks) this.settings.tasks = [];
+        if (!Array.isArray(this.settings.pendingSyncOperations)) this.settings.pendingSyncOperations = [];
         this.settings.tasks.forEach(t => {
             if (t.content === undefined) t.content = "";
             if (t.desc === undefined) t.desc = "";
@@ -1390,7 +1392,7 @@ export default class DidaSyncPlugin extends Plugin {
             }
             this._autoSyncDeferredSince = null;
             try {
-                await this.syncManager.syncFromDidaList();
+                await this.syncManager.runBidirectionalSync();
             } catch (e) {
             } finally {
                 if (this.settings.autoSync && this.settings.accessToken) {
@@ -1429,15 +1431,20 @@ export default class DidaSyncPlugin extends Plugin {
         try {
             const count = this.settings.tasks.length;
             this.settings.tasks = [];
+            this.settings.pendingSyncOperations = [];
             await this.saveSettings();
             this.refreshTaskView();
             new Notice(`已清空 ${count} 个本地任务数据`);
             setTimeout(async () => {
                 try {
                     new Notice("正在从滴答清单云端获取最新数据...");
-                    await this.syncManager.syncFromDidaList();
-                    const newCount = this.settings.tasks.length;
-                    new Notice(`重置完成！已从云端获取 ${newCount} 个任务数据`);
+                    const result = await this.syncManager.syncFromDidaList();
+                    if (result.outcome === "success") {
+                        const newCount = this.settings.tasks.length;
+                        new Notice(`重置完成！已从云端获取 ${newCount} 个任务数据`);
+                    } else {
+                        new Notice("远端任务拉取未完整完成，请检查网络后重试");
+                    }
                 } catch (e) { }
             }, 1000);
         } catch (e) { }
@@ -1566,21 +1573,13 @@ export default class DidaSyncPlugin extends Plugin {
 
     async manualSync() {
         if (await this.checkPluginStatusAndNotify()) {
-            try {
-                await this.syncManager.syncToDidaList();
-                await this.syncManager.syncFromDidaList();
-            } catch (e) { }
+            return this.syncManager.runBidirectionalSync();
         }
     }
 
     async safeManualSync() {
         if (await this.checkPluginStatusAndNotify()) {
-            try {
-                this.updateStatusBar("双向同步中...");
-                await this.syncManager.syncNewTasksToDidaList();
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                await this.syncManager.syncFromDidaList();
-            } catch (e) { }
+            return this.syncManager.runBidirectionalSync();
         }
     }
 
@@ -1614,10 +1613,15 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     async syncTaskToDidaListInBackground(task: DidaTask) {
-        if (this.settings.accessToken && task.didaId) {
+        if (task.didaId) {
+            await this.syncManager.queueOperation(task, task.status === 2 ? "complete" : "upsert");
+            if (!this.settings.accessToken) return;
             try {
-                await this.updateTaskInDidaList(task);
-            } catch (e) { }
+                if (task.status === 2) await this.syncManager.toggleTaskInDidaList(task, false);
+                else await this.syncManager.updateTaskInDidaList(task, false);
+            } catch (e) {
+                await this.syncManager.markOperationFailed(task, e);
+            }
         }
     }
 
@@ -1647,7 +1651,7 @@ export default class DidaSyncPlugin extends Plugin {
             }
         }
         if (this.settings.accessToken) {
-            await this.syncManager.syncFromDidaList();
+            await this.syncManager.runBidirectionalSync();
         }
     }
 
@@ -1740,9 +1744,9 @@ export default class DidaSyncPlugin extends Plugin {
             task.content = content;
             task.updatedAt = new Date().toISOString();
             await this.saveSettings();
-            if (this.settings.accessToken && task.didaId) {
+            if (task.didaId) {
                 setTimeout(() => {
-                    this.updateTaskContentInDidaList(task).catch(() => { });
+                    this.syncTaskToDidaListInBackground(task);
                 }, 0);
             }
         }
@@ -3015,6 +3019,9 @@ export default class DidaSyncPlugin extends Plugin {
                         const view = leaves[0].view as any;
                         if (view.updateNativeTaskDueDate) await view.updateNativeTaskDueDate(task, oldDueDate, due);
                     }
+                }
+                if (task.didaId) {
+                    this.syncTaskToDidaListInBackground(task);
                 }
             } else {
                 new Notice("任务标题不能为空");

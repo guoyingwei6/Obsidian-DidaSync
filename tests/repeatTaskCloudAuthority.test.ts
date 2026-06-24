@@ -113,12 +113,91 @@ async function run() {
     assert.equal(syncManager.isSyncing, false, "a successful sync should release the sync lock");
 
     statuses.length = 0;
+    let cleanupCalled = false;
+    syncPlugin.apiClient.makeAuthenticatedRequest = async () => {
+        return { ok: false, status: 503, async json() { return {}; } };
+    };
     syncManager.syncDeletedTasks = async () => {
-        throw new Error("sync failed");
+        cleanupCalled = true;
+        return 0;
     };
     await syncManager.syncFromDidaList();
-    assert.deepEqual(statuses, ["同步中...", "同步失败"], "a failed sync should expose the failure status");
+    assert.deepEqual(statuses, ["同步中...", "同步失败"], "failed remote pulls should expose the failure status");
+    assert.equal(cleanupCalled, false, "failed remote pulls should not run missing-task cleanup");
     assert.equal(syncManager.isSyncing, false, "a failed sync should release the sync lock");
+
+    const partialTask = {
+        id: "local-b",
+        didaId: "remote-b",
+        title: "Keep me",
+        content: "",
+        status: 0,
+        projectId: "b",
+        updatedAt: "2026-06-20T00:00:00+0800"
+    };
+    const partialStatuses: string[] = [];
+    const partialPlugin = {
+        settings: { accessToken: "token", tasks: [partialTask], pendingSyncOperations: [], reverseCompletionMeta: {}, syncConsistencyMeta: {} },
+        apiClient: {
+            async makeAuthenticatedRequest(url: string) {
+                if (url.endsWith("/project")) return { ok: true, status: 200, async json() { return [{ id: "a", name: "A" }, { id: "b", name: "B" }]; } };
+                if (url.includes("/project/a/")) return { ok: true, status: 200, async json() { return []; } };
+                if (url.includes("/project/b/")) return { ok: false, status: 503, async json() { return {}; } };
+                if (url.includes("inbox") || url.endsWith("/task")) return { ok: true, status: 200, async json() { return []; } };
+                return { ok: false, status: 503, async json() { return {}; } };
+            }
+        },
+        mergeRemoteProjectsIntoCatalog() { return false; },
+        updateStatusBar(status: string) { partialStatuses.push(status); },
+        refreshTaskView() { },
+        async saveSettings() { },
+        isReverseUpdating: false
+    };
+    const partialManager = new SyncManager(partialPlugin as any);
+    const partialResult = await partialManager.syncFromDidaList();
+    assert.equal(partialResult.outcome, "partial", "one failed project should make the sync partial");
+    assert.equal(partialResult.cleanupPerformed, false, "partial snapshots must not run missing-task cleanup");
+    assert.equal(partialTask.status, 0, "tasks from a failed project must remain unchanged");
+    assert.equal(partialStatuses.at(-1), "部分同步失败");
+
+    const dirtyTask = {
+        id: "dirty-local",
+        didaId: "dirty-remote",
+        title: "Local pending title",
+        content: "local",
+        status: 0,
+        projectId: "p1",
+        updatedAt: "2026-06-24T00:00:00+0800"
+    };
+    let uploadShouldFail = true;
+    const dirtyPlugin = {
+        settings: { accessToken: "token", tasks: [dirtyTask], pendingSyncOperations: [], reverseCompletionMeta: {}, syncConsistencyMeta: {} },
+        apiClient: {
+            async makeAuthenticatedRequest(url: string) {
+                if (uploadShouldFail) return { ok: false, status: 503, async json() { return {}; }, async text() { return "unavailable"; } };
+                if (url.endsWith("/project")) return { ok: true, status: 200, async json() { return [{ id: "p1", name: "P1" }]; } };
+                if (url.includes("/project/p1/")) return { ok: true, status: 200, async json() { return [{ id: "dirty-remote", title: "Remote old title", content: "", projectId: "p1", status: 0 }]; } };
+                return { ok: true, status: 200, async json() { return []; } };
+            }
+        },
+        mergeRemoteProjectsIntoCatalog() { return false; },
+        app: { workspace: { getLeavesOfType() { return []; } } },
+        updateStatusBar() { },
+        refreshTaskView() { },
+        async saveSettings() { },
+        isReverseUpdating: false
+    };
+    const dirtyManager = new SyncManager(dirtyPlugin as any);
+    await assert.rejects(() => dirtyManager.updateTaskInDidaList(dirtyTask as any), /更新任务失败/);
+    assert.equal(dirtyPlugin.settings.pendingSyncOperations.length, 1, "failed uploads must remain in the outbox");
+    uploadShouldFail = false;
+    await dirtyManager.syncFromDidaList();
+    assert.equal(dirtyTask.title, "Local pending title", "remote pulls must not overwrite a task with pending local changes");
+    await dirtyManager.updateTaskInDidaList(dirtyTask as any);
+    assert.equal(dirtyPlugin.settings.pendingSyncOperations.length, 0, "successful uploads must clear the outbox");
+    await dirtyManager.syncFromDidaList();
+    assert.equal(dirtyTask.title, "Remote old title", "clean local tasks should accept remote edits");
+    assert.equal(dirtyTask.content, "", "remote empty content should clear stale local content");
 
     statuses.length = 0;
     syncManager.isSyncing = true;
