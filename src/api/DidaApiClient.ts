@@ -1,16 +1,19 @@
-import { shell } from "electron";
-import * as http from "http";
-import * as https from "https";
-import { Notice } from "obsidian";
-import * as querystring from "querystring";
+import { Notice, Platform, requestUrl } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { AuthUrlModal } from "../modals/AuthUrlModal";
 import { DidaSyncSettings, OAUTH_CONFIG, OAuthCallbackMode } from "../types";
 
+type ResponseLike = {
+    ok: boolean;
+    status: number;
+    json: () => Promise<any>;
+    text: () => Promise<string>;
+};
+
 export class DidaApiClient {
     plugin: DidaSyncPlugin;
-    oauthServers: http.Server[] = [];
-    oauthTimeout: NodeJS.Timeout | null = null;
+    oauthServers: any[] = [];
+    oauthTimeout: ReturnType<typeof setTimeout> | null = null;
     oauthInProgress: boolean = false;
 
     constructor(plugin: DidaSyncPlugin) {
@@ -30,11 +33,19 @@ export class DidaApiClient {
     }
 
     getRedirectUri() {
+        return Platform.isMobile ? this.getMobileRedirectUri() : this.getLocalRedirectUri();
+    }
+
+    getMobileRedirectUri() {
+        return "obsidian://dida-oauth";
+    }
+
+    getLocalRedirectUri() {
         return `http://${this.getRedirectHost()}:${this.settings.serverPort}/callback`;
     }
 
     getCallbackBaseUrl() {
-        return `http://${this.getRedirectHost()}:${this.settings.serverPort}`;
+        return this.getLocalRedirectUri().replace("/callback", "");
     }
 
     getListenTargets() {
@@ -49,39 +60,72 @@ export class DidaApiClient {
     }
 
     async startOAuthFlow() {
-        if (this.settings.clientId && this.settings.clientSecret) {
-            if (this.oauthInProgress) {
-                new Notice("OAuth认证正在进行中...");
-            } else {
-                try {
-                    this.oauthInProgress = true;
-                    this.plugin.updateStatusBar("认证中...");
-                    await this.startOAuthServer();
-                    var url = this.buildAuthUrl();
-                    try {
-                        await shell.openExternal(url);
-                    } catch (t) {
-                        new AuthUrlModal(this.plugin.app, url, this.getRedirectUri()).open();
-                    }
-                } catch (t: any) {
-                    new Notice("OAuth认证启动失败: " + t.message);
-                    this.plugin.updateStatusBar("认证失败");
-                    this.oauthInProgress = false;
-                }
-            }
-        } else {
+        if (!this.settings.clientId || !this.settings.clientSecret) {
             new Notice("请先在设置中配置Client ID和Client Secret");
+            return;
+        }
+        if (this.oauthInProgress) {
+            new Notice("OAuth认证正在进行中...");
+            return;
+        }
+
+        try {
+            this.oauthInProgress = true;
+            this.plugin.updateStatusBar("认证中...");
+            if (!Platform.isMobile) {
+                await this.startOAuthServer();
+            }
+            const url = this.buildAuthUrl();
+            await this.openAuthUrl(url);
+            if (Platform.isMobile) {
+                this.oauthInProgress = false;
+                this.plugin.updateStatusBar("等待授权码");
+            }
+        } catch (t: any) {
+            new Notice("OAuth认证启动失败: " + (t?.message || t));
+            this.plugin.updateStatusBar("认证失败");
+            this.oauthInProgress = false;
         }
     }
 
     buildAuthUrl() {
-        var params = new URLSearchParams({
+        return this.buildAuthUrlForRedirect(this.getRedirectUri());
+    }
+
+    buildAuthUrlForRedirect(redirectUri: string) {
+        const params = new URLSearchParams({
             client_id: this.settings.clientId,
-            redirect_uri: this.getRedirectUri(),
+            redirect_uri: redirectUri,
             response_type: "code",
             scope: OAUTH_CONFIG.scope
         });
         return OAUTH_CONFIG.authUrl + "?" + params.toString();
+    }
+
+    async startManualOAuthFlow() {
+        if (!this.settings.clientId || !this.settings.clientSecret) {
+            new Notice("请先在设置中配置Client ID和Client Secret");
+            return;
+        }
+        const redirectUri = this.getLocalRedirectUri();
+        const url = this.buildAuthUrlForRedirect(redirectUri);
+        await this.openAuthUrl(url, redirectUri);
+        this.plugin.updateStatusBar("等待授权码");
+    }
+
+    private async openAuthUrl(url: string, redirectUri: string = this.getRedirectUri()) {
+        try {
+            if (!Platform.isMobile) {
+                const electron = await (Function("return import('electron')")() as Promise<any>);
+                await electron.shell.openExternal(url);
+                return;
+            }
+        } catch (e) { }
+        try {
+            const opened = window.open(url, "_blank");
+            if (opened) return;
+        } catch (e) { }
+        new AuthUrlModal(this.plugin.app, url, redirectUri).open();
     }
 
     async startOAuthServer() {
@@ -90,17 +134,18 @@ export class DidaApiClient {
             this.oauthTimeout = null;
         }
         await this.stopOAuthServers();
+        const http = await import("http");
         return new Promise<void>((resolve, reject) => {
-            const startedServers: http.Server[] = [];
+            const startedServers: any[] = [];
             let pending = this.getListenTargets().length;
             let settled = false;
 
-            const requestHandler = (req: http.IncomingMessage, res: http.ServerResponse) => {
+            const requestHandler = (req: any, res: any) => {
                 try {
                     var url = new URL(req.url || "", this.getCallbackBaseUrl());
                     if ("/callback" === url.pathname) {
-                        var code = url.searchParams.get("code");
-                        var error = url.searchParams.get("error");
+                        const code = url.searchParams.get("code");
+                        const error = url.searchParams.get("error");
 
                         if (error) {
                             res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
@@ -172,7 +217,7 @@ export class DidaApiClient {
             this.getListenTargets().forEach((target) => {
                 const server = http.createServer(requestHandler);
                 startedServers.push(server);
-                server.once("error", (err: NodeJS.ErrnoException) => {
+                server.once("error", (err: any) => {
                     const hostLabel = target.host.includes(":") ? `[${target.host}]` : target.host;
                     fail(new Error(`无法启动 OAuth 回调服务 ${hostLabel}:${this.settings.serverPort}: ${err.message}`));
                 });
@@ -194,7 +239,7 @@ export class DidaApiClient {
         });
     }
 
-    closeServers(servers: http.Server[]) {
+    closeServers(servers: any[]) {
         for (const server of servers) {
             try {
                 server.close();
@@ -225,9 +270,9 @@ export class DidaApiClient {
         this.oauthInProgress = false;
     }
 
-    async handleOAuthCallback(code: string) {
+    async handleOAuthCallback(code: string, redirectUri: string = this.getRedirectUri()) {
         try {
-            var tokens = await this.exchangeCodeForToken(code);
+            const tokens = await this.exchangeCodeForToken(code.trim(), redirectUri);
             this.settings.accessToken = tokens.access_token;
             this.settings.refreshToken = tokens.refresh_token || this.settings.refreshToken;
             await this.plugin.saveSettings();
@@ -235,7 +280,7 @@ export class DidaApiClient {
             this.plugin.updateStatusBar("已连接");
             this.plugin.syncManager.setupAutoSync();
         } catch (t: any) {
-            new Notice("认证失败: " + t.message);
+            new Notice("认证失败: " + (t?.message || t));
             this.plugin.updateStatusBar("认证失败");
         } finally {
             this.cleanupOAuthServer();
@@ -248,193 +293,109 @@ export class DidaApiClient {
         this.cleanupOAuthServer();
     }
 
-    async exchangeCodeForToken(code: string): Promise<any> {
-        return new Promise((resolve, reject) => {
-            var data = querystring.stringify({
-                grant_type: "authorization_code",
-                client_id: this.settings.clientId,
-                client_secret: this.settings.clientSecret,
-                code: code,
-                redirect_uri: this.getRedirectUri()
-            });
+    async exchangeCodeForToken(code: string, redirectUri: string = this.getRedirectUri()): Promise<any> {
+        const data = new URLSearchParams({
+            grant_type: "authorization_code",
+            client_id: this.settings.clientId,
+            client_secret: this.settings.clientSecret,
+            code,
+            redirect_uri: redirectUri
+        }).toString();
 
-            var options = {
-                hostname: "dida365.com",
-                port: 443,
-                path: "/oauth/token",
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Content-Length": Buffer.byteLength(data)
-                }
-            };
-
-            var req = https.request(options, (res) => {
-                let body = "";
-                res.on("data", (chunk) => {
-                    body += chunk;
-                });
-                res.on("end", () => {
-                    if (res.statusCode === 200) {
-                        try {
-                            var parsed = JSON.parse(body);
-                            resolve(parsed);
-                        } catch (e: any) {
-                            reject(new Error("解析token响应失败: " + e.message));
-                        }
-                    } else {
-                        reject(new Error(`Token请求失败: ${res.statusCode} ` + body));
-                    }
-                });
-            });
-
-            req.on("error", (e) => {
-                reject(new Error("Token请求网络错误: " + e.message));
-            });
-
-            req.write(data);
-            req.end();
-        });
+        const res = await this.requestForm(OAUTH_CONFIG.tokenUrl, data);
+        if (res.ok) return await res.json();
+        throw new Error(`Token请求失败: ${res.status} ` + await res.text());
     }
 
     async refreshAccessToken(): Promise<any> {
         if (!this.settings.refreshToken) throw new Error("没有refresh token");
 
-        return new Promise((resolve, reject) => {
-            var data = querystring.stringify({
-                grant_type: "refresh_token",
-                client_id: this.settings.clientId,
-                client_secret: this.settings.clientSecret,
-                refresh_token: this.settings.refreshToken
-            });
+        const data = new URLSearchParams({
+            grant_type: "refresh_token",
+            client_id: this.settings.clientId,
+            client_secret: this.settings.clientSecret,
+            refresh_token: this.settings.refreshToken
+        }).toString();
 
-            var options = {
-                hostname: "dida365.com",
-                port: 443,
-                path: "/oauth/token",
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Content-Length": Buffer.byteLength(data)
-                }
-            };
+        const res = await this.requestForm(OAUTH_CONFIG.tokenUrl, data);
+        if (!res.ok) throw new Error("Token刷新失败");
+        const parsed = await res.json();
+        this.settings.accessToken = parsed.access_token;
+        if (parsed.refresh_token) {
+            this.settings.refreshToken = parsed.refresh_token;
+        }
+        await this.plugin.saveSettings();
+        return parsed;
+    }
 
-            var req = https.request(options, (res) => {
-                let body = "";
-                res.on("data", (chunk) => {
-                    body += chunk;
-                });
-                res.on("end", async () => {
-                    if (res.statusCode === 200) {
-                        try {
-                            var parsed = JSON.parse(body);
-                            this.settings.accessToken = parsed.access_token;
-                            if (parsed.refresh_token) {
-                                this.settings.refreshToken = parsed.refresh_token;
-                            }
-                            await this.plugin.saveSettings();
-                            resolve(parsed);
-                        } catch (e: any) {
-                            reject(new Error("解析token响应失败: " + e.message));
-                        }
-                    } else {
-                        reject(new Error("Token刷新失败"));
-                    }
-                });
-            });
-
-            req.on("error", (e) => {
-                reject(new Error("Token刷新网络错误: " + e.message));
-            });
-
-            req.write(data);
-            req.end();
+    private async requestForm(url: string, body: string): Promise<ResponseLike> {
+        return this.requestUrlLike(url, {
+            method: "POST",
+            body,
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
         });
     }
 
-    async makeAuthenticatedRequest(urlStr: string, options: any = {}): Promise<any> {
+    async makeAuthenticatedRequest(urlStr: string, options: any = {}): Promise<ResponseLike> {
         if (!this.settings.accessToken) throw new Error("未认证，请先进行OAuth认证");
 
-        return new Promise((resolve, reject) => {
-            var url = new URL(urlStr);
-            var isHttps = url.protocol === "https:";
-            let client = isHttps ? https : http;
-
-            let body = options.body || "";
-            let method = options.method || "GET";
-
-            var reqOptions: any = {
-                hostname: url.hostname,
-                port: url.port || (isHttps ? 443 : 80),
-                path: url.pathname + url.search,
-                method: method,
-                headers: {
-                    Authorization: "Bearer " + this.settings.accessToken,
-                    "Content-Type": "application/json",
-                    "User-Agent": "Didasync-Plugin/1.0",
-                    ...options.headers
-                }
-            };
-
-            if (body && method !== "GET") {
-                reqOptions.headers["Content-Length"] = Buffer.byteLength(body);
+        const requestOptions = {
+            method: options.method || "GET",
+            body: options.body || "",
+            headers: {
+                Authorization: "Bearer " + this.settings.accessToken,
+                "Content-Type": "application/json",
+                "User-Agent": "Didasync-Plugin/1.0",
+                ...options.headers
             }
+        };
 
-            var req = client.request(reqOptions, (res) => {
-                let resBody = "";
-                res.on("data", (chunk) => {
-                    resBody += chunk;
-                });
-                res.on("end", async () => {
-                    if (res.statusCode === 401) {
-                        try {
-                            await this.refreshAccessToken();
-                            reqOptions.headers.Authorization = "Bearer " + this.settings.accessToken;
+        let res = await this.requestUrlLike(urlStr, requestOptions);
+        if (res.status !== 401) return res;
 
-                            var retryReq = client.request(reqOptions, (retryRes) => {
-                                let retryBody = "";
-                                retryRes.on("data", (chunk) => {
-                                    retryBody += chunk;
-                                });
-                                retryRes.on("end", () => {
-                                    resolve({
-                                        ok: retryRes.statusCode! >= 200 && retryRes.statusCode! < 300,
-                                        status: retryRes.statusCode,
-                                        json: () => Promise.resolve(JSON.parse(retryBody)),
-                                        text: () => Promise.resolve(retryBody)
-                                    });
-                                });
-                            });
-
-                            retryReq.on("error", reject);
-                            if (body && method !== "GET") retryReq.write(body);
-                            retryReq.end();
-
-                        } catch (e) {
-                            this.settings.accessToken = "";
-                            this.settings.refreshToken = "";
-                            await this.plugin.saveSettings();
-                            this.plugin.updateStatusBar("未连接");
-                            reject(new Error("认证已过期，请重新进行OAuth认证"));
-                        }
-                    } else {
-                        resolve({
-                            ok: res.statusCode! >= 200 && res.statusCode! < 300,
-                            status: res.statusCode,
-                            json: () => Promise.resolve(JSON.parse(resBody)),
-                            text: () => Promise.resolve(resBody)
-                        });
-                    }
-                });
+        try {
+            await this.refreshAccessToken();
+            res = await this.requestUrlLike(urlStr, {
+                ...requestOptions,
+                headers: {
+                    ...requestOptions.headers,
+                    Authorization: "Bearer " + this.settings.accessToken
+                }
             });
+            return res;
+        } catch (e) {
+            this.settings.accessToken = "";
+            this.settings.refreshToken = "";
+            await this.plugin.saveSettings();
+            this.plugin.updateStatusBar("未连接");
+            throw new Error("认证已过期，请重新进行OAuth认证");
+        }
+    }
 
-            req.on("error", (e) => {
-                reject(new Error("网络请求错误: " + e.message));
+    private async requestUrlLike(url: string, options: { method?: string; body?: string; headers?: Record<string, string> }): Promise<ResponseLike> {
+        try {
+            const response = await requestUrl({
+                url,
+                method: options.method || "GET",
+                body: options.body || undefined,
+                headers: options.headers || {},
+                throw: false
             });
-
-            if (body && method !== "GET") req.write(body);
-            req.end();
-        });
+            const text = typeof response.text === "string" ? response.text : "";
+            return {
+                ok: response.status >= 200 && response.status < 300,
+                status: response.status,
+                json: async () => {
+                    if (response.json !== undefined) return response.json;
+                    return JSON.parse(text);
+                },
+                text: async () => text
+            };
+        } catch (e: any) {
+            throw new Error("网络请求错误: " + (e?.message || e));
+        }
     }
 
     async getProjects(): Promise<any[]> {
