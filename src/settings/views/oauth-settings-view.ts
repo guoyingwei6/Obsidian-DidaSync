@@ -1,8 +1,8 @@
 import { App, Notice, Platform, Setting } from "obsidian";
 import DidaSyncPlugin from "../../main";
 import { OAuthCallbackMode } from "../../types";
-import { AbstractSettingsView } from "./abstract-settings-view";
 import { debounce } from "../../utils";
+import { AbstractSettingsView } from "./abstract-settings-view";
 
 export class OAuthSettingsView extends AbstractSettingsView {
     constructor(app: App, plugin: DidaSyncPlugin) {
@@ -15,7 +15,7 @@ export class OAuthSettingsView extends AbstractSettingsView {
 
         const step1Div = oauthContainer.createDiv("dida-settings-block");
         step1Div.createEl("p", {
-            text: "第 1 步：请复制下面的链接到浏览器，进入滴答清单开发者后台，创建应用并获取 Client ID 和 Client Secret。"
+            text: "第 1 步：复制下面的链接到浏览器，进入滴答清单开发者后台，创建应用并获取 Client ID 和 Client Secret。"
         });
 
         const linkDiv = step1Div.createDiv("dida-settings-inline-row dida-settings-link-box");
@@ -30,42 +30,40 @@ export class OAuthSettingsView extends AbstractSettingsView {
         const step2Div = oauthContainer.createDiv("dida-settings-block");
         step2Div.createEl("p", {
             text: Platform.isMobile
-                ? "第 2 步：将下面的重定向 URI 复制到滴答清单开发者后台的 OAuth redirect URL，然后使用下方按钮打开认证链接。授权完成后，浏览器会跳到该地址，请从地址栏复制 code 参数。"
+                ? "第 2 步：先设置回调地址和端口，再将下面的重定向 URI 复制到滴答清单开发者后台的 OAuth redirect URL。保存后使用下方按钮打开认证链接，授权完成后请从地址栏复制 code 参数。"
                 : "第 2 步：先设置回调地址和端口，再将下面的 URI 复制到滴答清单开发者后台的 OAuth redirect URL，保存后点击 OAuth 认证按钮。"
         });
 
-        if (!Platform.isMobile) {
-            new Setting(step2Div)
-                .setName("回调地址")
-                .setDesc("修改后请同步更新开发者后台的 redirect URL。")
-                .addDropdown((dropdown) => dropdown
-                    .addOption("localhost", "localhost")
-                    .addOption("ipv4", "127.0.0.1")
-                    .setValue(this.getCallbackMode())
-                    .onChange(async (value: OAuthCallbackMode) => {
-                        this.plugin.settings.oauthCallbackMode = value === "ipv4" ? "ipv4" : "localhost";
-                        await this.plugin.saveSettings();
-                        this.updateRedirectUriDisplay(step2Div, this.plugin.settings.serverPort);
-                        new Notice("OAuth 回调地址已切换，请将开发者后台 redirect URL 更新为当前显示的地址。");
-                    }));
+        new Setting(step2Div)
+            .setName("回调地址")
+            .setDesc("修改后请同步更新开发者后台的 redirect URL。")
+            .addDropdown((dropdown) => dropdown
+                .addOption("localhost", "localhost")
+                .addOption("ipv4", "127.0.0.1")
+                .setValue(this.getCallbackMode())
+                .onChange(async (value: OAuthCallbackMode) => {
+                    this.plugin.settings.oauthCallbackMode = value === "ipv4" ? "ipv4" : "localhost";
+                    await this.plugin.saveSettings();
+                    this.updateRedirectUriDisplay(step2Div);
+                    new Notice("OAuth 回调地址已切换，请将开发者后台 redirect URL 更新为当前显示的地址。");
+                }));
 
-            new Setting(step2Div)
-                .setName("服务器端口")
-                .setDesc("修改后请同步更新开发者后台的 redirect URL。")
-                .addText((text) => {
-                    const debouncedSave = debounce(async (value: string) => {
-                        const port = parseInt(value, 10) || 8080;
-                        this.plugin.settings.serverPort = port;
-                        await this.plugin.saveSettings();
-                        this.updateRedirectUriDisplay(step2Div, port);
-                    }, 300);
+        new Setting(step2Div)
+            .setName("服务器端口")
+            .setDesc("修改后请同步更新开发者后台的 redirect URL。")
+            .addText((text) => {
+                const debouncedSave = debounce(async (value: string) => {
+                    const port = parseInt(value, 10) || 8080;
+                    this.plugin.settings.serverPort = port;
+                    await this.plugin.saveSettings();
+                    this.updateRedirectUriDisplay(step2Div);
+                }, 300);
 
-                    text
-                        .setPlaceholder("8080")
-                        .setValue(this.plugin.settings.serverPort.toString())
-                        .onChange(debouncedSave);
-                });
-        }
+                text
+                    .setPlaceholder("8080")
+                    .setValue(this.plugin.settings.serverPort.toString())
+                    .onChange(debouncedSave);
+            });
 
         const redirectDiv = step2Div.createDiv("dida-settings-code-box");
         redirectDiv.createEl("strong", { text: "重定向 URI：" });
@@ -86,7 +84,7 @@ export class OAuthSettingsView extends AbstractSettingsView {
             });
         } else {
             step2Div.createEl("p", {
-                text: "移动端仅支持手动认证流程。浏览器打开本地回调页失败是正常现象，请直接从地址栏复制 code 参数并粘贴回来。"
+                text: "移动端仅支持手动认证流程。你现在也可以修改回调地址和端口；如果浏览器打开本地回调页失败，这是正常现象，请直接从地址栏复制 code 参数并粘贴回来。"
             });
         }
 
@@ -114,7 +112,7 @@ export class OAuthSettingsView extends AbstractSettingsView {
 
         new Setting(containerEl)
             .setName(Platform.isMobile ? "认证链接" : "OAuth 认证")
-            .setDesc(Platform.isMobile ? "打开授权页面并获取授权码。" : "点击开始 OAuth 认证流程")
+            .setDesc(Platform.isMobile ? "打开授权页面并获取授权码。" : "点击开始 OAuth 认证流程。")
             .addButton((button) => button
                 .setButtonText(Platform.isMobile ? "打开认证链接" : "开始认证")
                 .onClick(() => {
@@ -162,7 +160,7 @@ export class OAuthSettingsView extends AbstractSettingsView {
         return this.plugin.settings.oauthCallbackMode === "ipv4" ? "ipv4" : "localhost";
     }
 
-    private updateRedirectUriDisplay(containerEl: HTMLElement, port: number) {
+    private updateRedirectUriDisplay(containerEl: HTMLElement) {
         containerEl.querySelectorAll('input[readonly]').forEach((element) => {
             const input = element as HTMLInputElement;
             if (input.value && input.value.includes("/callback")) {
