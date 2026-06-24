@@ -146,6 +146,19 @@ async function run() {
         plugin.setupAutoSync();
         assert.equal(timers.size, 0, "disabling auto sync should clear the scheduled timer");
 
+        let viewOpenSyncCount = 0;
+        plugin.syncManager = {
+            async runBidirectionalSync() {
+                viewOpenSyncCount++;
+            }
+        };
+        plugin._lastRecoverySyncAt = 0;
+        await plugin.requestRecoverySync({ requireAutoSync: false });
+        assert.equal(viewOpenSyncCount, 1, "opening the task view should refresh even when auto sync is disabled");
+        plugin._lastRecoverySyncAt = 0;
+        await plugin.requestRecoverySync();
+        assert.equal(viewOpenSyncCount, 1, "background recovery should still respect the auto sync setting");
+
         const statuses: string[] = [];
         const originalSetTimeout = globalThis.setTimeout;
         (globalThis as any).setTimeout = (callback: () => void) => {
