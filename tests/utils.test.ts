@@ -12,6 +12,7 @@ const originalLoad = (Module as any)._load;
 const {
     normalizePomodoroPresetMinutes,
     normalizePomodoroCompletionHistory,
+    getTimerRemainingSeconds,
     compareVersions,
     translateRepeatFlag,
     safeDecode
@@ -28,6 +29,10 @@ assert.deepEqual(normalizePomodoroCompletionHistory({
     "2026-06-24": { sessions: 2, minutes: 50 },
     "2026-06-25": { sessions: 0, minutes: 0 }
 });
+
+assert.equal(getTimerRemainingSeconds(61_000, 1_000), 60);
+assert.equal(getTimerRemainingSeconds(1_001, 1_000), 1);
+assert.equal(getTimerRemainingSeconds(999, 1_000), 0);
 
 assert.equal(compareVersions("1.5.4", "1.5.3"), 1);
 assert.equal(compareVersions("1.5", "1.5.0"), 0);

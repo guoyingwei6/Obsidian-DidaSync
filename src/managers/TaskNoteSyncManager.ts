@@ -297,12 +297,12 @@ export class TaskNoteSyncManager {
     async buildUniqueTargetFilePath(range: TaskNoteSyncRange): Promise<string> {
         const basePath = this.buildTargetFilePath(range);
         const normalizedPath = normalizePath(basePath.endsWith(".md") ? basePath : `${basePath}.md`);
-        if (!(await this.app.vault.adapter.exists(normalizedPath))) return normalizedPath;
+        if (!this.app.vault.getAbstractFileByPath(normalizedPath)) return normalizedPath;
 
         const stem = normalizedPath.slice(0, -3);
         for (let i = 2; i < 1000; i++) {
             const candidate = `${stem}-${i}.md`;
-            if (!(await this.app.vault.adapter.exists(candidate))) return candidate;
+            if (!this.app.vault.getAbstractFileByPath(candidate)) return candidate;
         }
         return `${stem}-${Date.now()}.md`;
     }
@@ -331,7 +331,7 @@ export class TaskNoteSyncManager {
         for (const part of folderParts) {
             currentPath = currentPath ? `${currentPath}/${part}` : part;
             const folderPath = normalizePath(currentPath);
-            if (!(await this.app.vault.adapter.exists(folderPath))) {
+            if (!this.app.vault.getAbstractFileByPath(folderPath)) {
                 await this.app.vault.createFolder(folderPath);
             }
         }

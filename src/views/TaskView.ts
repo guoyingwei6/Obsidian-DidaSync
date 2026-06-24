@@ -6,7 +6,7 @@ import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
 import { clampMinutes, dateAtMinutes, getTimeGridDay, getTimeGridRange, gridStartMinutes, isAllDayTimeGridTask, snapDuration, snapMinutes, taskBelongsToTimeGridDate, TIME_GRID_STEP_MINUTES } from '../timeGrid';
-import { appendValidatedSvg, debounce, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
+import { appendValidatedSvg, debounce, getTimerRemainingSeconds, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
 
 export const TASK_VIEW_TYPE = "dida-task-view";
 
@@ -417,14 +417,14 @@ export class TaskView extends ItemView {
         this.pomodoroTargetEndAt = Date.now() + this.pomodoroState.remainingSeconds * 1000;
         this.clearPomodoroInterval();
         this.pomodoroInterval = window.setInterval(() => this.handlePomodoroTick(), 250);
-        await this.startPomodoroBackgroundSound();
+        await this.startPomodoroBackgroundSound().catch(() => { });
         this.renderPomodoroPanel();
         this.updatePomodoroUI();
     }
 
     pausePomodoro() {
         if (!this.pomodoroState.isRunning) return;
-        const remaining = Math.max(0, Math.ceil((this.pomodoroTargetEndAt - Date.now()) / 1000));
+        const remaining = getTimerRemainingSeconds(this.pomodoroTargetEndAt);
         this.pomodoroState.remainingSeconds = remaining;
         this.pomodoroState.isRunning = false;
         this.pomodoroTargetEndAt = null;
@@ -449,7 +449,7 @@ export class TaskView extends ItemView {
 
     handlePomodoroTick() {
         if (!this.pomodoroState.isRunning || !this.pomodoroTargetEndAt) return;
-        const remaining = Math.max(0, Math.ceil((this.pomodoroTargetEndAt - Date.now()) / 1000));
+        const remaining = getTimerRemainingSeconds(this.pomodoroTargetEndAt);
         if (remaining !== this.pomodoroState.remainingSeconds) {
             this.pomodoroState.remainingSeconds = remaining;
             this.updatePomodoroUI();
@@ -486,7 +486,7 @@ export class TaskView extends ItemView {
         const currentIndex = options.findIndex((item) => item.value === settings.selectedSound);
         const next = options[(currentIndex + 1 + options.length) % options.length];
         await this.updatePomodoroSettings({ selectedSound: next.value });
-        if (this.pomodoroState.isRunning) await this.startPomodoroBackgroundSound();
+        if (this.pomodoroState.isRunning) await this.startPomodoroBackgroundSound().catch(() => { });
         else this.stopPomodoroBackgroundSound();
         this.updatePomodoroUI();
     }
@@ -1062,6 +1062,21 @@ export class TaskView extends ItemView {
         container.empty();
         container.addClass("dida-task-view");
         this.viewMode = this.plugin.settings.defaultViewMode || "task";
+        const handleVisibilityChange = () => {
+            if (!this.pomodoroState.isRunning || !this.pomodoroTargetEndAt) return;
+            if (document.visibilityState === "hidden") {
+                this.clearPomodoroInterval();
+                this.stopPomodoroBackgroundSound();
+                return;
+            }
+            this.handlePomodoroTick();
+            if (this.pomodoroState.isRunning && !this.pomodoroInterval) {
+                this.pomodoroInterval = window.setInterval(() => this.handlePomodoroTick(), 250);
+                void this.startPomodoroBackgroundSound().catch(() => { });
+            }
+        };
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        this.eventCleanupHandlers.push(() => document.removeEventListener("visibilitychange", handleVisibilityChange));
         this.renderTaskList();
     }
 
