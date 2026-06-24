@@ -58,12 +58,11 @@ DidaSync keeps your tasks up to date in both Obsidian and Dida365 or TickTick.
 | ![Time Block View](./assets/time-block-view.png) | ![Timeline View](./assets/timeline-view.png) | ![Sidebar View](./assets/sidebar-view.png) |
 | Visualize your day with a calendar-style time block view. | Track progress and upcoming deadlines in a vertical timeline. | Manage your full Dida365 or TickTick task list from the Obsidian sidebar. |
 
-### Mobile Support + Faster Task Creation
+### Mobile OAuth Support
 
-| Mobile Sidebar | Quick Add Task |
-|:--:|:--:|
-| ![Mobile Sidebar](./assets/supportmobile.png) | ![Quick Add Task](./assets/freeaddtask.png) |
-| Keep the sidebar task list usable on mobile layouts, with project sections, inline add buttons, and task details still within reach. | Add tasks with a lightweight modal that combines project selection, all-day toggle, and a calendar picker in one flow. |
+![Mobile OAuth](./assets/mobileOauth.png)
+
+On mobile, complete OAuth with the manual code flow: open the auth link, copy the returned `code`, and paste it back into DidaSync.
 
 ### 🍅 Pomodoro + 📁 Project Catalog
 
@@ -97,9 +96,8 @@ DidaSync connects via the official OAuth 2.0 flow. You authorize directly on Did
 |---------|-------------|-------------|
 | 🔄 **Two-way Sync** | Sync task status, content, and details between Obsidian and Dida365 or TickTick. | Complete OAuth setup, then sync from the sidebar or settings. |
 | 🗓️ **Multiple Views** | Includes time block, timeline, sidebar task list, and Pomodoro views. | Open them from the sidebar, commands, or view entry points. |
-| 📱 **Mobile-friendly Sidebar** | Keep project groups, quick-add entry points, and task details usable in narrower mobile layouts. | Open the task sidebar on mobile and manage tasks directly from the grouped project list. |
 | ⚡ **Create / Insert Tasks** | Create tasks in projects or insert and link existing Dida tasks from the editor. | Use commands, or create tasks from native Obsidian task syntax. |
-| 🗓️ **Quick Add Modal** | Create tasks from one compact modal with project selection, all-day toggle, and date picker. | Use the inline `+` buttons in the sidebar or the `Insert/Create Dida task` command. |
+| 📲 **Mobile OAuth Support** | Support manual OAuth completion on mobile when the browser cannot return to the local callback page automatically. | Copy the redirect URI into the Dida developer console, open the auth link, then paste the returned `code` back into the plugin. |
 | 📝 **Task Details / Checklists / Subtasks** | Edit task titles, notes, checklist items, and subtasks and sync them back. | Open task details from the task list. |
 | 🔁 **Repeat Task Support** | Sync and manage complex recurring tasks from Dida365 or TickTick. | Sync normally, then view and complete recurring tasks directly. |
 | 🍅 **Pomodoro View** | Focus-oriented time block workflow with timer and focus tracking. | Switch to the Pomodoro view inside the plugin. |
@@ -149,9 +147,9 @@ The sync-to-note settings page lets you configure the target block, output folde
 
 If you prefer a keyboard-first flow, run the `Insert/Create Dida task` command to open task suggestions and task creation.
 
-![Quick Add Task Modal](./assets/freeaddtask.png)
+![Mobile OAuth Support](./assets/mobileOauth.png)
 
-The quick-add flow keeps project selection and date picking in the same modal, which makes ad-hoc task capture much faster than jumping through multiple dialogs.
+On mobile devices, DidaSync supports a manual OAuth flow: after authorization, copy the `code` parameter from the browser address bar and paste it back into the plugin to finish authentication.
 
 ### Drag Tasks Into Markdown Documents
 
