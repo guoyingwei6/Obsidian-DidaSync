@@ -119,6 +119,7 @@ export class TaskSchedulePicker {
     root: HTMLElement | null = null;
     calendar: HTMLElement | null = null;
     modeSwitch: HTMLElement | null = null;
+    modeButton: HTMLButtonElement | null = null;
     timeRow: HTMLElement | null = null;
     repeatButton: HTMLButtonElement | null = null;
 
@@ -138,21 +139,16 @@ export class TaskSchedulePicker {
     }
 
     private renderModeAndTime(container: HTMLElement): void {
-        this.modeSwitch = container.createDiv("dida-schedule-mode-switch");
-        const allDayButton = this.modeSwitch.createEl("button", { text: "全天" });
-        const timedButton = this.modeSwitch.createEl("button", { text: "时间段" });
-        allDayButton.onclick = () => {
-            this.state.isAllDay = true;
-            this.state.isScheduled = true;
-            this.updateVisibility();
-        };
-        timedButton.onclick = () => {
-            this.state.isAllDay = false;
+        const controls = container.createDiv("dida-task-schedule-controls");
+        this.modeSwitch = controls.createDiv("dida-schedule-mode-switch");
+        this.modeButton = this.modeSwitch.createEl("button", { text: "全天" });
+        this.modeButton.onclick = () => {
+            this.state.isAllDay = !this.state.isAllDay;
             this.state.isScheduled = true;
             this.updateVisibility();
         };
 
-        this.timeRow = container.createDiv("dida-task-schedule-time-row");
+        this.timeRow = controls.createDiv("dida-task-schedule-time-row");
         this.timeRow.createSpan({ text: "开始" });
         const startSelect = this.createTimeSelect(this.state.startMinutes, false);
         this.timeRow.createSpan({ text: "至" });
@@ -185,10 +181,13 @@ export class TaskSchedulePicker {
     private updateVisibility(): void {
         if (!this.root) return;
         this.root.toggleClass("is-unscheduled", !this.state.isScheduled);
-        if (this.modeSwitch) {
-            const buttons = this.modeSwitch.querySelectorAll("button");
-            buttons[0]?.toggleClass("is-active", this.state.isAllDay);
-            buttons[1]?.toggleClass("is-active", !this.state.isAllDay);
+        if (this.modeButton) {
+            const currentMode = this.state.isAllDay ? "全天" : "时间段";
+            const nextMode = this.state.isAllDay ? "时间段" : "全天";
+            this.modeButton.textContent = currentMode;
+            this.modeButton.title = `切换到${nextMode}`;
+            this.modeButton.setAttribute("aria-label", `当前${currentMode}，点击切换到${nextMode}`);
+            this.modeButton.toggleClass("is-timed", !this.state.isAllDay);
         }
         this.timeRow?.setCssStyles({ display: !this.state.isAllDay && this.state.isScheduled ? "flex" : "none" });
         if (this.repeatButton) {

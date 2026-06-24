@@ -290,87 +290,111 @@
     font-size: 16px;
 }
 
+.dida-task-create-primary-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    margin-bottom: 4px;
+}
+
 .dida-task-create-title {
-    width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
     box-sizing: border-box;
-    margin-bottom: 12px;
+    margin: 0;
     font-size: 15px;
 }
 
-.dida-task-create-project {
-    display: grid;
-    grid-template-columns: 56px 1fr;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 14px;
-}
-
-.dida-task-create-project label {
-    color: var(--text-muted);
-    font-size: 13px;
-}
-
-.dida-task-create-project select {
-    width: 100%;
+.dida-task-create-project-select {
+    flex: 0 1 clamp(96px, 34%, 140px);
+    width: clamp(96px, 34%, 140px);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .dida-task-schedule-picker {
-    padding-top: 12px;
-    border-top: 1px solid var(--background-modifier-border);
+    padding-top: 4px;
+}
+
+.dida-task-schedule-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 26px;
+    padding: 2px 0 6px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .dida-schedule-mode-switch {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 3px;
-    margin-bottom: 12px;
-    border-radius: 7px;
-    background: var(--background-secondary);
+    display: inline-flex;
+    flex: 0 0 auto;
 }
 
 .dida-schedule-mode-switch button {
-    border: 0;
+    min-height: 24px;
+    padding: 2px 9px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
     box-shadow: none;
-    background: transparent;
+    background: var(--background-secondary);
     color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.2;
 }
 
-.dida-schedule-mode-switch button.is-active {
-    background: var(--background-primary);
-    color: var(--text-normal);
-    box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+.dida-schedule-mode-switch button:hover,
+.dida-schedule-mode-switch button.is-timed {
+    border-color: var(--interactive-accent);
+    color: var(--interactive-accent);
 }
 
 .dida-task-schedule-time-row {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-bottom: 10px;
+    justify-content: flex-start;
+    gap: 4px;
+    margin: 0;
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: 11px;
 }
 
 .dida-task-schedule-time-select {
-    min-width: 82px;
+    min-width: 68px;
+    height: 24px;
+    padding: 1px 4px;
+    font-size: 11px;
 }
 
 .dida-task-schedule-calendar .dida-calendar-grid {
     margin-bottom: 4px;
 }
 
-.dida-task-schedule-calendar .dida-calendar-day {
-    width: auto;
+.dida-calendar-popup .dida-task-schedule-calendar .dida-calendar-day {
+    justify-self: center;
+    align-self: center;
+    width: 30px;
     height: 30px;
     min-height: 30px;
     padding: 0;
+    box-sizing: border-box;
+    border: 1px solid transparent;
     border-radius: 50%;
 }
 
-.dida-task-schedule-calendar .dida-calendar-day.today:not(.selected) {
+.dida-calendar-popup .dida-task-schedule-calendar .dida-calendar-day.today:not(.selected) {
     background: transparent;
     color: var(--interactive-accent);
+    border-color: var(--interactive-accent);
     opacity: 1;
+}
+
+.dida-calendar-popup .dida-task-schedule-calendar .dida-calendar-day.selected {
+    border-color: var(--interactive-accent);
 }
 
 .dida-task-schedule-picker.is-unscheduled .dida-calendar-day.selected {
