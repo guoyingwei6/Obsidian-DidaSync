@@ -30,7 +30,7 @@ export class OAuthSettingsView extends AbstractSettingsView {
         const step2Div = oauthContainer.createDiv("dida-settings-block");
         step2Div.createEl("p", {
             text: Platform.isMobile
-                ? "第 2 步：将下面的移动端回调 URI 复制到滴答清单开发者后台的 OAuth redirect URL。若后台不接受 obsidian:// URI，请使用下方手动模式。"
+                ? "第 2 步：将下面的重定向 URI 复制到滴答清单开发者后台的 OAuth redirect URL，然后使用下方按钮打开认证链接。授权完成后，浏览器会跳到该地址，请从地址栏复制 code 参数。"
                 : "第 2 步：先设置回调地址和端口，再将下面的 URI 复制到滴答清单开发者后台的 OAuth redirect URL，保存后点击 OAuth 认证按钮。"
         });
 
@@ -86,7 +86,7 @@ export class OAuthSettingsView extends AbstractSettingsView {
             });
         } else {
             step2Div.createEl("p", {
-                text: "移动端优先使用 obsidian:// 回调；如果滴答后台不接受该 URI，可使用手动模式。"
+                text: "移动端仅支持手动认证流程。浏览器打开本地回调页失败是正常现象，请直接从地址栏复制 code 参数并粘贴回来。"
             });
         }
 
@@ -113,38 +113,22 @@ export class OAuthSettingsView extends AbstractSettingsView {
                 }));
 
         new Setting(containerEl)
-            .setName("OAuth 认证")
-            .setDesc("点击开始 OAuth 认证流程")
+            .setName(Platform.isMobile ? "认证链接" : "OAuth 认证")
+            .setDesc(Platform.isMobile ? "打开授权页面并获取授权码。" : "点击开始 OAuth 认证流程")
             .addButton((button) => button
-                .setButtonText("开始认证")
+                .setButtonText(Platform.isMobile ? "打开认证链接" : "开始认证")
                 .onClick(() => {
+                    if (Platform.isMobile) {
+                        this.plugin.apiClient.startManualOAuthFlow();
+                        return;
+                    }
                     this.plugin.apiClient.startOAuthFlow();
                 }));
 
         if (Platform.isMobile) {
-            const manualRedirectDiv = containerEl.createDiv("dida-settings-code-box");
-            manualRedirectDiv.createEl("strong", { text: "手动模式重定向 URI：" });
-            manualRedirectDiv.createEl("br");
-            const manualRedirectInput = manualRedirectDiv.createEl("input", {
-                type: "text",
-                value: this.plugin.apiClient.getLocalRedirectUri()
-            });
-            manualRedirectInput.readOnly = true;
-            manualRedirectInput.addClass("dida-settings-readonly-input");
-            manualRedirectInput.onclick = () => manualRedirectInput.select();
-
-            new Setting(containerEl)
-                .setName("手动认证链接")
-                .setDesc("当 obsidian:// 回调不可用时，使用 localhost 回调。浏览器会打开一个无法连接的 localhost 页面，请从地址栏复制 code 参数。")
-                .addButton((button) => button
-                    .setButtonText("打开手动认证")
-                    .onClick(() => {
-                        this.plugin.apiClient.startManualOAuthFlow();
-                    }));
-
             let manualCode = "";
             new Setting(containerEl)
-                .setName("手动授权码")
+                .setName("授权码")
                 .setDesc("将授权后得到的 code 粘贴到这里完成认证。")
                 .addText((text) => text
                     .setPlaceholder("粘贴 OAuth code")
@@ -158,7 +142,7 @@ export class OAuthSettingsView extends AbstractSettingsView {
                             new Notice("请先输入授权码");
                             return;
                         }
-                        await this.plugin.apiClient.handleOAuthCallback(manualCode, this.plugin.apiClient.getLocalRedirectUri());
+                        await this.plugin.apiClient.handleOAuthCallback(manualCode, this.plugin.apiClient.getRedirectUri());
                         containerEl.empty();
                         this.render(containerEl);
                     }));

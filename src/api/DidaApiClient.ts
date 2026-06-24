@@ -34,11 +34,7 @@ export class DidaApiClient {
     }
 
     getRedirectUri() {
-        return Platform.isMobile ? this.getMobileRedirectUri() : this.getLocalRedirectUri();
-    }
-
-    getMobileRedirectUri() {
-        return "obsidian://dida-oauth";
+        return this.getLocalRedirectUri();
     }
 
     getLocalRedirectUri() {
@@ -76,8 +72,9 @@ export class DidaApiClient {
             if (!Platform.isMobile) {
                 await this.startOAuthServer();
             }
-            const url = this.buildAuthUrl();
-            await this.openAuthUrl(url);
+            const redirectUri = this.getRedirectUri();
+            const url = this.buildAuthUrlForRedirect(redirectUri);
+            await this.openAuthUrl(url, redirectUri);
             if (Platform.isMobile) {
                 this.oauthInProgress = false;
                 this.plugin.updateStatusBar("等待授权码");
@@ -108,7 +105,7 @@ export class DidaApiClient {
             new Notice("请先在设置中配置Client ID和Client Secret");
             return;
         }
-        const redirectUri = this.getLocalRedirectUri();
+        const redirectUri = this.getRedirectUri();
         const url = this.buildAuthUrlForRedirect(redirectUri);
         await this.openAuthUrl(url, redirectUri);
         this.plugin.updateStatusBar("等待授权码");

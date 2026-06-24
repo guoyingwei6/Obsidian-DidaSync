@@ -1,4 +1,4 @@
-import type { Server } from "http";
+import * as http from "http";
 
 export interface DesktopOAuthCallbackServerHandle {
     close(): Promise<void>;
@@ -18,8 +18,7 @@ interface StartOptions {
 }
 
 export async function startDesktopOAuthCallbackServer(options: StartOptions): Promise<DesktopOAuthCallbackServerHandle> {
-    const http = await import("http");
-    const servers: Server[] = [];
+    const servers: http.Server[] = [];
     const close = async () => {
         const activeServers = servers.splice(0);
         await Promise.all(activeServers.map(server => new Promise<void>(resolve => {

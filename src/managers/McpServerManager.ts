@@ -1,3 +1,5 @@
+import * as crypto from "crypto";
+import * as http from "http";
 import { Notice } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { DidaProject, DidaTask } from "../types";
@@ -19,7 +21,7 @@ type ToolDefinition = {
 
 export class McpServerManager {
     private plugin: DidaSyncPlugin;
-    private server: any | null = null;
+    private server: http.Server | null = null;
     private recentCreateRequests = new Map<string, DidaTask>();
 
     constructor(plugin: DidaSyncPlugin) {
@@ -38,7 +40,6 @@ export class McpServerManager {
         }
         await this.stop();
 
-        const http = await import("http");
         this.server = http.createServer((req, res) => {
             this.handleRequest(req, res).catch((e) => {
                 this.writeJson(res, 500, this.errorResponse(null, -32603, e?.message || "Internal error"));
@@ -68,16 +69,10 @@ export class McpServerManager {
     }
 
     generateToken(): string {
-        const bytes = new Uint8Array(24);
-        if (globalThis.crypto && typeof globalThis.crypto.getRandomValues === "function") {
-            globalThis.crypto.getRandomValues(bytes);
-        } else {
-            for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
-        }
-        return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+        return crypto.randomBytes(24).toString("hex");
     }
 
-    private async handleRequest(req: any, res: any) {
+    private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
         this.setCorsHeaders(res);
         if (req.method === "OPTIONS") {
             res.writeHead(204);
@@ -825,7 +820,7 @@ export class McpServerManager {
         }
     }
 
-    private isAuthorized(req: any) {
+    private isAuthorized(req: http.IncomingMessage) {
         const token = this.plugin.settings.mcpToken;
         if (!token) return false;
         const authorization = String(req.headers.authorization || "");
@@ -838,7 +833,7 @@ export class McpServerManager {
         }
     }
 
-    private readBody(req: any): Promise<string> {
+    private readBody(req: http.IncomingMessage): Promise<string> {
         return new Promise((resolve, reject) => {
             let body = "";
             req.on("data", chunk => body += chunk);
@@ -855,13 +850,13 @@ export class McpServerManager {
         return { jsonrpc: "2.0", id, error: { code, message } };
     }
 
-    private writeJson(res: any, status: number, body: any) {
+    private writeJson(res: http.ServerResponse, status: number, body: any) {
         this.setCorsHeaders(res);
         res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
         res.end(JSON.stringify(body));
     }
 
-    private openSseStream(req: any, res: any) {
+    private openSseStream(req: http.IncomingMessage, res: http.ServerResponse) {
         this.setCorsHeaders(res);
         res.writeHead(200, {
             "Content-Type": "text/event-stream; charset=utf-8",
@@ -879,7 +874,7 @@ export class McpServerManager {
         });
     }
 
-    private setCorsHeaders(res: any) {
+    private setCorsHeaders(res: http.ServerResponse) {
         res.setHeader("Access-Control-Allow-Origin", "app://obsidian.md");
         res.setHeader("Access-Control-Allow-Headers", [
             "Accept",
