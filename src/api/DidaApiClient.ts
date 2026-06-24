@@ -357,14 +357,6 @@ export class DidaApiClient {
 
         try {
             await this.refreshAccessToken();
-            res = await this.requestUrlLike(urlStr, {
-                ...requestOptions,
-                headers: {
-                    ...requestOptions.headers,
-                    Authorization: "Bearer " + this.settings.accessToken
-                }
-            });
-            return res;
         } catch (e) {
             this.settings.accessToken = "";
             this.settings.refreshToken = "";
@@ -372,6 +364,15 @@ export class DidaApiClient {
             this.plugin.updateStatusBar("未连接");
             throw new Error("认证已过期，请重新进行OAuth认证");
         }
+
+        res = await this.requestUrlLike(urlStr, {
+            ...requestOptions,
+            headers: {
+                ...requestOptions.headers,
+                Authorization: "Bearer " + this.settings.accessToken
+            }
+        });
+        return res;
     }
 
     private async requestUrlLike(url: string, options: { method?: string; body?: string; headers?: Record<string, string> }): Promise<ResponseLike> {

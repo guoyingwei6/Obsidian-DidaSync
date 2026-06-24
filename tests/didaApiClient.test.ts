@@ -78,6 +78,22 @@ async function run() {
     assert.equal(requests.at(-1).headers.Authorization, "Bearer after-refresh");
     assert.equal(requests.at(-1).headers["X-Test"], "1");
 
+    plugin.settings.accessToken = "expired-again";
+    plugin.settings.refreshToken = "refresh-valid";
+    const saveCountBeforeRetryFailure = plugin.saveCount;
+    queuedResponses = [
+        { status: 401, text: "unauthorized", json: {} },
+        { status: 200, text: "{\"access_token\":\"refreshed-before-network-error\"}", json: { access_token: "refreshed-before-network-error" } },
+        new Error("retry DNS failed")
+    ];
+    await assert.rejects(
+        () => client.makeAuthenticatedRequest("https://example.test/retry-fails"),
+        /网络请求错误: retry DNS failed/
+    );
+    assert.equal(plugin.settings.accessToken, "refreshed-before-network-error");
+    assert.equal(plugin.settings.refreshToken, "refresh-valid");
+    assert.equal(plugin.saveCount, saveCountBeforeRetryFailure + 1);
+
     queuedResponses = [new Error("DNS failed")];
     await assert.rejects(
         () => (client as any).requestUrlLike("https://example.test/fail", {}),
