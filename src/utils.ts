@@ -85,6 +85,33 @@ export function compareVersions(v1: string, v2: string): number {
     }
 }
 
+export function compareProjectGroups(
+    a: { name: string; taskCount: number },
+    b: { name: string; taskCount: number },
+    projectOrder: string[] = []
+): number {
+    const getBucket = ({ name, taskCount }: { name: string; taskCount: number }) => {
+        if (name === "收集箱") return 0;
+        return taskCount > 0 ? 1 : 2;
+    };
+
+    const bucketA = getBucket(a);
+    const bucketB = getBucket(b);
+    if (bucketA !== bucketB) return bucketA - bucketB;
+
+    if (a.name === "本地任务" && b.name !== "本地任务") return 1;
+    if (b.name === "本地任务" && a.name !== "本地任务") return -1;
+
+    const indexA = projectOrder.indexOf(a.name);
+    const indexB = projectOrder.indexOf(b.name);
+
+    if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+    if (indexA !== -1) return -1;
+    if (indexB !== -1) return 1;
+
+    return a.name.localeCompare(b.name);
+}
+
 export interface RepeatRuleDisplay {
     label: string;
     icon: IconName;

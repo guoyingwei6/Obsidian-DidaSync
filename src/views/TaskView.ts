@@ -6,7 +6,7 @@ import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
 import { clampMinutes, dateAtMinutes, getTimeGridDay, getTimeGridRange, gridStartMinutes, isAllDayTimeGridTask, snapDuration, snapMinutes, taskBelongsToTimeGridDate, TIME_GRID_STEP_MINUTES } from '../timeGrid';
-import { appendValidatedSvg, debounce, getTimerRemainingSeconds, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
+import { appendValidatedSvg, compareProjectGroups, debounce, getTimerRemainingSeconds, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
 
 export const TASK_VIEW_TYPE = "dida-task-view";
 
@@ -1468,21 +1468,11 @@ export class TaskView extends ItemView {
                 }
 
                 const sortedProjects = Array.from(projectMap.entries()).sort(([nameA, tasksA], [nameB, tasksB]) => {
-                    const indexA = projectOrder.indexOf(nameA);
-                    const indexB = projectOrder.indexOf(nameB);
-
-                    if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-                    if (indexA !== -1) return -1;
-                    if (indexB !== -1) return 1;
-
-                    if (nameA === "收集箱") return -1;
-                    if (nameB === "收集箱" || nameA === "本地任务") return 1;
-                    if (nameB === "本地任务") return -1;
-
-                    const aHasTasks = tasksA.length > 0;
-                    const bHasTasks = tasksB.length > 0;
-                    if (aHasTasks !== bHasTasks) return aHasTasks ? -1 : 1;
-                    return nameA.localeCompare(nameB);
+                    return compareProjectGroups(
+                        { name: nameA, taskCount: tasksA.length },
+                        { name: nameB, taskCount: tasksB.length },
+                        projectOrder
+                    );
                 });
 
                 for (const [projectName, projectTasks] of sortedProjects) {

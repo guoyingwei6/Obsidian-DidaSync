@@ -14,6 +14,7 @@ const {
     normalizePomodoroCompletionHistory,
     getTimerRemainingSeconds,
     compareVersions,
+    compareProjectGroups,
     translateRepeatFlag,
     safeDecode
 } = require("../src/utils");
@@ -38,6 +39,22 @@ assert.equal(compareVersions("1.5.4", "1.5.3"), 1);
 assert.equal(compareVersions("1.5", "1.5.0"), 0);
 assert.equal(compareVersions("1.4.9", "1.5.0"), -1);
 assert.deepEqual(translateRepeatFlag("RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE"), { label: "每 2 周的 周一、周三", icon: "repeat" });
+assert.equal(
+    compareProjectGroups(
+        { name: "空项目", taskCount: 0 },
+        { name: "项目甲", taskCount: 3 },
+        ["空项目", "项目甲"]
+    ),
+    1
+);
+assert.equal(
+    compareProjectGroups(
+        { name: "项目乙", taskCount: 2 },
+        { name: "项目甲", taskCount: 1 },
+        ["项目乙", "项目甲"]
+    ),
+    -1
+);
 assert.equal(safeDecode("hello%20world"), "hello world");
 
 console.log("utils tests passed");
