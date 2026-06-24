@@ -1709,16 +1709,22 @@ export default class DidaSyncPlugin extends Plugin {
         }
     }
 
-    showAddTaskToProjectModal(projectName?: string, projectId?: string, target?: HTMLElement) {
+    async showAddTaskToProjectModal(projectName?: string, projectId?: string, target?: HTMLElement) {
         if (this.isPluginActivated) {
+            await this.openTaskViewWithCache();
+            const view = this.getTaskViewSafely();
+            if (view) {
+                view.showAddTaskModal(projectName || "收集箱", projectId || "inbox", target || null);
+                return;
+            }
             const projects = this.getAvailableProjectConfigs().map(entry => ({ id: entry.id, name: entry.name }));
             new AddTaskModal(this.app, async (title, project, schedule) => {
                 await this.addTask(title, project.name, project.id, true, null, schedule);
             }, {
                 projects,
-                defaultProjectId: projectId || projects[0]?.id,
-                lockProject: false,
-                defaultDate: new Date()
+                defaultProjectId: projectId || "inbox",
+                defaultDate: new Date(),
+                triggerElement: target || null
             }).open();
         } else {
             this.checkPluginStatusAndNotify();
@@ -1739,7 +1745,7 @@ export default class DidaSyncPlugin extends Plugin {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             items: [],
-            startDate: schedule?.startDate,
+            startDate: schedule?.startDate || undefined,
             dueDate: schedule?.dueDate || dueDate || undefined,
             kind: "TEXT",
             priority: 0,

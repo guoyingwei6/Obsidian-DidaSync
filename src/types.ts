@@ -95,8 +95,8 @@ export interface TaskNoteSyncPathPatterns {
 }
 
 export interface TaskScheduleInput {
-    startDate: string;
-    dueDate: string;
+    startDate?: string | null;
+    dueDate?: string | null;
     isAllDay: boolean;
     repeatFlag?: string | null;
 }

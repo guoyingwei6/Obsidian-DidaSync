@@ -1775,13 +1775,8 @@ export class TaskView extends ItemView {
                                 new Notice("未找到对应任务，无法更新时间");
                                 return;
                             }
-                            new DatePickerModal(this.app, task.startDate, (date: Date | null, isAllDay: boolean, endDate?: Date) => {
-                                if (date) {
-                                    this.updateTaskStartDate(idx, date, isAllDay);
-                                    if (endDate && !isAllDay) {
-                                        this.updateTaskDueDate(idx, endDate, false);
-                                    }
-                                }
+                            new DatePickerModal(this.app, task.startDate || task.dueDate || null, async (date, isAllDay, endDate, repeatFlag) => {
+                                await this.updateTaskSchedule(idx, date, isAllDay, endDate, repeatFlag);
                             }, e.currentTarget as HTMLElement, this.plugin, idx).open();
                         };
 
@@ -2119,13 +2114,8 @@ export class TaskView extends ItemView {
                 const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
                 if (idx !== -1) {
                     const date = task.startDate || task.dueDate || this.selectedDate;
-                    new DatePickerModal(this.app, date, async (d, isAllDay, endDate) => {
-                        if (d) {
-                            await this.updateTaskStartDate(idx, d, isAllDay);
-                            if (endDate && !isAllDay) {
-                                await this.updateTaskDueDate(idx, endDate, false);
-                            }
-                        }
+                    new DatePickerModal(this.app, date, async (d, isAllDay, endDate, repeatFlag) => {
+                        await this.updateTaskSchedule(idx, d, isAllDay, endDate, repeatFlag);
                     }, e.currentTarget as HTMLElement, this.plugin, idx).open();
                 }
             };
@@ -2147,13 +2137,8 @@ export class TaskView extends ItemView {
                     const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
                     if (idx !== -1) {
                         const date = task.startDate || task.dueDate || this.selectedDate;
-                        new DatePickerModal(this.app, date, async (d, isAllDay, endDate) => {
-                            if (d) {
-                                await this.updateTaskStartDate(idx, d, isAllDay);
-                                if (endDate && !isAllDay) {
-                                    await this.updateTaskDueDate(idx, endDate, false);
-                                }
-                            }
+                        new DatePickerModal(this.app, date, async (d, isAllDay, endDate, repeatFlag) => {
+                            await this.updateTaskSchedule(idx, d, isAllDay, endDate, repeatFlag);
                         }, item, this.plugin, idx).open();
                     }
                 }
@@ -2521,13 +2506,8 @@ export class TaskView extends ItemView {
                 const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
                 if (idx !== -1) {
                     const date = task.startDate || task.dueDate || this.selectedDate;
-                    new DatePickerModal(this.app, date, async (d, allDay, endDate) => {
-                        if (d) {
-                            await this.updateTaskStartDate(idx, d, allDay);
-                            if (endDate && !allDay) {
-                                await this.updateTaskDueDate(idx, endDate, false);
-                            }
-                        }
+                    new DatePickerModal(this.app, date, async (d, allDay, endDate, repeatFlag) => {
+                        await this.updateTaskSchedule(idx, d, allDay, endDate, repeatFlag);
                     }, timeLabel, this.plugin, idx).open();
                 }
             };
@@ -2869,15 +2849,17 @@ export class TaskView extends ItemView {
         }
     }
 
-    showAddTaskModal(projectName: string, projectId: string, target: HTMLElement) {
+    showAddTaskModal(projectName: string = "收集箱", projectId: string = "inbox", target: HTMLElement | null = null) {
+        const projects = this.plugin.getAvailableProjectConfigs().map(project => ({ id: project.id, name: project.name }));
         new AddTaskModal(this.app, async (title, project, schedule) => {
             await this.plugin.addTask(title, project.name, project.id, true, null, schedule);
             await this.renderTaskList();
         }, {
-            projects: [{ id: projectId, name: projectName }],
+            projects: projects.length > 0 ? projects : [{ id: projectId, name: projectName }],
             defaultProjectId: projectId,
-            lockProject: true,
-            defaultDate: new Date()
+            defaultDate: new Date(),
+            triggerElement: target,
+            scopeElement: this.containerEl
         }).open();
     }
 
@@ -3174,6 +3156,44 @@ export class TaskView extends ItemView {
             });
 
             setTimeout(() => titleInput.focus(), 100);
+        }
+    }
+
+    async updateTaskSchedule(index: number, date: Date | null, isAllDay: boolean, endDate?: Date, repeatFlag?: string | null) {
+        const task = this.plugin.settings.tasks[index];
+        if (!task) return;
+
+        const oldDate = task.dueDate || task.startDate || null;
+        if (!date) {
+            task.startDate = null as any;
+            task.dueDate = null as any;
+            task.isAllDay = false;
+            task.repeatFlag = undefined;
+        } else {
+            const start = new Date(date);
+            const due = new Date(endDate || date);
+            if (isAllDay) {
+                start.setHours(0, 0, 0, 0);
+                due.setHours(0, 0, 0, 0);
+            } else if (due.getTime() <= start.getTime()) {
+                due.setTime(start.getTime() + 15 * 60 * 1000);
+            }
+            task.startDate = this.plugin.formatDidaDateTime(start);
+            task.dueDate = this.plugin.formatDidaDateTime(due);
+            task.isAllDay = isAllDay;
+            task.repeatFlag = repeatFlag || undefined;
+        }
+
+        task.updatedAt = new Date().toISOString();
+        await this.plugin.saveSettings();
+        if (task.didaId) {
+            await this.updateNativeTaskDueDate(task, oldDate, task.dueDate || null);
+        }
+        await this.renderTaskList();
+        if (this.plugin.settings.accessToken && task.didaId) {
+            setTimeout(async () => {
+                try { await this.plugin.updateTaskInDidaList(task); } catch (e) { }
+            }, 0);
         }
     }
 
