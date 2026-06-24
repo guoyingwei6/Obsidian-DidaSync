@@ -278,7 +278,7 @@ export class DidaApiClient {
             await this.plugin.saveSettings();
             new Notice("OAuth认证成功!");
             this.plugin.updateStatusBar("已连接");
-            this.plugin.syncManager.setupAutoSync();
+            this.plugin.setupAutoSync();
         } catch (t: any) {
             new Notice("认证失败: " + (t?.message || t));
             this.plugin.updateStatusBar("认证失败");

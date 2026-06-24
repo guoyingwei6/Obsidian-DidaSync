@@ -20,7 +20,7 @@ export class SyncSettingsView extends AbstractSettingsView {
                 .onChange(async (value) => {
                     this.plugin.settings.autoSync = value;
                     await this.plugin.saveSettings();
-                    this.plugin.syncManager.setupAutoSync();
+                    this.plugin.setupAutoSync();
                 }));
 
         new Setting(containerEl)
@@ -69,7 +69,7 @@ export class SyncSettingsView extends AbstractSettingsView {
                 .onChange(async (value) => {
                     this.plugin.settings.syncInterval = value;
                     await this.plugin.saveSettings();
-                    this.plugin.syncManager.setupAutoSync();
+                    this.plugin.setupAutoSync();
                 }));
 
         new Setting(containerEl)

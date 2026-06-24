@@ -104,6 +104,72 @@ async function run() {
     assert.equal(plugin.settings.projectIcons["id:p1"], undefined);
     assert.ok(saveCount >= 2);
 
+    const originalWindow = (globalThis as any).window;
+    const timers = new Map<number, () => void>();
+    let nextTimerId = 1;
+    (globalThis as any).window = {
+        setTimeout(callback: () => void) {
+            const id = nextTimerId++;
+            timers.set(id, callback);
+            return id;
+        },
+        clearTimeout(id: number) {
+            timers.delete(id);
+        }
+    };
+    try {
+        plugin.settings.autoSync = true;
+        plugin.settings.accessToken = "access-token";
+        plugin.settings.syncInterval = 5;
+        plugin.setupAutoSync();
+        assert.equal(timers.size, 1, "auto sync should schedule one timer");
+        const firstTimerId = plugin.autoSyncTimeout;
+
+        plugin.setupAutoSync();
+        assert.equal(timers.size, 1, "rescheduling should replace the existing timer");
+        assert.notEqual(plugin.autoSyncTimeout, firstTimerId, "rescheduling should create a fresh timer");
+
+        plugin.clearAutoSync();
+        let finishSync: (() => void) | undefined;
+        plugin.syncManager = {
+            syncFromDidaList: () => new Promise<void>((resolve) => {
+                finishSync = resolve;
+            })
+        };
+        const tick = plugin.handleAutoSyncTick();
+        assert.equal(timers.size, 0, "the next timer should not be scheduled while syncing");
+        finishSync?.();
+        await tick;
+        assert.equal(timers.size, 1, "the next timer should be scheduled after syncing finishes");
+
+        plugin.settings.autoSync = false;
+        plugin.setupAutoSync();
+        assert.equal(timers.size, 0, "disabling auto sync should clear the scheduled timer");
+
+        const statuses: string[] = [];
+        const originalSetTimeout = globalThis.setTimeout;
+        (globalThis as any).setTimeout = (callback: () => void) => {
+            callback();
+            return 1;
+        };
+        try {
+            plugin.updateStatusBar = (status: string) => {
+                statuses.push(status);
+            };
+            plugin.syncManager = {
+                async syncNewTasksToDidaList() {
+                    assert.deepEqual(statuses, ["双向同步中..."], "safe manual sync should show progress before uploading");
+                },
+                async syncFromDidaList() { }
+            };
+            await plugin.safeManualSync();
+        } finally {
+            globalThis.setTimeout = originalSetTimeout;
+        }
+    } finally {
+        (globalThis as any).window = originalWindow;
+    }
+
     console.log("Project catalog tests passed");
 }
 

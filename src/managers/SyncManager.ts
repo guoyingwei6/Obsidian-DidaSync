@@ -11,7 +11,6 @@ const REVERSE_COMPLETION_MAX_FOLLOWUP_PASSES = 6;
 
 export class SyncManager {
     plugin: DidaSyncPlugin;
-    syncIntervalId: number | null = null;
     isSyncing: boolean = false;
     _reverseCompletionFollowUpInProgress: boolean = false;
     _reverseCompletionFollowUpTimer: number | null = null;
@@ -20,29 +19,6 @@ export class SyncManager {
 
     constructor(plugin: DidaSyncPlugin) {
         this.plugin = plugin;
-    }
-
-    async initializeSync() {
-        this.setupAutoSync();
-    }
-
-    async setupAutoSync() {
-        this.clearAutoSync();
-        if (this.plugin.settings.autoSync && this.plugin.settings.accessToken) {
-            try {
-                if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) return;
-            } catch (e) { }
-            this.syncIntervalId = window.setInterval(() => {
-                this.syncFromDidaList();
-            }, 60 * this.plugin.settings.syncInterval * 1000);
-        }
-    }
-
-    clearAutoSync() {
-        if (this.syncIntervalId) {
-            window.clearInterval(this.syncIntervalId);
-            this.syncIntervalId = null;
-        }
     }
 
     async syncToDidaList() {
@@ -420,9 +396,9 @@ export class SyncManager {
             const extraCount = await this.markExtraTasksAsCompleted(tasks);
             const nativeCount = await this.markCompletedNativeTasksWithLinks(tasks);
             if (updatedCount > 0 || deletedCount > 0 || extraCount > 0 || nativeCount > 0) {
-                this.plugin.updateStatusBar("已连接");
                 this.plugin.refreshTaskView();
             }
+            this.plugin.updateStatusBar("已连接");
             this._scheduleReverseCompletionFollowUp();
             this._scheduleSyncConsistencyFollowUp();
         } catch (e: any) {

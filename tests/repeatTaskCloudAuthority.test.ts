@@ -83,6 +83,48 @@ async function run() {
     assert.equal(merged.projectName, "收集箱");
     assert.equal(saveCount, 1, "merge should persist the remote id binding");
 
+    const statuses: string[] = [];
+    const syncPlugin = {
+        settings: {
+            accessToken: "access-token",
+            tasks: [],
+            reverseCompletionMeta: {},
+            syncConsistencyMeta: {}
+        },
+        apiClient: {
+            async makeAuthenticatedRequest() {
+                return { ok: true, status: 200, async json() { return []; } };
+            }
+        },
+        mergeRemoteProjectsIntoCatalog() {
+            return false;
+        },
+        updateStatusBar(status: string) {
+            statuses.push(status);
+        },
+        refreshTaskView() { },
+        async saveSettings() { },
+        isReverseUpdating: false
+    };
+    const syncManager = new SyncManager(syncPlugin as any);
+
+    await syncManager.syncFromDidaList();
+    assert.deepEqual(statuses, ["同步中...", "已连接"], "a no-op sync should restore the connected status");
+    assert.equal(syncManager.isSyncing, false, "a successful sync should release the sync lock");
+
+    statuses.length = 0;
+    syncManager.syncDeletedTasks = async () => {
+        throw new Error("sync failed");
+    };
+    await syncManager.syncFromDidaList();
+    assert.deepEqual(statuses, ["同步中...", "同步失败"], "a failed sync should expose the failure status");
+    assert.equal(syncManager.isSyncing, false, "a failed sync should release the sync lock");
+
+    statuses.length = 0;
+    syncManager.isSyncing = true;
+    await syncManager.syncFromDidaList();
+    assert.deepEqual(statuses, [], "a skipped overlapping sync should not overwrite the active status");
+
     console.log("repeat task cloud authority regression test passed");
 }
 

@@ -48,7 +48,6 @@ export default class DidaSyncPlugin extends Plugin {
     currentTaskActionMenu: TaskActionMenu | null = null;
     isTaskActionInProgress: boolean = false;
     isPluginActivated: boolean = false;
-    syncIntervalId: number | null = null;
     autoSyncTimeout: number | null = null;
     debouncedEditorChange: (editor: Editor, info: any) => void;
     statusBarItem: HTMLElement | null = null;
@@ -1404,10 +1403,6 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     clearAutoSync() {
-        if (this.syncIntervalId) {
-            window.clearInterval(this.syncIntervalId);
-            this.syncIntervalId = null;
-        }
         if (this.autoSyncTimeout) {
             window.clearTimeout(this.autoSyncTimeout);
             this.autoSyncTimeout = null;
@@ -1572,7 +1567,6 @@ export default class DidaSyncPlugin extends Plugin {
     async manualSync() {
         if (await this.checkPluginStatusAndNotify()) {
             try {
-                this.updateStatusBar("双向同步中...");
                 await this.syncManager.syncToDidaList();
                 await this.syncManager.syncFromDidaList();
             } catch (e) { }
