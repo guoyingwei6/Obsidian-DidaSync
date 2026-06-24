@@ -43,18 +43,22 @@ export class ScopedPopup {
         ScopedPopup.activePopup = this;
         this.overlay = document.body.createDiv("dida-calendar-overlay dida-schedule-popup-layer");
         this.container = document.body.createDiv(`dida-calendar-popup dida-schedule-popup-layer ${this.extraClass}`.trim());
-        render(this.container);
-        this.position();
-        this.overlay.onclick = () => this.close();
-        this.container.onclick = event => event.stopPropagation();
-        this.escapeHandler = event => {
-            if (event.key === "Escape") this.close();
-        };
-        this.repositionHandler = () => this.position();
-        document.addEventListener("keydown", this.escapeHandler);
-        window.addEventListener("resize", this.repositionHandler, { passive: true });
-        document.addEventListener("scroll", this.repositionHandler, true);
-        requestAnimationFrame(() => this.container?.addClass("is-visible"));
+        try {
+            render(this.container);
+            this.position();
+            this.overlay.onclick = () => this.close();
+            this.container.onclick = event => event.stopPropagation();
+            this.escapeHandler = event => {
+                if (event.key === "Escape") this.close();
+            };
+            this.repositionHandler = () => this.position();
+            document.addEventListener("keydown", this.escapeHandler);
+            window.addEventListener("resize", this.repositionHandler, { passive: true });
+            document.addEventListener("scroll", this.repositionHandler, true);
+        } catch (error) {
+            this.close();
+            throw error;
+        }
     }
 
     private getScopeRect(): DOMRect {

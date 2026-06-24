@@ -1599,8 +1599,9 @@ export default class DidaSyncPlugin extends Plugin {
         }
     }
 
-    async requestRecoverySync() {
-        if (!this.settings.autoSync || !this.settings.accessToken) return;
+    async requestRecoverySync(options: { requireAutoSync?: boolean } = {}) {
+        const requireAutoSync = options.requireAutoSync !== false;
+        if ((requireAutoSync && !this.settings.autoSync) || !this.settings.accessToken) return;
         if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
         try {
             if (typeof navigator !== "undefined" && navigator.onLine === false) return;
@@ -1681,7 +1682,7 @@ export default class DidaSyncPlugin extends Plugin {
                 }));
             }
         }
-        await this.requestRecoverySync();
+        await this.requestRecoverySync({ requireAutoSync: false });
     }
 
     refreshTaskView() {
