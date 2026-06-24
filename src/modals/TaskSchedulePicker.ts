@@ -30,6 +30,9 @@ export class ScopedPopup {
     container: HTMLElement | null = null;
     escapeHandler: ((event: KeyboardEvent) => void) | null = null;
     repositionHandler: (() => void) | null = null;
+    outsidePointerHandler: ((event: PointerEvent) => void) | null = null;
+    windowBlurHandler: (() => void) | null = null;
+    visibilityHandler: (() => void) | null = null;
     extraClass: string;
 
     constructor(triggerElement: HTMLElement | null, scopeElement: HTMLElement | null = null, extraClass: string = "") {
@@ -52,8 +55,22 @@ export class ScopedPopup {
                 if (event.key === "Escape") this.close();
             };
             this.repositionHandler = () => this.position();
+            this.outsidePointerHandler = event => {
+                const target = event.target as Node | null;
+                if (!target || !this.container || this.container.contains(target)) return;
+                const targetElement = target instanceof Element ? target : target.parentElement;
+                if (targetElement?.closest(".dida-compact-repeat-overlay")) return;
+                this.close();
+            };
+            this.windowBlurHandler = () => this.close();
+            this.visibilityHandler = () => {
+                if (document.visibilityState === "hidden") this.close();
+            };
             document.addEventListener("keydown", this.escapeHandler);
+            document.addEventListener("pointerdown", this.outsidePointerHandler, true);
+            document.addEventListener("visibilitychange", this.visibilityHandler);
             window.addEventListener("resize", this.repositionHandler, { passive: true });
+            window.addEventListener("blur", this.windowBlurHandler);
             document.addEventListener("scroll", this.repositionHandler, true);
         } catch (error) {
             this.close();
@@ -98,16 +115,22 @@ export class ScopedPopup {
 
     close(): void {
         if (this.escapeHandler) document.removeEventListener("keydown", this.escapeHandler);
+        if (this.outsidePointerHandler) document.removeEventListener("pointerdown", this.outsidePointerHandler, true);
+        if (this.visibilityHandler) document.removeEventListener("visibilitychange", this.visibilityHandler);
         if (this.repositionHandler) {
             window.removeEventListener("resize", this.repositionHandler);
             document.removeEventListener("scroll", this.repositionHandler, true);
         }
+        if (this.windowBlurHandler) window.removeEventListener("blur", this.windowBlurHandler);
         this.overlay?.remove();
         this.container?.remove();
         this.overlay = null;
         this.container = null;
         this.escapeHandler = null;
         this.repositionHandler = null;
+        this.outsidePointerHandler = null;
+        this.windowBlurHandler = null;
+        this.visibilityHandler = null;
         if (ScopedPopup.activePopup === this) ScopedPopup.activePopup = null;
     }
 }
