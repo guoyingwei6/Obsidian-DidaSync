@@ -5,7 +5,16 @@ import { OAuthSettingsView } from "./views/oauth-settings-view";
 import { SyncSettingsView } from "./views/sync-settings-view";
 import { UISettingsView } from "./views/ui-settings-view";
 import { AdvancedSettingsView } from "./views/advanced-settings-view";
-import { McpSettingsView } from "./views/mcp-settings-view";
+
+class LazyMcpSettingsView extends AbstractSettingsView {
+    render(containerEl: HTMLElement): void {
+        containerEl.createDiv({ text: "正在加载 MCP 设置…", cls: "dida-settings-info" });
+        void import("./views/mcp-settings-view").then(({ McpSettingsView }) => {
+            containerEl.empty();
+            new McpSettingsView(this.app, this.plugin).render(containerEl);
+        });
+    }
+}
 
 export class DidaSyncSettingTab extends PluginSettingTab {
     plugin: DidaSyncPlugin;
@@ -31,7 +40,7 @@ export class DidaSyncSettingTab extends PluginSettingTab {
             { id: "oauth", name: "OAuth", view: new OAuthSettingsView(this.app, this.plugin) },
             { id: "sync", name: "同步", view: new SyncSettingsView(this.app, this.plugin) },
             { id: "ui", name: "视图", view: new UISettingsView(this.app, this.plugin) },
-            ...(Platform.isMobile ? [] : [{ id: "mcp", name: "MCP", view: new McpSettingsView(this.app, this.plugin) }]),
+            ...(Platform.isMobile ? [] : [{ id: "mcp", name: "MCP", view: new LazyMcpSettingsView(this.app, this.plugin) }]),
             { id: "advanced", name: "高级", view: new AdvancedSettingsView(this.app, this.plugin) }
         ];
         if (!tabs.some(tab => tab.id === this.activeTab)) {

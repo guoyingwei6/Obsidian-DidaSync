@@ -3,7 +3,6 @@ import DidaSyncPlugin from '../main';
 import { resolveTaskIndex } from '../taskIndex';
 import { DidaTask } from '../types';
 import { debounce, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
-import { TASK_VIEW_TYPE } from '../views/TaskView';
 import { AddTaskModal } from './AddTaskModal';
 import { DatePickerModal } from './DatePickerModal';
 
@@ -483,8 +482,8 @@ export class TimelineViewModal {
                 const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId || t.id === task.id);
                 if (idx !== -1) {
                     const d = task.startDate || task.dueDate || this.selectedDate;
-                    new DatePickerModal(this.app, new Date(d), async (date, isAllDay, endDate) => {
-                        await this.updateTimelineTaskDueDate(idx, date, isAllDay);
+                    new DatePickerModal(this.app, new Date(d), async (date, isAllDay, endDate, repeatFlag) => {
+                        await this.updateTimelineTaskSchedule(idx, date, isAllDay, endDate, repeatFlag);
                     }, e.currentTarget as HTMLElement, this.plugin, idx).open();
                 }
             };
@@ -598,18 +597,8 @@ export class TimelineViewModal {
                 const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId);
                 if (idx !== -1) {
                     const date = task.startDate || task.dueDate || this.selectedDate;
-                    new DatePickerModal(this.app, date as any, async (d, allDay, endDate) => {
-                        if (d) {
-                            const leaves = this.plugin.app.workspace.getLeavesOfType(TASK_VIEW_TYPE);
-                            if (leaves.length > 0 && (leaves[0].view as any).updateTaskStartDate) {
-                                await (leaves[0].view as any).updateTaskStartDate(idx, d, allDay);
-                                if (endDate && !allDay && (leaves[0].view as any).updateTaskDueDate) {
-                                    await (leaves[0].view as any).updateTaskDueDate(idx, endDate, false);
-                                }
-                            }
-                            this.renderTimelineView();
-                            this.plugin.refreshTaskView();
-                        }
+                    new DatePickerModal(this.app, date as any, async (d, allDay, endDate, repeatFlag) => {
+                        await this.updateTimelineTaskSchedule(idx, d, allDay, endDate, repeatFlag);
                     }, e.currentTarget as HTMLElement, this.plugin, idx).open();
                 }
             };
@@ -634,19 +623,21 @@ export class TimelineViewModal {
         const fab = container.createDiv("dida-timeline-fab");
         setIconElement(fab, "plus");
         fab.onclick = () => {
-            this.showAddTaskModal();
+            this.showAddTaskModal(fab);
         };
     }
 
-    showAddTaskModal() {
+    showAddTaskModal(triggerElement: HTMLElement | null = null) {
+        const projects = this.plugin.getAvailableProjectConfigs().map(project => ({ id: project.id, name: project.name }));
         new AddTaskModal(this.app, async (title, project, schedule) => {
             await this.plugin.addTask(title, project.name, project.id, true, null, schedule);
             this.renderTimelineView();
         }, {
-            projects: [{ id: "inbox", name: "收集箱" }],
+            projects: projects.length > 0 ? projects : [{ id: "inbox", name: "收集箱" }],
             defaultProjectId: "inbox",
-            lockProject: true,
-            defaultDate: this.selectedDate
+            defaultDate: this.selectedDate,
+            triggerElement,
+            scopeElement: this.windowElement
         }).open();
     }
 
@@ -885,46 +876,42 @@ export class TimelineViewModal {
         }
     }
 
-    async updateTimelineTaskDueDate(index: number, date: Date | null, isAllDay: boolean) {
+    async updateTimelineTaskSchedule(index: number, date: Date | null, isAllDay: boolean, endDate?: Date, repeatFlag?: string | null) {
+        const taskView = this.plugin.getTaskViewSafely();
+        if (taskView) {
+            await taskView.updateTaskSchedule(index, date, isAllDay, endDate, repeatFlag);
+            this.renderTimelineView();
+            return;
+        }
         const task = this.plugin.settings.tasks[index];
-        if (task) {
-            let newDateStr: string | null = null;
-            if (date) {
-                if (isAllDay) {
-                    const y = date.getFullYear();
-                    const m = String(date.getMonth() + 1).padStart(2, "0");
-                    const d = String(date.getDate()).padStart(2, "0");
-                    const h = String(date.getHours()).padStart(2, "0");
-                    const min = String(date.getMinutes()).padStart(2, "0");
-                    const s = String(date.getSeconds()).padStart(2, "0");
-                    const offset = date.getTimezoneOffset();
-                    const oh = Math.abs(Math.floor(offset / 60));
-                    const om = Math.abs(offset % 60);
-                    const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
-                    newDateStr = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
-                } else {
-                    const y = date.getFullYear();
-                    const m = String(date.getMonth() + 1).padStart(2, "0");
-                    const d = String(date.getDate()).padStart(2, "0");
-                    const h = String(date.getHours()).padStart(2, "0");
-                    const min = String(date.getMinutes()).padStart(2, "0");
-                    const s = String(date.getSeconds()).padStart(2, "0");
-                    const offset = date.getTimezoneOffset();
-                    const oh = Math.abs(Math.floor(offset / 60));
-                    const om = Math.abs(offset % 60);
-                    const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
-                    newDateStr = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
-                }
+        if (!task) return;
+        if (!date) {
+            task.startDate = null as any;
+            task.dueDate = null as any;
+            task.isAllDay = false;
+            task.repeatFlag = undefined;
+        } else {
+            const start = new Date(date);
+            const due = new Date(endDate || date);
+            if (isAllDay) {
+                start.setHours(0, 0, 0, 0);
+                due.setHours(0, 0, 0, 0);
+            } else if (due.getTime() <= start.getTime()) {
+                due.setTime(start.getTime() + 15 * 60 * 1000);
             }
-            task.dueDate = newDateStr;
+            task.startDate = this.plugin.formatDidaDateTime(start);
+            task.dueDate = this.plugin.formatDidaDateTime(due);
             task.isAllDay = isAllDay;
-            task.updatedAt = new Date().toISOString();
-            await this.plugin.saveSettings();
-            if (this.plugin.settings.accessToken && task.didaId) {
-                setTimeout(async () => {
-                    try { await this.plugin.updateTaskInDidaList(task); } catch (e) { }
-                }, 0);
-            }
+            task.repeatFlag = repeatFlag || undefined;
+        }
+        task.updatedAt = new Date().toISOString();
+        await this.plugin.saveSettings();
+        this.renderTimelineView();
+        this.plugin.refreshTaskView();
+        if (this.plugin.settings.accessToken && task.didaId) {
+            setTimeout(async () => {
+                try { await this.plugin.updateTaskInDidaList(task); } catch (e) { }
+            }, 0);
         }
     }
 }

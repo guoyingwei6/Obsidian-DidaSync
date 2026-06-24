@@ -13,6 +13,7 @@ type ResponseLike = {
 export class DidaApiClient {
     plugin: DidaSyncPlugin;
     oauthServers: any[] = [];
+    desktopOAuthServer: { close(): Promise<void> } | null = null;
     oauthTimeout: ReturnType<typeof setTimeout> | null = null;
     oauthInProgress: boolean = false;
 
@@ -123,12 +124,28 @@ export class DidaApiClient {
         } catch (e) { }
         try {
             const opened = window.open(url, "_blank");
-            if (opened) return;
+            if (Platform.isMobile || opened) return;
         } catch (e) { }
         new AuthUrlModal(this.plugin.app, url, redirectUri).open();
     }
 
     async startOAuthServer() {
+        if (this.oauthTimeout) {
+            clearTimeout(this.oauthTimeout);
+            this.oauthTimeout = null;
+        }
+        await this.stopOAuthServers();
+        const { startDesktopOAuthCallbackServer } = await import("../platform/DesktopOAuthCallbackServer");
+        this.desktopOAuthServer = await startDesktopOAuthCallbackServer({
+            port: this.settings.serverPort,
+            callbackBaseUrl: this.getCallbackBaseUrl(),
+            listenTargets: this.getListenTargets(),
+            onCode: code => { void this.handleOAuthCallback(code); },
+            onError: error => this.handleOAuthError(error)
+        });
+        this.oauthTimeout = setTimeout(() => this.handleOAuthError("OAuth 认证超时"), 600000);
+        return;
+        /* Legacy inline server implementation retained only as commented migration context.
         if (this.oauthTimeout) {
             clearTimeout(this.oauthTimeout);
             this.oauthTimeout = null;
@@ -239,6 +256,9 @@ export class DidaApiClient {
         });
     }
 
+        */
+    }
+
     closeServers(servers: any[]) {
         for (const server of servers) {
             try {
@@ -248,6 +268,9 @@ export class DidaApiClient {
     }
 
     async stopOAuthServers() {
+        const desktopServer = this.desktopOAuthServer;
+        this.desktopOAuthServer = null;
+        if (desktopServer) await desktopServer.close();
         if (this.oauthServers.length === 0) return;
         const servers = this.oauthServers;
         this.oauthServers = [];
@@ -267,6 +290,7 @@ export class DidaApiClient {
         }
         this.closeServers(this.oauthServers);
         this.oauthServers = [];
+        void this.stopOAuthServers();
         this.oauthInProgress = false;
     }
 

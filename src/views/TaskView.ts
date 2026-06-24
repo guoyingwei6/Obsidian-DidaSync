@@ -6,7 +6,7 @@ import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
 import { clampMinutes, dateAtMinutes, getTimeGridDay, getTimeGridRange, gridStartMinutes, isAllDayTimeGridTask, snapDuration, snapMinutes, taskBelongsToTimeGridDate, TIME_GRID_STEP_MINUTES } from '../timeGrid';
-import { appendValidatedSvg, debounce, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
+import { appendValidatedSvg, debounce, getTimerRemainingSeconds, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
 
 export const TASK_VIEW_TYPE = "dida-task-view";
 
@@ -417,14 +417,14 @@ export class TaskView extends ItemView {
         this.pomodoroTargetEndAt = Date.now() + this.pomodoroState.remainingSeconds * 1000;
         this.clearPomodoroInterval();
         this.pomodoroInterval = window.setInterval(() => this.handlePomodoroTick(), 250);
-        await this.startPomodoroBackgroundSound();
+        await this.startPomodoroBackgroundSound().catch(() => { });
         this.renderPomodoroPanel();
         this.updatePomodoroUI();
     }
 
     pausePomodoro() {
         if (!this.pomodoroState.isRunning) return;
-        const remaining = Math.max(0, Math.ceil((this.pomodoroTargetEndAt - Date.now()) / 1000));
+        const remaining = getTimerRemainingSeconds(this.pomodoroTargetEndAt);
         this.pomodoroState.remainingSeconds = remaining;
         this.pomodoroState.isRunning = false;
         this.pomodoroTargetEndAt = null;
@@ -449,7 +449,7 @@ export class TaskView extends ItemView {
 
     handlePomodoroTick() {
         if (!this.pomodoroState.isRunning || !this.pomodoroTargetEndAt) return;
-        const remaining = Math.max(0, Math.ceil((this.pomodoroTargetEndAt - Date.now()) / 1000));
+        const remaining = getTimerRemainingSeconds(this.pomodoroTargetEndAt);
         if (remaining !== this.pomodoroState.remainingSeconds) {
             this.pomodoroState.remainingSeconds = remaining;
             this.updatePomodoroUI();
@@ -486,7 +486,7 @@ export class TaskView extends ItemView {
         const currentIndex = options.findIndex((item) => item.value === settings.selectedSound);
         const next = options[(currentIndex + 1 + options.length) % options.length];
         await this.updatePomodoroSettings({ selectedSound: next.value });
-        if (this.pomodoroState.isRunning) await this.startPomodoroBackgroundSound();
+        if (this.pomodoroState.isRunning) await this.startPomodoroBackgroundSound().catch(() => { });
         else this.stopPomodoroBackgroundSound();
         this.updatePomodoroUI();
     }
@@ -1062,6 +1062,21 @@ export class TaskView extends ItemView {
         container.empty();
         container.addClass("dida-task-view");
         this.viewMode = this.plugin.settings.defaultViewMode || "task";
+        const handleVisibilityChange = () => {
+            if (!this.pomodoroState.isRunning || !this.pomodoroTargetEndAt) return;
+            if (document.visibilityState === "hidden") {
+                this.clearPomodoroInterval();
+                this.stopPomodoroBackgroundSound();
+                return;
+            }
+            this.handlePomodoroTick();
+            if (this.pomodoroState.isRunning && !this.pomodoroInterval) {
+                this.pomodoroInterval = window.setInterval(() => this.handlePomodoroTick(), 250);
+                void this.startPomodoroBackgroundSound().catch(() => { });
+            }
+        };
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        this.eventCleanupHandlers.push(() => document.removeEventListener("visibilitychange", handleVisibilityChange));
         this.renderTaskList();
     }
 
@@ -1760,13 +1775,8 @@ export class TaskView extends ItemView {
                                 new Notice("未找到对应任务，无法更新时间");
                                 return;
                             }
-                            new DatePickerModal(this.app, task.startDate, (date: Date | null, isAllDay: boolean, endDate?: Date) => {
-                                if (date) {
-                                    this.updateTaskStartDate(idx, date, isAllDay);
-                                    if (endDate && !isAllDay) {
-                                        this.updateTaskDueDate(idx, endDate, false);
-                                    }
-                                }
+                            new DatePickerModal(this.app, task.startDate || task.dueDate || null, async (date, isAllDay, endDate, repeatFlag) => {
+                                await this.updateTaskSchedule(idx, date, isAllDay, endDate, repeatFlag);
                             }, e.currentTarget as HTMLElement, this.plugin, idx).open();
                         };
 
@@ -2104,13 +2114,8 @@ export class TaskView extends ItemView {
                 const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
                 if (idx !== -1) {
                     const date = task.startDate || task.dueDate || this.selectedDate;
-                    new DatePickerModal(this.app, date, async (d, isAllDay, endDate) => {
-                        if (d) {
-                            await this.updateTaskStartDate(idx, d, isAllDay);
-                            if (endDate && !isAllDay) {
-                                await this.updateTaskDueDate(idx, endDate, false);
-                            }
-                        }
+                    new DatePickerModal(this.app, date, async (d, isAllDay, endDate, repeatFlag) => {
+                        await this.updateTaskSchedule(idx, d, isAllDay, endDate, repeatFlag);
                     }, e.currentTarget as HTMLElement, this.plugin, idx).open();
                 }
             };
@@ -2132,13 +2137,8 @@ export class TaskView extends ItemView {
                     const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
                     if (idx !== -1) {
                         const date = task.startDate || task.dueDate || this.selectedDate;
-                        new DatePickerModal(this.app, date, async (d, isAllDay, endDate) => {
-                            if (d) {
-                                await this.updateTaskStartDate(idx, d, isAllDay);
-                                if (endDate && !isAllDay) {
-                                    await this.updateTaskDueDate(idx, endDate, false);
-                                }
-                            }
+                        new DatePickerModal(this.app, date, async (d, isAllDay, endDate, repeatFlag) => {
+                            await this.updateTaskSchedule(idx, d, isAllDay, endDate, repeatFlag);
                         }, item, this.plugin, idx).open();
                     }
                 }
@@ -2506,13 +2506,8 @@ export class TaskView extends ItemView {
                 const idx = this.plugin.settings.tasks.findIndex(t => task.didaId ? t.didaId === task.didaId : t.id === task.id);
                 if (idx !== -1) {
                     const date = task.startDate || task.dueDate || this.selectedDate;
-                    new DatePickerModal(this.app, date, async (d, allDay, endDate) => {
-                        if (d) {
-                            await this.updateTaskStartDate(idx, d, allDay);
-                            if (endDate && !allDay) {
-                                await this.updateTaskDueDate(idx, endDate, false);
-                            }
-                        }
+                    new DatePickerModal(this.app, date, async (d, allDay, endDate, repeatFlag) => {
+                        await this.updateTaskSchedule(idx, d, allDay, endDate, repeatFlag);
                     }, timeLabel, this.plugin, idx).open();
                 }
             };
@@ -2854,15 +2849,17 @@ export class TaskView extends ItemView {
         }
     }
 
-    showAddTaskModal(projectName: string, projectId: string, target: HTMLElement) {
+    showAddTaskModal(projectName: string = "收集箱", projectId: string = "inbox", target: HTMLElement | null = null) {
+        const projects = this.plugin.getAvailableProjectConfigs().map(project => ({ id: project.id, name: project.name }));
         new AddTaskModal(this.app, async (title, project, schedule) => {
             await this.plugin.addTask(title, project.name, project.id, true, null, schedule);
             await this.renderTaskList();
         }, {
-            projects: [{ id: projectId, name: projectName }],
+            projects: projects.length > 0 ? projects : [{ id: projectId, name: projectName }],
             defaultProjectId: projectId,
-            lockProject: true,
-            defaultDate: new Date()
+            defaultDate: new Date(),
+            triggerElement: target,
+            scopeElement: this.containerEl
         }).open();
     }
 
@@ -3159,6 +3156,44 @@ export class TaskView extends ItemView {
             });
 
             setTimeout(() => titleInput.focus(), 100);
+        }
+    }
+
+    async updateTaskSchedule(index: number, date: Date | null, isAllDay: boolean, endDate?: Date, repeatFlag?: string | null) {
+        const task = this.plugin.settings.tasks[index];
+        if (!task) return;
+
+        const oldDate = task.dueDate || task.startDate || null;
+        if (!date) {
+            task.startDate = null as any;
+            task.dueDate = null as any;
+            task.isAllDay = false;
+            task.repeatFlag = undefined;
+        } else {
+            const start = new Date(date);
+            const due = new Date(endDate || date);
+            if (isAllDay) {
+                start.setHours(0, 0, 0, 0);
+                due.setHours(0, 0, 0, 0);
+            } else if (due.getTime() <= start.getTime()) {
+                due.setTime(start.getTime() + 15 * 60 * 1000);
+            }
+            task.startDate = this.plugin.formatDidaDateTime(start);
+            task.dueDate = this.plugin.formatDidaDateTime(due);
+            task.isAllDay = isAllDay;
+            task.repeatFlag = repeatFlag || undefined;
+        }
+
+        task.updatedAt = new Date().toISOString();
+        await this.plugin.saveSettings();
+        if (task.didaId) {
+            await this.updateNativeTaskDueDate(task, oldDate, task.dueDate || null);
+        }
+        await this.renderTaskList();
+        if (this.plugin.settings.accessToken && task.didaId) {
+            setTimeout(async () => {
+                try { await this.plugin.updateTaskInDidaList(task); } catch (e) { }
+            }, 0);
         }
     }
 

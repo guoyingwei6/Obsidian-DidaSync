@@ -281,14 +281,19 @@
     margin-left: 10px;
 }
 
-.dida-task-create-modal {
-    width: min(420px, calc(100vw - 48px));
+.dida-task-create-popup {
+    width: min(400px, calc(100vw - 24px));
+}
+
+.dida-task-create-fields h3 {
+    margin: 0 0 12px;
+    font-size: 16px;
 }
 
 .dida-task-create-title {
     width: 100%;
     box-sizing: border-box;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
     font-size: 15px;
 }
 
@@ -309,8 +314,8 @@
     width: 100%;
 }
 
-.dida-task-create-schedule {
-    padding-top: 14px;
+.dida-task-schedule-picker {
+    padding-top: 12px;
     border-top: 1px solid var(--background-modifier-border);
 }
 
@@ -336,7 +341,8 @@
     box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
 }
 
-.dida-task-create-time-row {
+.dida-task-schedule-time-row {
+    display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
@@ -345,15 +351,15 @@
     font-size: 13px;
 }
 
-.dida-task-create-time-select {
+.dida-task-schedule-time-select {
     min-width: 82px;
 }
 
-.dida-task-create-calendar .dida-calendar-grid {
+.dida-task-schedule-calendar .dida-calendar-grid {
     margin-bottom: 4px;
 }
 
-.dida-task-create-calendar .dida-calendar-day {
+.dida-task-schedule-calendar .dida-calendar-day {
     width: auto;
     height: 30px;
     min-height: 30px;
@@ -361,16 +367,22 @@
     border-radius: 50%;
 }
 
-.dida-task-create-calendar .dida-calendar-day.today:not(.selected) {
+.dida-task-schedule-calendar .dida-calendar-day.today:not(.selected) {
     background: transparent;
     color: var(--interactive-accent);
     opacity: 1;
 }
 
-.dida-task-create-auxiliary {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 4px;
+.dida-task-schedule-picker.is-unscheduled .dida-calendar-day.selected {
+    background: transparent;
+    color: var(--text-normal);
+    border-color: transparent;
+}
+
+.dida-task-schedule-actions {
+    margin-top: 8px;
+    gap: 4px;
+    flex-wrap: wrap;
 }
 
 .dida-modal-actions-row {
@@ -1861,53 +1873,31 @@
 /* 自定义日历弹窗样式 */
 .dida-calendar-overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
     background: rgba(0, 0, 0, 0.1);
     z-index: 999;
 }
 
 .dida-calendar-popup {
+    position: fixed;
+    z-index: 1000;
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 8px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-    padding: 16px;
-    width: 320px;
-    max-height: 90vh;
+    padding: 14px;
+    width: min(360px, calc(100vw - 24px));
+    max-height: calc(100vh - 24px);
     overflow-y: auto;
+    box-sizing: border-box;
+    opacity: 0;
+    transform: translateY(4px) scale(0.99);
+    transition: opacity 120ms ease, transform 120ms ease;
 }
 
-.dida-calendar-title {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-normal);
-    text-align: center;
-    border-bottom: 1px solid var(--background-modifier-border);
-    padding-bottom: 8px;
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    position: relative;
-    /* 作为提醒面板的定位父元素 */
+.dida-calendar-popup.is-visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
 }
-
-/* 日历标题文本样式 */
-.dida-calendar-title>span {
-    flex-grow: 1;
-    text-align: right;
-    font-size: 15px;
-}
-
-.dida-calendar-popup .dida-calendar-container {
-    padding: 0;
-    max-width: none;
-    margin: 0;
-}
-
 
 .dida-calendar-popup .dida-calendar-nav button {
     padding: 4px 8px;
@@ -1933,19 +1923,6 @@
     font-size: 12px;
 }
 
-
-.dida-calendar-popup .dida-allday-container {
-    margin: 0;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 4px;
-}
-
-/* 在日历弹窗中的全天标签样式 */
-.dida-calendar-popup .dida-allday-label {
-    font-size: 12px;
-    cursor: pointer;
-}
 
 .dida-calendar-nav {
     display: flex;
@@ -2055,151 +2032,6 @@
 .dida-calendar-buttons button.mod-cta {
     background: var(--color-accent);
     color: var(--text-on-accent);
-}
-
-
-
-/* 时间选择器样式 */
-.dida-time-container {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 15px 0;
-    gap: 5px;
-    position: relative;
-    z-index: 1001;
-}
-
-/* 在日历弹窗中的时间容器样式 */
-.dida-calendar-popup .dida-time-container {
-    margin: 0 0 8px;
-    gap: 5px;
-    flex-wrap: wrap;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: flex-start;
-}
-
-.dida-calendar-title .dida-time-container {
-    flex: 1;
-}
-
-.dida-time-end-container {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.dida-calendar-popup .dida-calendar-mode-switch {
-    flex: 0 0 100%;
-    margin-bottom: 4px;
-}
-
-.dida-time-label {
-    margin-right: 5px;
-}
-
-/* 在日历弹窗中的时间标签样式 */
-.dida-calendar-popup .dida-time-label {
-    margin-right: 3px;
-    font-size: 12px;
-}
-
-.dida-time-select {
-    padding: 5px;
-    border-radius: 4px;
-    border: 1px solid var(--background-modifier-border);
-    background-color: var(--background-primary);
-    color: var(--text-normal);
-    cursor: pointer;
-    z-index: 1002 !important;
-    position: relative;
-}
-
-/* 在日历弹窗中的时间选择器样式 */
-.dida-calendar-popup .dida-time-select {
-    padding: 3px 6px;
-    font-size: 12px;
-}
-
-.dida-time-select:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-    box-shadow: 0 0 0 2px var(--interactive-accent-hover);
-}
-
-.dida-time-select option {
-    background-color: var(--background-primary);
-    color: var(--text-normal);
-    padding: 5px;
-}
-
-/* 日历弹窗中的提醒说明文本 */
-.dida-reminder-info {
-    margin-top: 6px;
-    margin-bottom: 4px;
-    font-size: 12px;
-    color: var(--text-muted);
-}
-
-/* 日历弹窗中的提醒选项面板 */
-.dida-reminder-panel {
-    position: absolute;
-    left: 0;
-    top: 100%;
-    margin-top: 4px;
-    padding: 6px 8px;
-    border-radius: 4px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-    font-size: 12px;
-    display: none;
-    z-index: 1002;
-}
-
-.dida-reminder-option {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 4px;
-}
-
-.dida-reminder-option:last-child {
-    margin-bottom: 0;
-}
-
-.dida-reminder-label {
-    cursor: pointer;
-}
-
-/* 自定义时间下拉列表容器，隐藏右侧滚动条空白区域 */
-.dida-time-dropdown {
-    max-height: 180px;
-    overflow-y: auto;
-    box-sizing: content-box;
-    /* Firefox 隐藏滚动条 */
-    scrollbar-width: none;
-}
-
-.dida-time-dropdown::-webkit-scrollbar {
-    /* Chrome / Edge / Safari 隐藏滚动条 */
-    width: 0;
-    height: 0;
-}
-
-.dida-allday-container {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 10px 0;
-}
-
-.dida-allday-checkbox {
-    cursor: pointer;
-}
-
-.dida-allday-label {
-    cursor: pointer;
 }
 
 /* 归档项目样式 */

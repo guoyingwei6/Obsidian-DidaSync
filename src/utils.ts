@@ -43,6 +43,11 @@ export function normalizePomodoroCompletionHistory(
     return normalized;
 }
 
+export function getTimerRemainingSeconds(targetEndAt: number | null, now: number = Date.now()): number {
+    if (!targetEndAt || !Number.isFinite(targetEndAt)) return 0;
+    return Math.max(0, Math.ceil((targetEndAt - now) / 1000));
+}
+
 export function createDebouncedFunction<T extends (...args: any[]) => any>(
     func: T,
     wait: number

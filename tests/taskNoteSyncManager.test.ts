@@ -35,14 +35,19 @@ async function run() {
     const { TFile } = require("obsidian");
     const file = new TFile("DidaSync/2026-06-24.md");
     const vaultData = new Map<string, string>([[file.path, "# Day\n"]]);
+    const abstractFiles = new Map<string, any>([[file.path, file]]);
+    const createdFolders: string[] = [];
     const app = {
         vault: {
-            adapter: { exists: async (_path: string) => false },
-            getAbstractFileByPath: (_path: string) => null,
-            createFolder: async (_path: string) => { },
+            getAbstractFileByPath: (path: string) => abstractFiles.get(path) || null,
+            createFolder: async (path: string) => {
+                createdFolders.push(path);
+                abstractFiles.set(path, { path, children: [] });
+            },
             create: async (path: string, content: string) => {
                 const created = new TFile(path);
                 vaultData.set(path, content);
+                abstractFiles.set(path, created);
                 return created;
             },
             read: async (target: any) => vaultData.get(target.path) || "",
@@ -76,6 +81,10 @@ async function run() {
         apiClient: { filterTasks: async () => [] }
     };
     const manager = new TaskNoteSyncManager(app as any, plugin as any);
+
+    const mobileFile = await manager.ensureMarkdownFile("Mobile/Nested.md", "# Mobile\n");
+    assert.equal(mobileFile.path, "Mobile/Nested.md");
+    assert.deepEqual(createdFolders, ["Mobile"]);
 
     assert.deepEqual(manager.createRange("week", "2026-06-24"), { type: "week", startDate: "2026-06-22", endDate: "2026-06-28" });
     assert.deepEqual(manager.createRange("custom", "2026-06-26", "2026-06-24"), { type: "custom", startDate: "2026-06-24", endDate: "2026-06-26" });

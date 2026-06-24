@@ -54,6 +54,9 @@ export default class DidaSyncPlugin extends Plugin {
     _cachedTaskLeaf: any = null;
     _handleOnlineForAutoSync: (() => void) | null = null;
     _handleOfflineForAutoSync: (() => void) | null = null;
+    _handleVisibilityChangeForAutoSync: (() => void) | null = null;
+    _recoverySyncPromise: Promise<any> | null = null;
+    _lastRecoverySyncAt: number = 0;
     _autoSyncDeferredSince: number | null = null;
     _nativeTaskSyncTimeouts: Map<string, number> | null = null;
     _isUpdatingNativeTaskStatus: boolean = false;
@@ -172,6 +175,10 @@ export default class DidaSyncPlugin extends Plugin {
             if (this._handleOfflineForAutoSync) {
                 window.removeEventListener("offline", this._handleOfflineForAutoSync);
                 this._handleOfflineForAutoSync = null;
+            }
+            if (this._handleVisibilityChangeForAutoSync) {
+                document.removeEventListener("visibilitychange", this._handleVisibilityChangeForAutoSync);
+                this._handleVisibilityChangeForAutoSync = null;
             }
         } catch (e) { }
         this._cachedTaskLeaf = null;
@@ -346,7 +353,7 @@ export default class DidaSyncPlugin extends Plugin {
         for (const part of folderParts) {
             currentPath = currentPath ? `${currentPath}/${part}` : part;
             const folderPath = normalizePath(currentPath);
-            if (!(await this.app.vault.adapter.exists(folderPath))) {
+            if (!this.app.vault.getAbstractFileByPath(folderPath)) {
                 await this.app.vault.createFolder(folderPath);
             }
         }
@@ -1335,6 +1342,7 @@ export default class DidaSyncPlugin extends Plugin {
     setupAutoSync() {
         this.clearAutoSync();
         if (this.settings.autoSync && this.settings.accessToken) {
+            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
             try {
                 if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) return;
             } catch (e) { }
@@ -1374,6 +1382,7 @@ export default class DidaSyncPlugin extends Plugin {
     async handleAutoSyncTick() {
         this.autoSyncTimeout = null;
         if (this.settings.autoSync && this.settings.accessToken) {
+            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
             try {
                 if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
                     this._autoSyncDeferredSince = null;
@@ -1463,9 +1472,7 @@ export default class DidaSyncPlugin extends Plugin {
                     this.setupAutoSync();
                     this.updateStatusBar("已连接");
                     this.refreshTaskView();
-                    try {
-                        this.safeManualSync();
-                    } catch (e) { }
+                    void this.requestRecoverySync();
                 }
             } catch (e) { }
         };
@@ -1478,6 +1485,15 @@ export default class DidaSyncPlugin extends Plugin {
         };
         window.addEventListener("online", this._handleOnlineForAutoSync);
         window.addEventListener("offline", this._handleOfflineForAutoSync);
+        this._handleVisibilityChangeForAutoSync = () => {
+            if (document.visibilityState === "hidden") {
+                this.clearAutoSync();
+                return;
+            }
+            this.setupAutoSync();
+            void this.requestRecoverySync();
+        };
+        document.addEventListener("visibilitychange", this._handleVisibilityChangeForAutoSync);
 
         this.registerEvent(this.app.workspace.on("layout-change", () => {
             const leaves = this.app.workspace.getLeavesOfType(TASK_VIEW_TYPE);
@@ -1583,6 +1599,21 @@ export default class DidaSyncPlugin extends Plugin {
         }
     }
 
+    async requestRecoverySync() {
+        if (!this.settings.autoSync || !this.settings.accessToken) return;
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        try {
+            if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+        } catch (_error) { }
+        if (this._recoverySyncPromise) return this._recoverySyncPromise;
+        const now = Date.now();
+        if (now - this._lastRecoverySyncAt < 1500) return;
+        this._lastRecoverySyncAt = now;
+        this._recoverySyncPromise = this.syncManager.runBidirectionalSync()
+            .finally(() => { this._recoverySyncPromise = null; });
+        return this._recoverySyncPromise;
+    }
+
     // Proxy methods to SyncManager
     async syncFromDidaList() {
         await this.syncManager.syncFromDidaList();
@@ -1650,9 +1681,7 @@ export default class DidaSyncPlugin extends Plugin {
                 }));
             }
         }
-        if (this.settings.accessToken) {
-            await this.syncManager.runBidirectionalSync();
-        }
+        await this.requestRecoverySync();
     }
 
     refreshTaskView() {
@@ -1680,16 +1709,22 @@ export default class DidaSyncPlugin extends Plugin {
         }
     }
 
-    showAddTaskToProjectModal(projectName?: string, projectId?: string, target?: HTMLElement) {
+    async showAddTaskToProjectModal(projectName?: string, projectId?: string, target?: HTMLElement) {
         if (this.isPluginActivated) {
+            await this.openTaskViewWithCache();
+            const view = this.getTaskViewSafely();
+            if (view) {
+                view.showAddTaskModal(projectName || "收集箱", projectId || "inbox", target || null);
+                return;
+            }
             const projects = this.getAvailableProjectConfigs().map(entry => ({ id: entry.id, name: entry.name }));
             new AddTaskModal(this.app, async (title, project, schedule) => {
                 await this.addTask(title, project.name, project.id, true, null, schedule);
             }, {
                 projects,
-                defaultProjectId: projectId || projects[0]?.id,
-                lockProject: false,
-                defaultDate: new Date()
+                defaultProjectId: projectId || "inbox",
+                defaultDate: new Date(),
+                triggerElement: target || null
             }).open();
         } else {
             this.checkPluginStatusAndNotify();
@@ -1710,7 +1745,7 @@ export default class DidaSyncPlugin extends Plugin {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             items: [],
-            startDate: schedule?.startDate,
+            startDate: schedule?.startDate || undefined,
             dueDate: schedule?.dueDate || dueDate || undefined,
             kind: "TEXT",
             priority: 0,

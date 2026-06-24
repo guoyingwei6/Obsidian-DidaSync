@@ -3,6 +3,8 @@ import Module from "node:module";
 
 const requests: any[] = [];
 let queuedResponses: any[] = [];
+const platform = { isMobile: false };
+let authUrlModalOpenCount = 0;
 const originalLoad = (Module as any)._load;
 
 (Module as any)._load = function (request: string, parent: unknown, isMain: boolean) {
@@ -11,7 +13,7 @@ const originalLoad = (Module as any)._load;
             Notice: class Notice {
                 constructor(_message?: string) { }
             },
-            Platform: { isMobile: false },
+            Platform: platform,
             requestUrl: async (options: any) => {
                 requests.push(options);
                 const response = queuedResponses.shift();
@@ -24,7 +26,7 @@ const originalLoad = (Module as any)._load;
         return class DidaSyncPlugin { };
     }
     if (request.includes("AuthUrlModal")) {
-        return { AuthUrlModal: class AuthUrlModal { open() { } } };
+        return { AuthUrlModal: class AuthUrlModal { open() { authUrlModalOpenCount++; } } };
     }
     return originalLoad.call(this, request, parent, isMain);
 };
@@ -44,6 +46,7 @@ async function run() {
         status: "",
         async saveSettings() { this.saveCount++; },
         updateStatusBar(value: string) { this.status = value; },
+        setupAutoSync() { },
         getUserTimeZone() { return "Asia/Shanghai"; }
     };
     const client = new DidaApiClient(plugin as any);
@@ -55,6 +58,33 @@ async function run() {
     assert.match(authUrl, /client_id=client-id/);
     assert.match(authUrl, /redirect_uri=http%3A%2F%2F127\.0\.0\.1%3A8765%2Fcallback/);
     assert.match(authUrl, /scope=tasks%3Awrite\+tasks%3Aread/);
+
+    platform.isMobile = true;
+    assert.equal(client.getRedirectUri(), "obsidian://dida-oauth");
+    const originalWindow = (globalThis as any).window;
+    (globalThis as any).window = { open: () => null };
+    await (client as any).openAuthUrl("https://example.test/oauth");
+    assert.equal(authUrlModalOpenCount, 0, "移动端 window.open 返回 null 不应误报打开失败");
+    (globalThis as any).window.open = () => { throw new Error("open failed"); };
+    await (client as any).openAuthUrl("https://example.test/oauth");
+    assert.equal(authUrlModalOpenCount, 1, "移动端浏览器调用抛错时应显示手动链接");
+    (globalThis as any).window = originalWindow;
+    let openedRedirect = "";
+    (client as any).openAuthUrl = async (_url: string, redirectUri?: string) => { openedRedirect = redirectUri || client.getRedirectUri(); };
+    (client as any).startOAuthServer = async () => { throw new Error("移动端不应启动本地 OAuth 服务"); };
+    await client.startOAuthFlow();
+    assert.equal(openedRedirect, "obsidian://dida-oauth");
+    await client.startManualOAuthFlow();
+    assert.equal(openedRedirect, "http://127.0.0.1:8765/callback");
+    queuedResponses = [{ status: 200, text: "{}", json: { access_token: "mobile-access", refresh_token: "mobile-refresh" } }];
+    await client.handleOAuthCallback("mobile-code");
+    assert.equal(plugin.settings.accessToken, "mobile-access");
+    assert.match(requests.at(-1).body, /code=mobile-code/);
+    assert.match(requests.at(-1).body, /redirect_uri=obsidian%3A%2F%2Fdida-oauth/);
+    platform.isMobile = false;
+    plugin.settings.accessToken = "access-old";
+    plugin.settings.refreshToken = "refresh-old";
+    plugin.saveCount = 0;
 
     queuedResponses = [{ status: 200, text: "{\"access_token\":\"access-new\",\"refresh_token\":\"refresh-new\"}", json: { access_token: "access-new", refresh_token: "refresh-new" } }];
     const token = await client.refreshAccessToken();
