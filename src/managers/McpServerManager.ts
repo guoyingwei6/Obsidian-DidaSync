@@ -359,7 +359,9 @@ export class McpServerManager {
             await this.plugin.fetchCompletedTasks(query);
         }
 
-        let tasks = [...(this.plugin.settings.completedTasks || [])];
+        let tasks = typeof this.plugin.getCompletedTasksFromCache === "function"
+            ? this.plugin.getCompletedTasksFromCache(query)
+            : [...(this.plugin.settings.completedTasks || [])];
         const search = String(args?.query || "").trim().toLowerCase();
         if (search) tasks = tasks.filter(t => [t.title, t.content, t.desc, t.projectName].some(v => String(v || "").toLowerCase().includes(search)));
         if (Array.isArray(query.projectIds) && query.projectIds.length > 0) {

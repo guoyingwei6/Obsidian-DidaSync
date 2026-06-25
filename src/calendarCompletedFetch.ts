@@ -1,4 +1,5 @@
-import { CompletedTasksQuery } from "./types";
+import { isCompletedTaskRangeCovered } from "./completedTaskCache";
+import { CompletedTaskCacheSegment } from "./types";
 
 export interface CalendarCompletedRange {
     startDate: Date;
@@ -13,8 +14,7 @@ export interface CalendarCompletedFetchDecisionInput {
     range: CalendarCompletedRange;
     calendarCompletedRangeKey: string;
     calendarCompletedError: string;
-    completedTasksQuery?: CompletedTasksQuery;
-    completedTasksLastFetchedAt?: string;
+    completedTaskCacheSegments?: CompletedTaskCacheSegment[];
 }
 
 export interface CalendarCompletedFetchDecision {
@@ -24,16 +24,9 @@ export interface CalendarCompletedFetchDecision {
 
 export function hasCalendarCompletedCacheForRange(
     range: Pick<CalendarCompletedRange, "startDate" | "endDate">,
-    completedTasksQuery?: CompletedTasksQuery,
-    completedTasksLastFetchedAt?: string
+    completedTaskCacheSegments?: CompletedTaskCacheSegment[]
 ) {
-    if (!completedTasksQuery?.startDate || !completedTasksQuery?.endDate || !completedTasksLastFetchedAt) return false;
-
-    const cachedStart = new Date(completedTasksQuery.startDate);
-    const cachedEnd = new Date(completedTasksQuery.endDate);
-    if (Number.isNaN(cachedStart.getTime()) || Number.isNaN(cachedEnd.getTime())) return false;
-
-    return cachedStart.getTime() <= range.startDate.getTime() && cachedEnd.getTime() >= range.endDate.getTime();
+    return isCompletedTaskRangeCovered(range, completedTaskCacheSegments);
 }
 
 export function getCalendarCompletedFetchDecision(input: CalendarCompletedFetchDecisionInput): CalendarCompletedFetchDecision {
@@ -45,7 +38,7 @@ export function getCalendarCompletedFetchDecision(input: CalendarCompletedFetchD
         return { shouldFetch: false, shouldMarkRangeKey: false };
     }
 
-    if (hasCalendarCompletedCacheForRange(input.range, input.completedTasksQuery, input.completedTasksLastFetchedAt)) {
+    if (hasCalendarCompletedCacheForRange(input.range, input.completedTaskCacheSegments)) {
         return { shouldFetch: false, shouldMarkRangeKey: true };
     }
 

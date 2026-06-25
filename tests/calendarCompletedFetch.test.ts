@@ -17,8 +17,7 @@ function buildMonthInput(overrides: Partial<Parameters<typeof getCalendarComplet
         },
         calendarCompletedRangeKey: "",
         calendarCompletedError: "",
-        completedTasksQuery: {},
-        completedTasksLastFetchedAt: "",
+        completedTaskCacheSegments: [],
         ...overrides
     };
 }
@@ -37,41 +36,45 @@ const monthRange = getCalendarMonthRange(new Date(2026, 5, 15));
 assertEqual(
     hasCalendarCompletedCacheForRange(
         monthRange,
-        {
+        [{
             startDate: new Date(2026, 5, 1, 0, 0, 0, 0).toISOString(),
-            endDate: new Date(2026, 5, 30, 23, 59, 59, 999).toISOString()
-        },
-        new Date(2026, 5, 20).toISOString()
+            endDate: new Date(2026, 5, 30, 23, 59, 59, 999).toISOString(),
+            fetchedAt: new Date(2026, 5, 20).toISOString(),
+            complete: true
+        }]
     ),
     true,
     "month cache covering full visible range should be reusable"
 );
 
 const cachedMonthDecision = getCalendarCompletedFetchDecision(buildMonthInput({
-    completedTasksQuery: {
+    completedTaskCacheSegments: [{
         startDate: new Date(2026, 4, 25, 0, 0, 0, 0).toISOString(),
-        endDate: new Date(2026, 6, 5, 23, 59, 59, 999).toISOString()
-    },
-    completedTasksLastFetchedAt: new Date(2026, 5, 20).toISOString()
+        endDate: new Date(2026, 6, 5, 23, 59, 59, 999).toISOString(),
+        fetchedAt: new Date(2026, 5, 20).toISOString(),
+        complete: true
+    }]
 }));
 assertEqual(cachedMonthDecision.shouldFetch, false, "covered month cache should skip refetch");
 assertEqual(cachedMonthDecision.shouldMarkRangeKey, true, "covered month cache should mark range key");
 
 const partialMonthDecision = getCalendarCompletedFetchDecision(buildMonthInput({
-    completedTasksQuery: {
+    completedTaskCacheSegments: [{
         startDate: new Date(2026, 5, 10, 0, 0, 0, 0).toISOString(),
-        endDate: new Date(2026, 5, 20, 23, 59, 59, 999).toISOString()
-    },
-    completedTasksLastFetchedAt: new Date(2026, 5, 20).toISOString()
+        endDate: new Date(2026, 5, 20, 23, 59, 59, 999).toISOString(),
+        fetchedAt: new Date(2026, 5, 20).toISOString(),
+        complete: true
+    }]
 }));
 assertEqual(partialMonthDecision.shouldFetch, true, "partial month cache should refetch");
 
 const staleMonthDecision = getCalendarCompletedFetchDecision(buildMonthInput({
-    completedTasksQuery: {
+    completedTaskCacheSegments: [{
         startDate: new Date(2026, 4, 1, 0, 0, 0, 0).toISOString(),
-        endDate: new Date(2026, 4, 31, 23, 59, 59, 999).toISOString()
-    },
-    completedTasksLastFetchedAt: new Date(2026, 4, 31).toISOString()
+        endDate: new Date(2026, 4, 31, 23, 59, 59, 999).toISOString(),
+        fetchedAt: new Date(2026, 4, 31).toISOString(),
+        complete: true
+    }]
 }));
 assertEqual(staleMonthDecision.shouldFetch, true, "old month cache should refetch");
 
@@ -97,11 +100,12 @@ const cachedYearDecision = getCalendarCompletedFetchDecision({
     },
     calendarCompletedRangeKey: "",
     calendarCompletedError: "",
-    completedTasksQuery: {
+    completedTaskCacheSegments: [{
         startDate: new Date(2026, 0, 1, 0, 0, 0, 0).toISOString(),
-        endDate: new Date(2026, 11, 31, 23, 59, 59, 999).toISOString()
-    },
-    completedTasksLastFetchedAt: new Date(2026, 5, 20).toISOString()
+        endDate: new Date(2026, 11, 31, 23, 59, 59, 999).toISOString(),
+        fetchedAt: new Date(2026, 5, 20).toISOString(),
+        complete: true
+    }]
 });
 assertEqual(cachedYearDecision.shouldFetch, false, "covered year cache should skip refetch");
 assertEqual(cachedYearDecision.shouldMarkRangeKey, true, "covered year cache should mark range key");

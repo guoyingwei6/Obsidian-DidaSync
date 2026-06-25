@@ -60,6 +60,14 @@ export interface CompletedTasksQuery {
     endDate?: string;
 }
 
+export interface CompletedTaskCacheSegment {
+    projectIds?: string[];
+    startDate: string;
+    endDate: string;
+    fetchedAt: string;
+    complete: boolean;
+}
+
 export interface DidaProject {
     id: string;
     name: string;
@@ -212,6 +220,7 @@ export interface DidaSyncSettings {
     completedTasks: DidaTask[];
     completedTasksLastFetchedAt: string;
     completedTasksQuery: CompletedTasksQuery;
+    completedTaskCacheSegments: CompletedTaskCacheSegment[];
     pendingSyncOperations: PendingSyncOperation[];
 }
 
@@ -275,6 +284,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     completedTasks: [],
     completedTasksLastFetchedAt: "",
     completedTasksQuery: {},
+    completedTaskCacheSegments: [],
     pendingSyncOperations: []
 };
 

@@ -2002,8 +2002,7 @@ export class TaskView extends ItemView {
     hasCalendarCompletedCacheForRange(range: { startDate: Date; endDate: Date }) {
         return hasCalendarCompletedCacheForRange(
             range,
-            this.plugin.settings.completedTasksQuery,
-            this.plugin.settings.completedTasksLastFetchedAt
+            this.plugin.settings.completedTaskCacheSegments
         );
     }
 
@@ -2017,8 +2016,7 @@ export class TaskView extends ItemView {
             range,
             calendarCompletedRangeKey: this.calendarCompletedMonthKey,
             calendarCompletedError: this.calendarCompletedError,
-            completedTasksQuery: this.plugin.settings.completedTasksQuery,
-            completedTasksLastFetchedAt: this.plugin.settings.completedTasksLastFetchedAt
+            completedTaskCacheSegments: this.plugin.settings.completedTaskCacheSegments
         });
 
         if (decision.shouldMarkRangeKey) {
@@ -2036,11 +2034,14 @@ export class TaskView extends ItemView {
         this.calendarCompletedError = "";
         this.renderTaskList();
         try {
-            await this.plugin.fetchCompletedTasks({
-                startDate: range.startDate.toISOString(),
-                endDate: range.endDate.toISOString()
+            const { truncatedSegments } = await this.plugin.ensureCompletedTasksRangeCached({
+                startDate: range.startDate,
+                endDate: range.endDate
             });
             this.calendarCompletedMonthKey = range.key;
+            if (truncatedSegments.length > 0) {
+                new Notice("部分单日已完成任务达到 200 条上限，日历结果可能仍不完整");
+            }
         } catch (error) {
             this.calendarCompletedError = error instanceof Error ? error.message : "已完成任务刷新失败";
             new Notice(this.calendarCompletedError);

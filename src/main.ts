@@ -16,7 +16,8 @@ import { TaskNoteSyncModal } from './modals/TaskNoteSyncModal';
 import { TaskSuggestionPopup } from './modals/TaskSuggestionPopup';
 import { TimelineViewModal } from './modals/TimelineViewModal';
 import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
-import { CompletedTasksQuery, DEFAULT_SETTINGS, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry, TaskScheduleInput } from './types';
+import { buildCompletedTaskCacheSegment, fetchCompletedTasksByRange, filterCompletedTasksByQuery, getMonthlyCompletedTaskRanges, isCompletedTaskRangeCovered, mergeCompletedTaskCacheSegments, mergeCompletedTasks, normalizeCompletedTaskCacheSegments } from './completedTaskCache';
+import { CompletedTaskCacheSegment, CompletedTasksQuery, DEFAULT_SETTINGS, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry, TaskScheduleInput } from './types';
 import { applyParsedLineToTask, formatTaskLine, formatTaskLineFromTask, makeLocalDateTime, parseTaskLine, TaskLineMetadata } from './taskLineFormat';
 import { normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes } from './utils';
 import { DidaTimeBlockView, TIME_BLOCK_VIEW_TYPE } from './views/DidaTimeBlockView';
@@ -221,7 +222,25 @@ export default class DidaSyncPlugin extends Plugin {
         delete legacySettings.dailySyncTargetBlockHeader;
         delete legacySettings.taskNoteSyncFileNamePattern;
         if (!this.settings.tasks) this.settings.tasks = [];
+        if (!Array.isArray(this.settings.completedTasks)) this.settings.completedTasks = [];
         if (!Array.isArray(this.settings.pendingSyncOperations)) this.settings.pendingSyncOperations = [];
+        this.settings.completedTaskCacheSegments = normalizeCompletedTaskCacheSegments(this.settings.completedTaskCacheSegments);
+        const legacyCompletedStart = this.settings.completedTasksQuery?.startDate ? new Date(this.settings.completedTasksQuery.startDate) : null;
+        const legacyCompletedEnd = this.settings.completedTasksQuery?.endDate ? new Date(this.settings.completedTasksQuery.endDate) : null;
+        if (
+            this.settings.completedTaskCacheSegments.length === 0 &&
+            this.settings.completedTasks.length > 0 &&
+            legacyCompletedStart &&
+            legacyCompletedEnd &&
+            !Number.isNaN(legacyCompletedStart.getTime()) &&
+            !Number.isNaN(legacyCompletedEnd.getTime()) &&
+            this.settings.completedTasksLastFetchedAt
+        ) {
+            this.settings.completedTaskCacheSegments = [buildCompletedTaskCacheSegment({
+                startDate: legacyCompletedStart,
+                endDate: legacyCompletedEnd
+            }, this.settings.completedTasksLastFetchedAt, false, this.settings.completedTasksQuery.projectIds)];
+        }
         this.settings.tasks.forEach(t => {
             if (t.content === undefined) t.content = "";
             if (t.desc === undefined) t.desc = "";
@@ -1142,6 +1161,59 @@ export default class DidaSyncPlugin extends Plugin {
         };
     }
 
+    getCompletedTasksFromCache(query: CompletedTasksQuery = {}) {
+        const finalQuery = {
+            ...this.buildDefaultCompletedTaskQuery(),
+            ...(query || {})
+        };
+        const filtered = filterCompletedTasksByQuery(this.settings.completedTasks || [], finalQuery);
+        return filtered
+            .slice()
+            .sort((a, b) => new Date(b.completedTime || b.updatedAt || b.createdAt || 0 as any).getTime() - new Date(a.completedTime || a.updatedAt || a.createdAt || 0 as any).getTime());
+    }
+
+    async fetchCompletedTaskRange(range: { startDate: Date; endDate: Date }, projectIds?: string[]) {
+        const fetchedAt = new Date().toISOString();
+        const result = await fetchCompletedTasksByRange(
+            range,
+            async (query) => {
+                const remoteTasks = await this.apiClient.getCompletedTasks(query);
+                return Array.isArray(remoteTasks)
+                    ? remoteTasks.map((task) => this.normalizeRemoteTask(task))
+                    : [];
+            },
+            { projectIds, fetchedAt }
+        );
+
+        this.settings.completedTasks = mergeCompletedTasks(this.settings.completedTasks || [], result.tasks);
+        this.settings.completedTaskCacheSegments = mergeCompletedTaskCacheSegments([
+            ...(this.settings.completedTaskCacheSegments || []),
+            ...result.segments
+        ]);
+        this.settings.completedTasksLastFetchedAt = fetchedAt;
+        return result;
+    }
+
+    async ensureCompletedTasksRangeCached(range: { startDate: Date; endDate: Date }, projectIds?: string[], force = false) {
+        if (!this.settings.accessToken) throw new Error("请先进行OAuth认证");
+        const monthlyRanges = getMonthlyCompletedTaskRanges(range);
+        const fetchedResults = [];
+        const truncatedSegments: CompletedTaskCacheSegment[] = [];
+
+        for (const monthRange of monthlyRanges) {
+            if (!force && isCompletedTaskRangeCovered(monthRange, this.settings.completedTaskCacheSegments, projectIds)) {
+                continue;
+            }
+            const result = await this.fetchCompletedTaskRange(monthRange, projectIds);
+            fetchedResults.push(result);
+            truncatedSegments.push(...result.truncatedSegments);
+        }
+
+        await this.saveSettings();
+        this.refreshTaskView();
+        return { fetchedResults, truncatedSegments };
+    }
+
     normalizeRemoteTask(task: any, project: any = null): DidaTask {
         let content = task.content || "";
         let desc = task.desc || "";
@@ -1188,16 +1260,28 @@ export default class DidaSyncPlugin extends Plugin {
             ...this.buildDefaultCompletedTaskQuery(),
             ...(query || {})
         };
-        const remoteTasks = await this.apiClient.getCompletedTasks(finalQuery);
-        this.settings.completedTasks = Array.isArray(remoteTasks)
-            ? remoteTasks.map((task) => this.normalizeRemoteTask(task))
-            : [];
-        this.settings.completedTasksLastFetchedAt = new Date().toISOString();
+        const startDate = finalQuery.startDate ? new Date(finalQuery.startDate) : null;
+        const endDate = finalQuery.endDate ? new Date(finalQuery.endDate) : null;
+        if (!startDate || !endDate || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+            throw new Error("已完成任务查询缺少有效的时间范围");
+        }
+
+        const { truncatedSegments } = await this.ensureCompletedTasksRangeCached({
+            startDate,
+            endDate
+        }, finalQuery.projectIds, true);
         this.settings.completedTasksQuery = finalQuery;
+        const filteredTasks = this.getCompletedTasksFromCache(finalQuery);
         await this.saveSettings();
         this.refreshTaskView();
-        new Notice(`已获取 ${this.settings.completedTasks.length} 个已完成任务`);
-        return this.settings.completedTasks;
+
+        if (truncatedSegments.length > 0) {
+            new Notice(`已获取 ${filteredTasks.length} 个已完成任务；部分单日记录达到 200 条上限，结果可能仍不完整`);
+        } else {
+            new Notice(`已获取 ${filteredTasks.length} 个已完成任务`);
+        }
+
+        return filteredTasks;
     }
 
     showCompletedTasksModal() {
