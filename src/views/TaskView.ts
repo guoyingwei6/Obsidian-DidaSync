@@ -6,6 +6,7 @@ import { getCalendarCompletedFetchDecision, hasCalendarCompletedCacheForRange } 
 import { buildCalendarMonthGrid, CalendarMode, dedupeCalendarTasks, getCalendarDateKey, getCalendarMonthRange, getCalendarYearRange, groupTasksByCalendarDate } from '../calendarMonth';
 import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
+import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeIndex, getDidaTaskTreeKey, getDidaTaskTreeKeys, sortDidaTasksForTree } from '../taskTree';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
 import { clampMinutes, dateAtMinutes, getTimeGridDay, getTimeGridRange, gridStartMinutes, isAllDayTimeGridTask, snapDuration, snapMinutes, taskBelongsToTimeGridDate, TIME_GRID_STEP_MINUTES } from '../timeGrid';
 import { appendValidatedSvg, compareProjectGroups, debounce, getTimerRemainingSeconds, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
@@ -1107,6 +1108,288 @@ export class TaskView extends ItemView {
         }
     }
 
+    taskMatchesCurrentFilters(task: DidaTask, projectName: string) {
+        if (this.dateFilter) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const taskDate = task.startDate ? new Date(task.startDate) : null;
+            if (taskDate) taskDate.setHours(0, 0, 0, 0);
+
+            let show = false;
+            if (this.dateFilter === "overdue") {
+                show = !!(taskDate && taskDate < today);
+            } else if (this.dateFilter === "today") {
+                show = !!(taskDate && taskDate.getTime() === today.getTime());
+            } else if (this.dateFilter === "next3days") {
+                const next3 = new Date(today);
+                next3.setDate(next3.getDate() + 2);
+                show = !!(taskDate && taskDate >= today && taskDate <= next3);
+            } else if (this.dateFilter === "next7days") {
+                const next7 = new Date(today);
+                next7.setDate(next7.getDate() + 6);
+                show = !!(taskDate && taskDate >= today && taskDate <= next7);
+            }
+            if (!show) return false;
+        }
+
+        if (this.searchQuery && this.searchQuery.trim()) {
+            const query = this.searchQuery.toLowerCase().trim();
+            const title = (task.title || "").toLowerCase();
+            const content = (task.content || task.desc || "").toLowerCase();
+            const pName = projectName.toLowerCase();
+            if (!title.includes(query) && !content.includes(query) && !pName.includes(query)) return false;
+        }
+
+        return true;
+    }
+
+    resolveVisibleRootTask(task: DidaTask, taskByKey: Map<string, DidaTask>) {
+        let current = task;
+        const seen = new Set<string>();
+        while (current.parentId) {
+            const key = getDidaTaskTreeKey(current);
+            if (key) {
+                if (seen.has(key)) break;
+                seen.add(key);
+            }
+            const parent = taskByKey.get(current.parentId);
+            if (!parent || parent.status === 2) break;
+            current = parent;
+        }
+        return current;
+    }
+
+    renderTaskTreeItem(
+        container: HTMLElement,
+        task: DidaTask,
+        childrenByParentId: Map<string, DidaTask[]>,
+        renderableTaskKeys: Set<string> | null = null,
+        matchedTaskKeys: Set<string> | null = null,
+        depth: number = 0,
+        ancestors: Set<string> = new Set()
+    ) {
+        const taskKey = getDidaTaskTreeKey(task);
+        if (taskKey && renderableTaskKeys && !renderableTaskKeys.has(taskKey)) return;
+        if (taskKey && ancestors.has(taskKey)) return;
+        const nextAncestors = new Set(ancestors);
+        if (taskKey) nextAncestors.add(taskKey);
+        const children = (taskKey ? (childrenByParentId.get(taskKey) || []) : []).filter((child) => {
+            const childKey = getDidaTaskTreeKey(child);
+            return !renderableTaskKeys || (!!childKey && renderableTaskKeys.has(childKey));
+        });
+
+        const taskItem = container.createDiv("dida-task-item");
+        taskItem.addClass("dida-task-tree-item");
+        if (depth > 0) taskItem.addClass("dida-task-tree-child");
+        taskItem.setAttribute("data-task-id", task.id);
+        taskItem.setAttribute("data-task-depth", String(depth));
+        const visualDepth = Math.min(depth, 8);
+        taskItem.style.setProperty("--dida-task-depth", String(visualDepth));
+        taskItem.style.paddingLeft = `${visualDepth * 18}px`;
+        taskItem.setAttribute("draggable", "true");
+        taskItem.addEventListener("dragstart", (e) => {
+            e.stopPropagation();
+            taskItem.classList.add("dragging");
+            if (e.dataTransfer) {
+                e.dataTransfer.effectAllowed = "copyMove";
+                e.dataTransfer.setData("application/x-dida-task", task.id);
+            }
+        });
+        taskItem.addEventListener("dragend", (e) => {
+            e.stopPropagation();
+            taskItem.classList.remove("dragging");
+            taskItem.classList.remove("dida-task-drop-parent-target");
+            document.querySelectorAll(".dida-project-header").forEach((h) => h.classList.remove("drag-over"));
+            document.querySelectorAll(".dida-task-drop-parent-target").forEach((h) => h.classList.remove("dida-task-drop-parent-target"));
+        });
+        taskItem.addEventListener("dragover", (e) => {
+            if (!e.dataTransfer?.types.includes("application/x-dida-task")) return;
+            const draggedTaskId = e.dataTransfer.getData("application/x-dida-task");
+            if (!draggedTaskId || draggedTaskId === task.id || draggedTaskId === task.didaId) return;
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "move";
+            taskItem.classList.add("dida-task-drop-parent-target");
+        });
+        taskItem.addEventListener("dragleave", (e) => {
+            e.stopPropagation();
+            if (e.target === taskItem || !taskItem.contains(e.relatedTarget as Node | null)) {
+                taskItem.classList.remove("dida-task-drop-parent-target");
+            }
+        });
+        taskItem.addEventListener("drop", async (e) => {
+            const draggedTaskId = e.dataTransfer?.getData("application/x-dida-task");
+            if (!draggedTaskId) return;
+            e.preventDefault();
+            e.stopPropagation();
+            taskItem.classList.remove("dida-task-drop-parent-target");
+            const draggedTask = (this.plugin.settings.tasks || []).find((item) => item.id === draggedTaskId || item.didaId === draggedTaskId);
+            if (!draggedTask) return;
+            try {
+                await this.plugin.reparentTask(draggedTask, task);
+                new Notice(`已设为 ${task.title || "目标任务"} 的子任务`);
+            } catch (error: any) {
+                new Notice(error?.message || "设置子任务失败");
+            }
+        });
+
+        const mainRow = taskItem.createDiv("dida-task-main-row");
+        const leftContent = mainRow.createDiv("dida-task-left-content");
+        const rightButtons = mainRow.createDiv("dida-task-right-buttons");
+
+        const checkbox = leftContent.createEl("input", { type: "checkbox" });
+        checkbox.checked = task.status === 2;
+        checkbox.onchange = debounce(() => {
+            const idx = this.resolveTaskOriginalIndex(task);
+            if (idx === -1) {
+                new Notice("未找到对应任务，无法切换完成状态");
+                return;
+            }
+            this.toggleTask(idx);
+        }, 200);
+
+        const titleSpan = leftContent.createEl("span", {
+            cls: task.status === 2 ? "dida-task-completed dida-task-title-clickable" : "dida-task-title dida-task-title-clickable"
+        });
+        this.renderTaskTitleContent(titleSpan, task.title || "");
+        titleSpan.onclick = () => this.toggleTaskDetails(taskItem, task);
+
+        this.updateTaskRowRepeatRule(taskItem, task);
+        this._enableTaskDragToMarkdown(taskItem, task);
+
+        let reminderInfo = "";
+        try {
+            if (task.isAllDay) {
+                reminderInfo = "全天";
+            } else {
+                const hasStartDate = !!task.startDate;
+                const hasDueDate = !!task.dueDate;
+                if (hasStartDate || hasDueDate) {
+                    let startStr = "";
+                    let dueStr = "";
+                    if (hasStartDate) {
+                        const d = new Date(task.startDate);
+                        startStr = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+                    }
+                    if (hasDueDate) {
+                        const d = new Date(task.dueDate);
+                        dueStr = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+                    }
+                    if (startStr && dueStr) reminderInfo = startStr + "～" + dueStr;
+                    else if (startStr) reminderInfo = startStr;
+                    else if (dueStr) reminderInfo = dueStr;
+                }
+            }
+        } catch (e) {
+            reminderInfo = "";
+        }
+
+        if (reminderInfo) {
+            const reminderSpan = document.createElement("span");
+            reminderSpan.className = "dida-task-reminder-inline";
+            reminderSpan.addClass("dida-inline-flex-center");
+            setTextWithIcon(reminderSpan, reminderInfo, "timer", { textFirst: true });
+            const repeatDiv = taskItem.querySelector(".dida-task-repeat-rule");
+            if (repeatDiv) {
+                repeatDiv.appendChild(reminderSpan);
+            } else {
+                const newRepeatDiv = document.createElement("div");
+                newRepeatDiv.className = "dida-task-repeat-rule";
+                newRepeatDiv.appendChild(reminderSpan);
+                taskItem.appendChild(newRepeatDiv);
+            }
+        }
+
+        this.updateTaskRowSubtaskCount(taskItem, task);
+        this.updateTaskRowChildCount(taskItem, task);
+
+        const prioritySpan = rightButtons.createEl("span", { cls: "dida-task-priority" });
+        prioritySpan.textContent = this.formatPriorityLabel(task.priority || 0);
+        prioritySpan.title = "点击切换优先级";
+        prioritySpan.addClass("dida-clickable-date");
+        prioritySpan.onclick = async (e) => {
+            e.stopPropagation();
+            const idx = this.resolveTaskOriginalIndex(task);
+            if (idx === -1) {
+                new Notice("未找到对应任务，无法更新优先级");
+                return;
+            }
+            await this.cycleTaskPriority(idx);
+        };
+
+        const dateSpan = rightButtons.createEl("span", { cls: "dida-task-due-date" });
+        if (task.startDate) {
+            try {
+                const date = new Date(task.startDate);
+                dateSpan.textContent = `${date.getMonth() + 1}/${date.getDate()}`;
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                date.setHours(0, 0, 0, 0);
+                if (date < today) dateSpan.classList.add("overdue");
+                else if (date.getTime() === today.getTime()) dateSpan.classList.add("today");
+            } catch (e) {
+                dateSpan.textContent = "";
+            }
+        } else {
+            setIconElement(dateSpan, "calendar-x-2");
+            dateSpan.classList.add("no-date");
+        }
+
+        dateSpan.addClass("dida-clickable-date");
+        dateSpan.title = "点击设置开始时间";
+        dateSpan.onclick = (e) => {
+            e.stopPropagation();
+            const idx = this.resolveTaskOriginalIndex(task);
+            if (idx === -1) {
+                new Notice("未找到对应任务，无法更新时间");
+                return;
+            }
+            new DatePickerModal(this.app, task.startDate || task.dueDate || null, async (date, isAllDay, endDate, repeatFlag) => {
+                await this.updateTaskSchedule(idx, date, isAllDay, endDate, repeatFlag);
+            }, e.currentTarget as HTMLElement, this.plugin, idx).open();
+        };
+
+        const deleteBtn = rightButtons.createEl("button", { cls: "dida-task-delete" });
+        setIconElement(deleteBtn, "x");
+        deleteBtn.onclick = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            if (window.confirm("确定要删除这个任务吗？")) {
+                const idx = this.resolveTaskOriginalIndex(task);
+                if (idx === -1) {
+                    new Notice("未找到对应任务，无法删除");
+                    return;
+                }
+                this.deleteTask(idx);
+            }
+        };
+
+        const syncStatusSpan = rightButtons.createEl("span", {
+            cls: task.didaId ? "dida-sync-status synced" : "dida-sync-status unsynced"
+        });
+        if (task.syncPlacementPending) {
+            syncStatusSpan.removeClass("synced", "unsynced");
+            syncStatusSpan.addClass("pending");
+            syncStatusSpan.title = "任务位置同步中";
+            setIconElement(syncStatusSpan, "git-branch-plus");
+        } else if (task.syncPlacementError) {
+            syncStatusSpan.removeClass("synced", "unsynced");
+            syncStatusSpan.addClass("error");
+            syncStatusSpan.title = task.syncPlacementError;
+            setIconElement(syncStatusSpan, "cloud-alert");
+        } else {
+            setIconElement(syncStatusSpan, task.didaId ? "cloud-check" : "cloud-alert");
+        }
+
+        if (matchedTaskKeys && taskKey && !matchedTaskKeys.has(taskKey)) {
+            taskItem.addClass("dida-task-filter-context");
+        }
+
+        for (const child of children) {
+            this.renderTaskTreeItem(container, child, childrenByParentId, renderableTaskKeys, matchedTaskKeys, depth + 1, nextAncestors);
+        }
+    }
+
     async renderTaskList(options: { preserveSearch?: boolean } = {}) {
         const container = this.containerEl.children[1];
         let taskListContainer: HTMLElement;
@@ -1418,61 +1701,57 @@ export class TaskView extends ItemView {
                     });
                 }
 
+                const taskTreeIndex = buildDidaTaskTreeIndex(tasks as DidaTask[]);
+                const taskByKey = new Map<string, DidaTask>();
                 tasks.forEach((task) => {
-                    if (!task.parentId && task.status !== 2) {
-                        task.content = typeof task.content === "string" ? task.content : (task.content || "");
-                        const projectInfo = this.plugin.resolveTaskProjectInfo(task);
-                        const projectName = projectInfo.name;
-                        const projectId = projectInfo.id;
-                        const isArchived = projectInfo.isArchived;
+                    task.content = typeof task.content === "string" ? task.content : (task.content || "");
+                    for (const key of getDidaTaskTreeKeys(task as DidaTask)) taskByKey.set(key, task as DidaTask);
+                });
 
-                        if (this.plugin.settings.showArchivedProjects || !isArchived) {
-                            if (!this.plugin.isProjectVisible(projectId, projectName)) return;
-                            // Filter logic
-                            if (this.dateFilter) {
-                                const today = new Date();
-                                today.setHours(0, 0, 0, 0);
-                                const taskDate = task.startDate ? new Date(task.startDate) : null;
-                                if (taskDate) taskDate.setHours(0, 0, 0, 0);
+                const matchedTasks: DidaTask[] = [];
+                const canIncludeTaskInFilteredTree = (task: DidaTask) => {
+                    const projectInfo = this.plugin.resolveTaskProjectInfo(task);
+                    if (!this.plugin.settings.showArchivedProjects && projectInfo.isArchived) return false;
+                    if (!this.plugin.isProjectVisible(projectInfo.id, projectInfo.name)) return false;
+                    if (task.status === 2) return false;
+                    return true;
+                };
 
-                                let show = false;
-                                if (this.dateFilter === "overdue") {
-                                    show = !!(taskDate && taskDate < today);
-                                } else if (this.dateFilter === "today") {
-                                    show = !!(taskDate && taskDate.getTime() === today.getTime());
-                                } else if (this.dateFilter === "next3days") {
-                                    const next3 = new Date(today);
-                                    next3.setDate(next3.getDate() + 2);
-                                    show = !!(taskDate && taskDate >= today && taskDate <= next3);
-                                } else if (this.dateFilter === "next7days") {
-                                    const next7 = new Date(today);
-                                    next7.setDate(next7.getDate() + 6);
-                                    show = !!(taskDate && taskDate >= today && taskDate <= next7);
-                                }
+                const visibleRootKeys = new Set<string>();
+                tasks.forEach((task) => {
+                    const projectInfo = this.plugin.resolveTaskProjectInfo(task);
+                    const projectName = projectInfo.name;
+                    const projectId = projectInfo.id;
+                    const isArchived = projectInfo.isArchived;
+                    if (!this.plugin.settings.showArchivedProjects && isArchived) return;
+                    if (!this.plugin.isProjectVisible(projectId, projectName)) return;
+                    if (!this.taskMatchesCurrentFilters(task as DidaTask, projectName)) return;
+                    matchedTasks.push(task as DidaTask);
+                });
 
-                                if (!show) return;
-                            }
+                const filterSets = buildDidaTaskFilterSets(tasks as DidaTask[], matchedTasks, canIncludeTaskInFilteredTree);
+                const matchedTaskKeys = filterSets.matchedTaskKeys;
+                const renderableTaskKeys = filterSets.renderableTaskKeys;
 
-                            if (this.searchQuery && this.searchQuery.trim()) {
-                                const query = this.searchQuery.toLowerCase().trim();
-                                const title = (task.title || "").toLowerCase();
-                                const content = (task.content || "").toLowerCase();
-                                const pName = projectName.toLowerCase();
-                                if (!title.includes(query) && !content.includes(query) && !pName.includes(query)) return;
-                            }
+                matchedTasks.forEach((task) => {
+                    const root = this.resolveVisibleRootTask(task as DidaTask, taskByKey);
+                    const rootKey = getDidaTaskTreeKey(root);
+                    if (!rootKey || visibleRootKeys.has(rootKey)) return;
+                    if (!renderableTaskKeys.has(rootKey)) return;
+                    visibleRootKeys.add(rootKey);
 
-                            if (!projectMap.has(projectName)) {
-                                projectMap.set(projectName, []);
-                                projectInfoMap.set(projectName, {
-                                    name: projectName,
-                                    id: projectId,
-                                    isArchived: isArchived,
-                                    isLocalOnly: projectInfo.isLocalOnly
-                                });
-                            }
-                            projectMap.get(projectName).push(task);
-                        }
+                    const rootProjectInfo = this.plugin.resolveTaskProjectInfo(root);
+                    const rootProjectName = rootProjectInfo.name;
+                    if (!projectMap.has(rootProjectName)) {
+                        projectMap.set(rootProjectName, []);
+                        projectInfoMap.set(rootProjectName, {
+                            name: rootProjectName,
+                            id: rootProjectInfo.id,
+                            isArchived: rootProjectInfo.isArchived,
+                            isLocalOnly: rootProjectInfo.isLocalOnly
+                        });
                     }
+                    projectMap.get(rootProjectName).push(root);
                 });
 
                 if (projectMap.size === 0) {
@@ -1500,7 +1779,6 @@ export class TaskView extends ItemView {
                     });
 
                     const tasksInProject = tasks.filter(t => {
-                        if (t.parentId) return false;
                         let pName = "本地任务";
                         if (t.projectName && t.projectId) {
                             pName = t.projectName;
@@ -1512,8 +1790,12 @@ export class TaskView extends ItemView {
                         return pName === projectName;
                     });
 
-                    const subtaskCount = this.plugin.settings.tasks.filter(t => t.parentId && tasksInProject.some(p => p.didaId === t.parentId)).length;
-                    const countText = subtaskCount > 0 ? `${projectName} (${projectTasks.length}+${subtaskCount})` : `${projectName} (${projectTasks.length})`;
+                    const rootTaskKeys = new Set(projectTasks.map(task => getDidaTaskTreeKey(task)).filter(Boolean) as string[]);
+                    const visibleSubtaskCount = tasksInProject.filter((t) => {
+                        const key = getDidaTaskTreeKey(t as DidaTask);
+                        return !!key && matchedTaskKeys.has(key) && !!t.parentId && !rootTaskKeys.has(key);
+                    }).length;
+                    const countText = visibleSubtaskCount > 0 ? `${projectName} (${projectTasks.length}+${visibleSubtaskCount})` : `${projectName} (${projectTasks.length})`;
 
                     titleEl.createEl("span", { text: countText });
                     if (projectInfo.isArchived) {
@@ -1626,194 +1908,8 @@ export class TaskView extends ItemView {
                         projectHeader.classList.add("collapsed");
                     }
 
-                    projectTasks.sort((a, b) => {
-                        const dateA = a.startDate || a.dueDate;
-                        const dateB = b.startDate || b.dueDate;
-                        if (!dateA && !dateB) return 0;
-                        if (!dateA) return 1;
-                        if (!dateB) return -1;
-                        return new Date(dateA).getTime() - new Date(dateB).getTime();
-                    }).forEach(task => {
-                        const taskItem = tasksContainer.createDiv("dida-task-item");
-                        taskItem.setAttribute("data-task-id", task.id);
-                        taskItem.setAttribute("draggable", "true");
-                        taskItem.addEventListener("dragstart", (e) => {
-                            e.stopPropagation();
-                            taskItem.classList.add("dragging");
-                            if (e.dataTransfer) {
-                                e.dataTransfer.effectAllowed = "move";
-                                e.dataTransfer.setData("application/x-dida-task", task.id);
-                            }
-                        });
-                        taskItem.addEventListener("dragend", (e) => {
-                            e.stopPropagation();
-                            taskItem.classList.remove("dragging");
-                            document.querySelectorAll(".dida-project-header").forEach((h) => h.classList.remove("drag-over"));
-                        });
-
-                        const mainRow = taskItem.createDiv("dida-task-main-row");
-                        const leftContent = mainRow.createDiv("dida-task-left-content");
-                        const rightButtons = mainRow.createDiv("dida-task-right-buttons");
-
-                        const checkbox = leftContent.createEl("input", { type: "checkbox" });
-                        checkbox.checked = task.status === 2;
-
-                        const toggleTaskDebounced = debounce(() => {
-                            const idx = this.resolveTaskOriginalIndex(task);
-                            if (idx === -1) {
-                                new Notice("未找到对应任务，无法切换完成状态");
-                                return;
-                            }
-                            this.toggleTask(idx);
-                        }, 200);
-
-                        checkbox.onchange = toggleTaskDebounced;
-
-                        const titleSpan = leftContent.createEl("span", {
-                            cls: task.status === 2 ? "dida-task-completed dida-task-title-clickable" : "dida-task-title dida-task-title-clickable"
-                        });
-                        this.renderTaskTitleContent(titleSpan, task.title || "");
-                        titleSpan.onclick = () => this.toggleTaskDetails(taskItem, task);
-
-                        this.updateTaskRowRepeatRule(taskItem, task);
-
-                        // Enable drag to markdown
-                        this._enableTaskDragToMarkdown(taskItem, task);
-
-                        // Time/Reminder info
-                        let reminderInfo = "";
-                        try {
-                            if (task.isAllDay) {
-                                reminderInfo = "全天";
-                            } else {
-                                const hasStartDate = !!task.startDate;
-                                const hasDueDate = !!task.dueDate;
-                                if (hasStartDate || hasDueDate) {
-                                    let startStr = "";
-                                    let dueStr = "";
-
-                                    if (hasStartDate) {
-                                        const d = new Date(task.startDate);
-                                        startStr = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
-                                    }
-                                    if (hasDueDate) {
-                                        const d = new Date(task.dueDate);
-                                        dueStr = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
-                                    }
-
-                                    if (startStr && dueStr) reminderInfo = startStr + "～" + dueStr;
-                                    else if (startStr) reminderInfo = startStr;
-                                    else if (dueStr) reminderInfo = dueStr;
-                                }
-                            }
-                        } catch (e) {
-                            reminderInfo = "";
-                        }
-
-                        if (reminderInfo) {
-                            const reminderSpan = document.createElement("span");
-                            reminderSpan.className = "dida-task-reminder-inline";
-                            reminderSpan.addClass("dida-inline-flex-center");
-                            setTextWithIcon(reminderSpan, reminderInfo, "timer", { textFirst: true });
-
-                            const repeatDiv = taskItem.querySelector(".dida-task-repeat-rule");
-                            if (repeatDiv) {
-                                repeatDiv.appendChild(reminderSpan);
-                            } else {
-                                const newRepeatDiv = document.createElement("div");
-                                newRepeatDiv.className = "dida-task-repeat-rule";
-                                newRepeatDiv.appendChild(reminderSpan);
-                                taskItem.appendChild(newRepeatDiv);
-                            }
-                        }
-
-                        this.updateTaskRowSubtaskCount(taskItem, task);
-                        this.updateTaskRowChildCount(taskItem, task);
-
-                        const prioritySpan = rightButtons.createEl("span", {
-                            cls: "dida-task-priority"
-                        });
-                        prioritySpan.textContent = this.formatPriorityLabel(task.priority || 0);
-                        prioritySpan.title = "点击切换优先级";
-                        prioritySpan.addClass("dida-clickable-date");
-                        prioritySpan.onclick = async (e) => {
-                            e.stopPropagation();
-                            const idx = this.resolveTaskOriginalIndex(task);
-                            if (idx === -1) {
-                                new Notice("未找到对应任务，无法更新优先级");
-                                return;
-                            }
-                            await this.cycleTaskPriority(idx);
-                        };
-
-                        // Due Date
-                        const dateSpan = rightButtons.createEl("span", {
-                            cls: "dida-task-due-date"
-                        });
-
-                        if (task.startDate) {
-                            try {
-                                const date = new Date(task.startDate);
-                                const month = date.getMonth() + 1;
-                                const day = date.getDate();
-                                dateSpan.textContent = `${month}/${day}`;
-
-                                const today = new Date();
-                                today.setHours(0, 0, 0, 0);
-                                date.setHours(0, 0, 0, 0);
-
-                                if (date < today) dateSpan.classList.add("overdue");
-                                else if (date.getTime() === today.getTime()) dateSpan.classList.add("today");
-                            } catch (e) {
-                                dateSpan.textContent = "";
-                            }
-                        } else {
-                            setIconElement(dateSpan, "calendar-x-2");
-                            dateSpan.classList.add("no-date");
-                        }
-
-                        dateSpan.addClass("dida-clickable-date");
-                        dateSpan.title = "点击设置开始时间";
-                        dateSpan.onclick = (e) => {
-                            e.stopPropagation();
-                            const idx = this.resolveTaskOriginalIndex(task);
-                            if (idx === -1) {
-                                new Notice("未找到对应任务，无法更新时间");
-                                return;
-                            }
-                            new DatePickerModal(this.app, task.startDate || task.dueDate || null, async (date, isAllDay, endDate, repeatFlag) => {
-                                await this.updateTaskSchedule(idx, date, isAllDay, endDate, repeatFlag);
-                            }, e.currentTarget as HTMLElement, this.plugin, idx).open();
-                        };
-
-                        // Delete button
-                        const deleteBtn = rightButtons.createEl("button", {
-                            cls: "dida-task-delete"
-                        });
-                        setIconElement(deleteBtn, "x");
-                        deleteBtn.onclick = (e) => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            if (window.confirm("确定要删除这个任务吗？")) {
-                                const idx = this.resolveTaskOriginalIndex(task);
-                                if (idx === -1) {
-                                    new Notice("未找到对应任务，无法删除");
-                                    return;
-                                }
-                                this.deleteTask(idx);
-                            }
-                        };
-
-                        // Sync status
-                        const syncStatusSpan = rightButtons.createEl("span", {
-                            cls: task.didaId ? "dida-sync-status synced" : "dida-sync-status unsynced"
-                        });
-
-                        if (task.didaId) {
-                            setIconElement(syncStatusSpan, "cloud-check");
-                        } else {
-                            setIconElement(syncStatusSpan, "cloud-alert");
-                        }
+                    sortDidaTasksForTree(projectTasks as DidaTask[]).forEach(task => {
+                        this.renderTaskTreeItem(tasksContainer, task, taskTreeIndex.childrenByParentId, renderableTaskKeys, matchedTaskKeys);
                     });
                 }
             }
@@ -3392,33 +3488,54 @@ export class TaskView extends ItemView {
                 addSubBtn.addClass("dida-floating-add-btn");
                 addSubBtn.title = "添加子任务";
                 addSubBtn.onclick = async () => {
-                    const newSub: DidaTask = {
-                        id: Date.now().toString(),
-                        title: "新子任务",
-                        content: "",
-                        desc: "",
-                        completed: false,
-                        status: 0,
-                        didaId: null,
-                        projectId: currentTask.projectId,
-                        projectName: currentTask.projectName,
-                        parentId: currentTask.didaId || currentTask.id,
-                        createdAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString(),
-                        items: [],
-                        kind: "TEXT",
-                        priority: 0,
-                        sortOrder: 0,
-                        timeZone: this.plugin.getUserTimeZone(),
-                        isFloating: false,
-                        isAllDay: false
+                    const fixedProject = {
+                        id: currentTask.projectId || "inbox",
+                        name: currentTask.projectName || "收集箱"
                     };
-                    this.plugin.settings.tasks.push(newSub);
-                    await this.plugin.saveSettings();
-                    if (this.plugin.settings.accessToken) {
-                        this.plugin.createTaskInDidaList(newSub).catch(console.error);
-                    }
-                    refreshSubtaskArea();
+                    new AddTaskModal(this.app, async (title, project, schedule) => {
+                        const newSub: DidaTask = {
+                            id: Date.now().toString(),
+                            title,
+                            content: "",
+                            desc: "",
+                            completed: false,
+                            status: 0,
+                            didaId: null,
+                            projectId: project.id,
+                            projectName: project.name,
+                            parentId: currentTask.didaId || currentTask.id,
+                            createdAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString(),
+                            startDate: schedule.startDate || null,
+                            dueDate: schedule.dueDate || null,
+                            isAllDay: schedule.isAllDay,
+                            repeatFlag: schedule.repeatFlag || null,
+                            items: [],
+                            kind: "TEXT",
+                            priority: 0,
+                            sortOrder: 0,
+                            timeZone: this.plugin.getUserTimeZone(),
+                            isFloating: false
+                        };
+                        this.plugin.settings.tasks.push(newSub);
+                        await this.plugin.saveSettings();
+                        this.renderTaskList({ preserveSearch: true });
+                        refreshSubtaskArea();
+                        if (this.plugin.settings.accessToken) {
+                            try {
+                                await this.plugin.createTaskInDidaList(newSub);
+                            } finally {
+                                this.renderTaskList({ preserveSearch: true });
+                                refreshSubtaskArea();
+                            }
+                        }
+                    }, {
+                        projects: [fixedProject],
+                        defaultProjectId: fixedProject.id,
+                        defaultDate: new Date(),
+                        triggerElement: addSubBtn,
+                        scopeElement: this.containerEl
+                    }).open();
                 };
             };
             refreshSubtaskArea();
@@ -3977,21 +4094,7 @@ export class TaskView extends ItemView {
 
     _buildDidaTaskDragPayload(task: DidaTask): string {
         if (!task || !task.didaId) return "";
-        const lines: string[] = [];
-        const mainLine = this._formatDidaTaskLineForDrag(task, "");
-        if (!mainLine) return "";
-        lines.push(mainLine);
-        const childIds = new Set<string>();
-        if (task.didaId) childIds.add(task.didaId);
-        if (task.id && task.id !== task.didaId) childIds.add(task.id);
-        const tasks = this.plugin.settings.tasks || [];
-        for (const child of tasks) {
-            if (child && child.parentId && childIds.has(child.parentId) && child.didaId) {
-                const childLine = this._formatDidaTaskLineForDrag(child, "\t");
-                if (childLine) lines.push(childLine);
-            }
-        }
-        return lines.join("\n");
+        return buildDidaTaskDragPayload(task, this.plugin.settings.tasks || []);
     }
 
     _formatDidaTaskLineForDrag(task: DidaTask, indent: string): string {

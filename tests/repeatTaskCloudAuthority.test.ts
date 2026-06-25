@@ -199,6 +199,96 @@ async function run() {
     assert.equal(dirtyTask.title, "Remote old title", "clean local tasks should accept remote edits");
     assert.equal(dirtyTask.content, "", "remote empty content should clear stale local content");
 
+    const emptyResponsePlugin = {
+        settings: { accessToken: "token", tasks: [], pendingSyncOperations: [], reverseCompletionMeta: {}, syncConsistencyMeta: {} },
+        apiClient: {
+            async makeAuthenticatedRequest() {
+                return {
+                    ok: true,
+                    status: 200,
+                    async text() { return ""; },
+                    async json() { throw new Error("should not parse empty body"); }
+                };
+            }
+        },
+        mergeRemoteProjectsIntoCatalog() { return false; },
+        app: { workspace: { getLeavesOfType() { return []; } } },
+        updateStatusBar() { },
+        refreshTaskView() { },
+        async saveSettings() { },
+        isReverseUpdating: false
+    };
+    const emptyResponseTask = { id: "t1", didaId: "r1", title: "Task", content: "", status: 0, projectId: "p1" };
+    const emptyResponseManager = new SyncManager(emptyResponsePlugin as any);
+    await emptyResponseManager.updateTaskInDidaList(emptyResponseTask as any);
+
+    const placementTask = {
+        id: "place-local",
+        didaId: "place-remote",
+        title: "Move me",
+        content: "",
+        status: 0,
+        projectId: "p2",
+        projectName: "P2",
+        parentId: "parent-remote",
+        updatedAt: "2026-06-24T00:00:00+0800",
+        syncPlacementPending: true
+    };
+    let placementMoveCount = 0;
+    const placementPlugin = {
+        settings: {
+            accessToken: "token",
+            tasks: [placementTask],
+            pendingSyncOperations: [{
+                localTaskId: "place-local",
+                didaId: "place-remote",
+                projectId: "p2",
+                type: "placement",
+                payload: {
+                    fromProjectId: "p1",
+                    fromProjectName: "P1",
+                    fromParentId: null,
+                    toProjectId: "p2",
+                    toProjectName: "P2",
+                    toParentId: "parent-remote",
+                    parentDidaId: "parent-remote"
+                },
+                createdAt: "2026-06-24T00:00:00+0800",
+                attempts: 0
+            }],
+            reverseCompletionMeta: {},
+            syncConsistencyMeta: {}
+        },
+        apiClient: {
+            async moveTask() {
+                placementMoveCount++;
+            },
+            async makeAuthenticatedRequest(url: string) {
+                if (url.includes("/task/place-remote")) {
+                    return { ok: false, status: 503, async text() { return "placement failed"; } };
+                }
+                return { ok: true, status: 200, async json() { return []; } };
+            }
+        },
+        getProjectDisplayInfo(projectId: string, fallbackName?: string) {
+            return { id: projectId, name: fallbackName || projectId };
+        },
+        refreshTaskView() { },
+        async saveSettings() { },
+        isReverseUpdating: false
+    };
+    const placementManager = new SyncManager(placementPlugin as any);
+    const placementResult = await placementManager.flushPendingOperations();
+    assert.equal(placementResult.uploaded, 0);
+    assert.equal(placementResult.failed.length, 1);
+    assert.match(placementResult.failed[0], /更新任务失败/);
+    assert.equal(placementMoveCount, 2, "failed reparent after cross-project move should trigger remote compensation");
+    assert.equal(placementTask.projectId, "p1", "successful compensation should restore local project");
+    assert.equal(placementTask.parentId, null, "successful compensation should restore local parent");
+    assert.equal(placementTask.syncPlacementPending, false);
+    assert.ok(placementTask.syncPlacementError, "rollback should still leave a visible placement error");
+    assert.equal(placementPlugin.settings.pendingSyncOperations.length, 0, "compensated placement failures should leave no retry item");
+
     statuses.length = 0;
     syncManager.isSyncing = true;
     await syncManager.syncFromDidaList();

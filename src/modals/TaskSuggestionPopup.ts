@@ -1,5 +1,6 @@
 import { App, Editor, EditorPosition } from 'obsidian';
 import DidaSyncPlugin from '../main';
+import { getDidaTaskPath } from '../taskTree';
 import { DidaTask } from '../types';
 
 export class TaskSuggestionPopup {
@@ -38,8 +39,6 @@ export class TaskSuggestionPopup {
 
     getFilteredTasks() {
         return (this.plugin.settings.tasks || []).filter(t => {
-            if (t.parentId) return false;
-
             const isCompleted = t.completed === true || t.completed === 2 || t.status === 2;
             const isArchived = t.projectClosed === true;
 
@@ -122,6 +121,14 @@ export class TaskSuggestionPopup {
                 titleDiv.textContent = task.title || "无标题任务";
                 if (task.completed) titleDiv.classList.add("completed");
                 item.appendChild(titleDiv);
+
+                const taskPath = getDidaTaskPath(task, this.plugin.settings.tasks || []);
+                if (task.parentId && taskPath && taskPath !== task.title) {
+                    const pathDiv = document.createElement("div");
+                    pathDiv.className = "dida-suggestion-task-path";
+                    pathDiv.textContent = taskPath;
+                    item.appendChild(pathDiv);
+                }
 
                 if (task.projectName) {
                     const projectDiv = document.createElement("div");
@@ -235,7 +242,8 @@ export class TaskSuggestionPopup {
             tasks = tasks.filter(t => {
                 const titleMatch = t.title && t.title.toLowerCase().includes(this.searchTerm.toLowerCase());
                 const projectMatch = t.projectName && t.projectName.toLowerCase().includes(this.searchTerm.toLowerCase());
-                return titleMatch || projectMatch;
+                const pathMatch = getDidaTaskPath(t, this.plugin.settings.tasks || []).toLowerCase().includes(this.searchTerm.toLowerCase());
+                return titleMatch || projectMatch || pathMatch;
             }).sort((a, b) => {
                 const dateA = new Date(a.updatedAt || a.createdAt).getTime();
                 const dateB = new Date(b.updatedAt || b.createdAt).getTime();

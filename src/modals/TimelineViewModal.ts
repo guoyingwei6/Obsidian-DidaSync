@@ -808,32 +808,53 @@ export class TimelineViewModal {
                 addSubBtn.addClass("dida-floating-add-btn");
                 addSubBtn.title = "添加子任务";
                 addSubBtn.onclick = async () => {
-                    const newSub: DidaTask = {
-                        id: Date.now().toString(),
-                        title: "新子任务",
-                        content: "",
-                        desc: "",
-                        status: 0,
-                        didaId: null,
-                        projectId: currentTask.projectId,
-                        projectName: currentTask.projectName,
-                        parentId: currentTask.didaId || currentTask.id,
-                        createdAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString(),
-                        items: [],
-                        kind: "TEXT",
-                        priority: 0,
-                        sortOrder: 0,
-                        timeZone: this.plugin.getUserTimeZone(),
-                        isFloating: false,
-                        isAllDay: false
-                    } as any;
-                    this.plugin.settings.tasks.push(newSub);
-                    await this.plugin.saveSettings();
-                    if (this.plugin.settings.accessToken) {
-                        try { await this.plugin.createTaskInDidaList(newSub); } catch (e) { }
-                    }
-                    refreshSubtaskArea();
+                    const fixedProject = {
+                        id: currentTask.projectId || "inbox",
+                        name: currentTask.projectName || "收集箱"
+                    };
+                    new AddTaskModal(this.app, async (title, project, schedule) => {
+                        const newSub: DidaTask = {
+                            id: Date.now().toString(),
+                            title,
+                            content: "",
+                            desc: "",
+                            status: 0,
+                            didaId: null,
+                            projectId: project.id,
+                            projectName: project.name,
+                            parentId: currentTask.didaId || currentTask.id,
+                            createdAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString(),
+                            startDate: schedule.startDate || null,
+                            dueDate: schedule.dueDate || null,
+                            isAllDay: schedule.isAllDay,
+                            repeatFlag: schedule.repeatFlag || null,
+                            items: [],
+                            kind: "TEXT",
+                            priority: 0,
+                            sortOrder: 0,
+                            timeZone: this.plugin.getUserTimeZone(),
+                            isFloating: false
+                        } as any;
+                        this.plugin.settings.tasks.push(newSub);
+                        await this.plugin.saveSettings();
+                        this.renderTimelineView();
+                        refreshSubtaskArea();
+                        if (this.plugin.settings.accessToken) {
+                            try {
+                                await this.plugin.createTaskInDidaList(newSub);
+                            } finally {
+                                this.renderTimelineView();
+                                refreshSubtaskArea();
+                            }
+                        }
+                    }, {
+                        projects: [fixedProject],
+                        defaultProjectId: fixedProject.id,
+                        defaultDate: this.selectedDate,
+                        triggerElement: addSubBtn,
+                        scopeElement: this.windowElement
+                    }).open();
                 };
             };
             refreshSubtaskArea();

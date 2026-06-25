@@ -48,6 +48,10 @@ export interface DidaTask {
     // Native Sync fields
     hasLink?: boolean; // If linked to a markdown file
     linkPath?: string;
+
+    // Placement sync UI state
+    syncPlacementPending?: boolean;
+    syncPlacementError?: string;
 }
 
 export interface CompletedTasksQuery {
@@ -101,14 +105,25 @@ export interface TaskScheduleInput {
     repeatFlag?: string | null;
 }
 
-export type PendingSyncOperationType = "upsert" | "complete" | "delete";
+export interface PendingPlacementOperationPayload {
+    fromProjectId: string;
+    fromProjectName?: string;
+    fromParentId?: string | null;
+    toProjectId: string;
+    toProjectName?: string;
+    toParentId?: string | null;
+    parentTaskId?: string;
+    parentDidaId?: string;
+}
+
+export type PendingSyncOperationType = "upsert" | "complete" | "delete" | "placement";
 
 export interface PendingSyncOperation {
     localTaskId: string;
     didaId?: string;
     projectId?: string;
     type: PendingSyncOperationType;
-    payload?: Partial<DidaTask>;
+    payload?: Partial<DidaTask> | PendingPlacementOperationPayload;
     createdAt: string;
     attempts: number;
     lastError?: string;
