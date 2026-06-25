@@ -6,7 +6,7 @@ import { getCalendarCompletedFetchDecision, hasCalendarCompletedCacheForRange } 
 import { buildCalendarMonthGrid, CalendarMode, dedupeCalendarTasks, getCalendarDateKey, getCalendarMonthRange, getCalendarYearRange, groupTasksByCalendarDate } from '../calendarMonth';
 import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
-import { buildDidaTaskDragPayload, buildDidaTaskTreeIndex, getDidaTaskTreeKey, sortDidaTasksForTree } from '../taskTree';
+import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeIndex, getDidaTaskTreeKey, getDidaTaskTreeKeys, sortDidaTasksForTree } from '../taskTree';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
 import { clampMinutes, dateAtMinutes, getTimeGridDay, getTimeGridRange, gridStartMinutes, isAllDayTimeGridTask, snapDuration, snapMinutes, taskBelongsToTimeGridDate, TIME_GRID_STEP_MINUTES } from '../timeGrid';
 import { appendValidatedSvg, compareProjectGroups, debounce, getTimerRemainingSeconds, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
@@ -1163,14 +1163,20 @@ export class TaskView extends ItemView {
         container: HTMLElement,
         task: DidaTask,
         childrenByParentId: Map<string, DidaTask[]>,
+        renderableTaskKeys: Set<string> | null = null,
+        matchedTaskKeys: Set<string> | null = null,
         depth: number = 0,
         ancestors: Set<string> = new Set()
     ) {
         const taskKey = getDidaTaskTreeKey(task);
+        if (taskKey && renderableTaskKeys && !renderableTaskKeys.has(taskKey)) return;
         if (taskKey && ancestors.has(taskKey)) return;
         const nextAncestors = new Set(ancestors);
         if (taskKey) nextAncestors.add(taskKey);
-        const children = taskKey ? (childrenByParentId.get(taskKey) || []) : [];
+        const children = (taskKey ? (childrenByParentId.get(taskKey) || []) : []).filter((child) => {
+            const childKey = getDidaTaskTreeKey(child);
+            return !renderableTaskKeys || (!!childKey && renderableTaskKeys.has(childKey));
+        });
 
         const taskItem = container.createDiv("dida-task-item");
         taskItem.addClass("dida-task-tree-item");
@@ -1192,7 +1198,39 @@ export class TaskView extends ItemView {
         taskItem.addEventListener("dragend", (e) => {
             e.stopPropagation();
             taskItem.classList.remove("dragging");
+            taskItem.classList.remove("dida-task-drop-parent-target");
             document.querySelectorAll(".dida-project-header").forEach((h) => h.classList.remove("drag-over"));
+            document.querySelectorAll(".dida-task-drop-parent-target").forEach((h) => h.classList.remove("dida-task-drop-parent-target"));
+        });
+        taskItem.addEventListener("dragover", (e) => {
+            if (!e.dataTransfer?.types.includes("application/x-dida-task")) return;
+            const draggedTaskId = e.dataTransfer.getData("application/x-dida-task");
+            if (!draggedTaskId || draggedTaskId === task.id || draggedTaskId === task.didaId) return;
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "move";
+            taskItem.classList.add("dida-task-drop-parent-target");
+        });
+        taskItem.addEventListener("dragleave", (e) => {
+            e.stopPropagation();
+            if (e.target === taskItem || !taskItem.contains(e.relatedTarget as Node | null)) {
+                taskItem.classList.remove("dida-task-drop-parent-target");
+            }
+        });
+        taskItem.addEventListener("drop", async (e) => {
+            const draggedTaskId = e.dataTransfer?.getData("application/x-dida-task");
+            if (!draggedTaskId) return;
+            e.preventDefault();
+            e.stopPropagation();
+            taskItem.classList.remove("dida-task-drop-parent-target");
+            const draggedTask = (this.plugin.settings.tasks || []).find((item) => item.id === draggedTaskId || item.didaId === draggedTaskId);
+            if (!draggedTask) return;
+            try {
+                await this.plugin.reparentTask(draggedTask, task);
+                new Notice(`已设为 ${task.title || "目标任务"} 的子任务`);
+            } catch (error: any) {
+                new Notice(error?.message || "设置子任务失败");
+            }
         });
 
         const mainRow = taskItem.createDiv("dida-task-main-row");
@@ -1329,10 +1367,26 @@ export class TaskView extends ItemView {
         const syncStatusSpan = rightButtons.createEl("span", {
             cls: task.didaId ? "dida-sync-status synced" : "dida-sync-status unsynced"
         });
-        setIconElement(syncStatusSpan, task.didaId ? "cloud-check" : "cloud-alert");
+        if (task.syncPlacementPending) {
+            syncStatusSpan.removeClass("synced", "unsynced");
+            syncStatusSpan.addClass("pending");
+            syncStatusSpan.title = "任务位置同步中";
+            setIconElement(syncStatusSpan, "git-branch-plus");
+        } else if (task.syncPlacementError) {
+            syncStatusSpan.removeClass("synced", "unsynced");
+            syncStatusSpan.addClass("error");
+            syncStatusSpan.title = task.syncPlacementError;
+            setIconElement(syncStatusSpan, "cloud-alert");
+        } else {
+            setIconElement(syncStatusSpan, task.didaId ? "cloud-check" : "cloud-alert");
+        }
+
+        if (matchedTaskKeys && taskKey && !matchedTaskKeys.has(taskKey)) {
+            taskItem.addClass("dida-task-filter-context");
+        }
 
         for (const child of children) {
-            this.renderTaskTreeItem(container, child, childrenByParentId, depth + 1, nextAncestors);
+            this.renderTaskTreeItem(container, child, childrenByParentId, renderableTaskKeys, matchedTaskKeys, depth + 1, nextAncestors);
         }
     }
 
@@ -1651,9 +1705,17 @@ export class TaskView extends ItemView {
                 const taskByKey = new Map<string, DidaTask>();
                 tasks.forEach((task) => {
                     task.content = typeof task.content === "string" ? task.content : (task.content || "");
-                    const key = getDidaTaskTreeKey(task);
-                    if (key) taskByKey.set(key, task as DidaTask);
+                    for (const key of getDidaTaskTreeKeys(task as DidaTask)) taskByKey.set(key, task as DidaTask);
                 });
+
+                const matchedTasks: DidaTask[] = [];
+                const canIncludeTaskInFilteredTree = (task: DidaTask) => {
+                    const projectInfo = this.plugin.resolveTaskProjectInfo(task);
+                    if (!this.plugin.settings.showArchivedProjects && projectInfo.isArchived) return false;
+                    if (!this.plugin.isProjectVisible(projectInfo.id, projectInfo.name)) return false;
+                    if (task.status === 2) return false;
+                    return true;
+                };
 
                 const visibleRootKeys = new Set<string>();
                 tasks.forEach((task) => {
@@ -1664,10 +1726,18 @@ export class TaskView extends ItemView {
                     if (!this.plugin.settings.showArchivedProjects && isArchived) return;
                     if (!this.plugin.isProjectVisible(projectId, projectName)) return;
                     if (!this.taskMatchesCurrentFilters(task as DidaTask, projectName)) return;
+                    matchedTasks.push(task as DidaTask);
+                });
 
+                const filterSets = buildDidaTaskFilterSets(tasks as DidaTask[], matchedTasks, canIncludeTaskInFilteredTree);
+                const matchedTaskKeys = filterSets.matchedTaskKeys;
+                const renderableTaskKeys = filterSets.renderableTaskKeys;
+
+                matchedTasks.forEach((task) => {
                     const root = this.resolveVisibleRootTask(task as DidaTask, taskByKey);
                     const rootKey = getDidaTaskTreeKey(root);
                     if (!rootKey || visibleRootKeys.has(rootKey)) return;
+                    if (!renderableTaskKeys.has(rootKey)) return;
                     visibleRootKeys.add(rootKey);
 
                     const rootProjectInfo = this.plugin.resolveTaskProjectInfo(root);
@@ -1721,7 +1791,10 @@ export class TaskView extends ItemView {
                     });
 
                     const rootTaskKeys = new Set(projectTasks.map(task => getDidaTaskTreeKey(task)).filter(Boolean) as string[]);
-                    const visibleSubtaskCount = tasksInProject.filter(t => t.parentId && !rootTaskKeys.has(getDidaTaskTreeKey(t) || "")).length;
+                    const visibleSubtaskCount = tasksInProject.filter((t) => {
+                        const key = getDidaTaskTreeKey(t as DidaTask);
+                        return !!key && matchedTaskKeys.has(key) && !!t.parentId && !rootTaskKeys.has(key);
+                    }).length;
                     const countText = visibleSubtaskCount > 0 ? `${projectName} (${projectTasks.length}+${visibleSubtaskCount})` : `${projectName} (${projectTasks.length})`;
 
                     titleEl.createEl("span", { text: countText });
@@ -1836,7 +1909,7 @@ export class TaskView extends ItemView {
                     }
 
                     sortDidaTasksForTree(projectTasks as DidaTask[]).forEach(task => {
-                        this.renderTaskTreeItem(tasksContainer, task, taskTreeIndex.childrenByParentId);
+                        this.renderTaskTreeItem(tasksContainer, task, taskTreeIndex.childrenByParentId, renderableTaskKeys, matchedTaskKeys);
                     });
                 }
             }

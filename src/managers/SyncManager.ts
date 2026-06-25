@@ -1,6 +1,6 @@
 import { Notice } from "obsidian";
 import DidaSyncPlugin from "../main";
-import { DidaTask, PendingSyncOperation, PendingSyncOperationType, SyncResult } from "../types";
+import { DidaTask, PendingPlacementOperationPayload, PendingSyncOperation, PendingSyncOperationType, SyncResult } from "../types";
 import { TASK_VIEW_TYPE, TaskView } from "../views/TaskView";
 
 // Reverse completion verification constants
@@ -38,7 +38,7 @@ export class SyncManager {
         return this.getPendingOperations().some(operation => operation.didaId === didaId && operation.type === "delete");
     }
 
-    async queueOperation(task: DidaTask, type: PendingSyncOperationType) {
+    async queueOperation(task: DidaTask, type: PendingSyncOperationType, payload?: PendingSyncOperation["payload"]) {
         const operations = this.getPendingOperations();
         const existing = operations.find(operation => operation.localTaskId === task.id);
         const next: PendingSyncOperation = {
@@ -46,7 +46,7 @@ export class SyncManager {
             didaId: task.didaId,
             projectId: task.projectId || "inbox",
             type,
-            payload: type === "delete" ? undefined : { ...task },
+            payload: type === "delete" ? undefined : (payload || { ...task }),
             createdAt: existing?.createdAt || new Date().toISOString(),
             attempts: existing?.attempts || 0
         };
@@ -62,6 +62,10 @@ export class SyncManager {
         );
         if (remaining.length === current.length) return;
         this.plugin.settings.pendingSyncOperations = remaining;
+        if (!remaining.some((operation) => operation.localTaskId === task.id && operation.type === "placement")) {
+            task.syncPlacementPending = false;
+            task.syncPlacementError = undefined;
+        }
         await this.plugin.saveSettings();
     }
 
@@ -89,6 +93,12 @@ export class SyncManager {
                         this.plugin.settings.pendingSyncOperations = this.getPendingOperations().filter(item => item !== operation);
                         await this.plugin.saveSettings();
                     }
+                } else if (operation.type === "placement") {
+                    if (task) await this.flushPlacementOperation(task, operation);
+                    else {
+                        this.plugin.settings.pendingSyncOperations = this.getPendingOperations().filter(item => item !== operation);
+                        await this.plugin.saveSettings();
+                    }
                 } else if (task) {
                     if (!task.didaId) await this.createTaskInDidaList(task, false);
                     else if (operation.type === "complete") await this.toggleTaskInDidaList(task, false);
@@ -106,6 +116,109 @@ export class SyncManager {
             }
         }
         return { uploaded, failed };
+    }
+
+    private getPlacementPayload(operation: PendingSyncOperation): PendingPlacementOperationPayload {
+        const payload = operation.payload;
+        if (!payload || typeof payload !== "object" || !("fromProjectId" in payload) || !("toProjectId" in payload)) {
+            throw new Error("位置同步数据缺失");
+        }
+        return payload as PendingPlacementOperationPayload;
+    }
+
+    private async removeOperation(operation: PendingSyncOperation) {
+        this.plugin.settings.pendingSyncOperations = this.getPendingOperations().filter((item) => item !== operation);
+        await this.plugin.saveSettings();
+    }
+
+    private async updatePlacementState(task: DidaTask, pending: boolean, error?: string) {
+        task.syncPlacementPending = pending;
+        task.syncPlacementError = error;
+        await this.plugin.saveSettings();
+        this.plugin.refreshTaskView();
+    }
+
+    private restorePlacementLocally(task: DidaTask, payload: PendingPlacementOperationPayload) {
+        const fromProjectId = payload.fromProjectId || "inbox";
+        const display = typeof this.plugin.getProjectDisplayInfo === "function"
+            ? this.plugin.getProjectDisplayInfo(fromProjectId, payload.fromProjectName)
+            : { id: fromProjectId, name: payload.fromProjectName || fromProjectId };
+        task.projectId = display.id;
+        task.projectName = display.name;
+        task.projectColor = display.color;
+        task.projectClosed = display.closed;
+        task.projectViewMode = display.viewMode;
+        task.projectKind = display.kind;
+        task.projectPermission = display.permission;
+        task.parentId = payload.fromParentId ?? null;
+        task.updatedAt = new Date().toISOString();
+    }
+
+    private async rollbackPlacementMove(task: DidaTask, payload: PendingPlacementOperationPayload): Promise<boolean> {
+        if (!task.didaId || payload.fromProjectId === payload.toProjectId) return true;
+        try {
+            await this.plugin.apiClient.moveTask(payload.toProjectId, payload.fromProjectId, task.didaId);
+            return true;
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    private async flushPlacementOperation(task: DidaTask, operation: PendingSyncOperation) {
+        if (!task.didaId) {
+            await this.removeOperation(operation);
+            return;
+        }
+
+        const payload = this.getPlacementPayload(operation);
+        const fromProjectId = payload.fromProjectId || "inbox";
+        const toProjectId = payload.toProjectId || task.projectId || "inbox";
+        const fromParentId = payload.fromParentId ?? null;
+        const toParentId = payload.toParentId ?? null;
+        const movedAcrossProjects = fromProjectId !== toProjectId;
+        const changedParent = fromParentId !== toParentId;
+        let moved = false;
+
+        await this.updatePlacementState(task, true);
+
+        try {
+            if (movedAcrossProjects) {
+                await this.plugin.apiClient.moveTask(fromProjectId, toProjectId, task.didaId);
+                moved = true;
+            }
+            if (changedParent) {
+                await this.updateTaskInDidaList(task, false);
+            } else {
+                await this.removeOperation(operation);
+                await this.updatePlacementState(task, false);
+            }
+        } catch (error: any) {
+            const message = error?.message || String(error);
+            if (!moved) {
+                this.restorePlacementLocally(task, payload);
+                await this.removeOperation(operation);
+                await this.updatePlacementState(task, false, message);
+                throw error;
+            }
+
+            const rolledBack = await this.rollbackPlacementMove(task, payload);
+            if (rolledBack) {
+                this.restorePlacementLocally(task, payload);
+                await this.removeOperation(operation);
+                await this.updatePlacementState(task, false, message);
+                throw error;
+            }
+
+            payload.fromProjectId = toProjectId;
+            payload.fromProjectName = payload.toProjectName;
+            payload.fromParentId = null;
+            operation.payload = payload;
+            task.syncPlacementPending = true;
+            task.syncPlacementError = message;
+            await this.plugin.saveSettings();
+            this.plugin.refreshTaskView();
+            throw error;
+        }
     }
 
     async syncToDidaList(): Promise<SyncResult> {
@@ -784,7 +897,7 @@ export class SyncManager {
                 if (task.isAllDay) payload.timeZone = this.plugin.getUserTimeZone();
             }
             if (task.priority !== undefined) payload.priority = task.priority;
-            if (task.parentId) payload.parentId = task.parentId;
+            if (task.parentId !== undefined) payload.parentId = task.parentId;
             if (task.items && Array.isArray(task.items)) payload.items = task.items;
             if (task.reminders && Array.isArray(task.reminders)) payload.reminders = task.reminders;
             if (typeof task.repeatFlag === "string") {
@@ -815,7 +928,7 @@ export class SyncManager {
                     await res.text();
                     throw new Error("更新任务失败: " + res.status);
                 }
-                const data = await res.json();
+                const data = await this.readResponseJson(res, {});
                 if (!hasTimeRange) {
                     if (data.dueDate !== undefined) task.dueDate = data.dueDate;
                     if (data.startDate !== undefined) task.startDate = data.startDate;
@@ -832,6 +945,33 @@ export class SyncManager {
                 throw e;
             }
         }
+    }
+
+    private async readResponseJson<T>(res: { text?: () => Promise<string>; json?: () => Promise<any> }, fallback: T): Promise<T> {
+        if (typeof res.text === "function") {
+            const text = await res.text();
+            if (!text) return fallback;
+            try {
+                return JSON.parse(text) as T;
+            } catch (_error) {
+                if (typeof res.json === "function") {
+                    try {
+                        return await res.json();
+                    } catch (_jsonError) {
+                        return fallback;
+                    }
+                }
+                return fallback;
+            }
+        }
+        if (typeof res.json === "function") {
+            try {
+                return await res.json();
+            } catch (_error) {
+                return fallback;
+            }
+        }
+        return fallback;
     }
 
     async deleteTaskInDidaList(taskId: string, projectId: string = "inbox", trackPending: boolean = true) {

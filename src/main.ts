@@ -26,6 +26,26 @@ import { TASK_VIEW_TYPE, TaskView } from './views/TaskView';
 const AUTO_SYNC_EDIT_PAUSE_MAX_MS = 36e4;
 const AUTO_SYNC_EDIT_RECHECK_MS = 6e4;
 
+type TaskPlacementSnapshot = {
+    parentId: string | null | undefined;
+    projectId: string;
+    projectName?: string;
+    projectColor?: string;
+    projectClosed?: boolean;
+    projectViewMode?: string;
+    projectKind?: string;
+    projectPermission?: string;
+    updatedAt?: string;
+};
+
+type TaskPlacementTarget = {
+    projectId: string;
+    projectName?: string;
+    parentId: string | null;
+    parentTaskId?: string;
+    parentDidaId?: string;
+};
+
 let DIDA_LUCIDE_ICON_NAMES: string[] = [];
 try {
     const iconIds = typeof getIconIds === "function" ? getIconIds() : null;
@@ -1283,18 +1303,69 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     async moveTaskToProject(task: DidaTask, targetProjectId: string) {
-        if (!task) throw new Error("任务不存在");
-        const sourceProjectId = task.projectId || "inbox";
-        const target = this.findProjectById(targetProjectId);
-        if (!target || !target.id) throw new Error("目标项目不存在");
-        if (target.isLocalOnly) throw new Error("目标项目尚未同步到滴答清单，无法移动");
-        if (sourceProjectId === target.id) return task;
+        return this.moveTaskPlacement(task, targetProjectId, null);
+    }
 
-        if (task.didaId && this.settings.accessToken) {
-            await this.apiClient.moveTask(sourceProjectId, target.id, task.didaId);
+    isTaskDescendantOf(task: DidaTask, possibleAncestor: DidaTask) {
+        const tasks = this.settings.tasks || [];
+        const possibleAncestorKeys = new Set([possibleAncestor.didaId, possibleAncestor.id].filter(Boolean));
+        const byKey = new Map<string, DidaTask>();
+        tasks.forEach((candidate) => {
+            if (candidate.didaId) byKey.set(candidate.didaId, candidate);
+            if (candidate.id) byKey.set(candidate.id, candidate);
+        });
+
+        let current: DidaTask | undefined = task;
+        const seen = new Set<string>();
+        while (current && current.parentId) {
+            if (possibleAncestorKeys.has(current.parentId)) return true;
+            if (seen.has(current.parentId)) return false;
+            seen.add(current.parentId);
+            current = byKey.get(current.parentId);
         }
+        return false;
+    }
 
-        const display = this.getProjectDisplayInfo(target.id, target.name);
+    async reparentTask(task: DidaTask, parentTask: DidaTask) {
+        if (!task || !parentTask) throw new Error("任务不存在");
+        const taskKeys = new Set([task.didaId, task.id].filter(Boolean));
+        const parentKeys = new Set([parentTask.didaId, parentTask.id].filter(Boolean));
+        if ([...taskKeys].some(key => parentKeys.has(key))) throw new Error("不能将任务拖到自身上");
+        if (this.isTaskDescendantOf(parentTask, task)) throw new Error("不能将任务拖到自己的子任务上");
+
+        const parentDisplay = this.resolveTaskProjectInfo(parentTask);
+        return this.moveTaskPlacement(task, parentDisplay.id, parentTask);
+    }
+
+    private snapshotTaskPlacement(task: DidaTask) {
+        return {
+            parentId: task.parentId ?? undefined,
+            projectId: task.projectId,
+            projectName: task.projectName,
+            projectColor: task.projectColor,
+            projectClosed: task.projectClosed,
+            projectViewMode: task.projectViewMode,
+            projectKind: task.projectKind,
+            projectPermission: task.projectPermission,
+            updatedAt: task.updatedAt
+        };
+    }
+
+    private restoreTaskPlacement(task: DidaTask, snapshot: TaskPlacementSnapshot) {
+        task.parentId = snapshot.parentId;
+        task.projectId = snapshot.projectId;
+        task.projectName = snapshot.projectName;
+        task.projectColor = snapshot.projectColor;
+        task.projectClosed = snapshot.projectClosed;
+        task.projectViewMode = snapshot.projectViewMode;
+        task.projectKind = snapshot.projectKind;
+        task.projectPermission = snapshot.projectPermission;
+        task.updatedAt = snapshot.updatedAt;
+    }
+
+    private applyTaskPlacement(task: DidaTask, targetProjectId: string, targetProjectName?: string, parentId: string | null = null) {
+        const display = this.getProjectDisplayInfo(targetProjectId, targetProjectName);
+        task.parentId = parentId;
         task.projectId = display.id;
         task.projectName = display.name;
         task.projectColor = display.color;
@@ -1303,8 +1374,76 @@ export default class DidaSyncPlugin extends Plugin {
         task.projectKind = display.kind;
         task.projectPermission = display.permission;
         task.updatedAt = new Date().toISOString();
+    }
+
+    private resolvePlacementTarget(targetProjectId: string, parentTask: DidaTask | null = null): TaskPlacementTarget {
+        const target = this.findProjectById(targetProjectId);
+        const targetName = parentTask ? this.resolveTaskProjectInfo(parentTask).name : target?.name;
+        if (!target && targetProjectId !== "inbox" && targetProjectId !== "local") throw new Error("目标项目不存在");
+
+        const parentId = parentTask ? (parentTask.didaId || parentTask.id) : null;
+        if (parentTask && !parentId) throw new Error("父任务无有效 ID");
+
+        return {
+            projectId: targetProjectId,
+            projectName: targetName,
+            parentId,
+            parentTaskId: parentTask?.id,
+            parentDidaId: parentTask?.didaId
+        };
+    }
+
+    private validatePlacementMove(task: DidaTask, target: TaskPlacementTarget, parentTask: DidaTask | null = null) {
+        const targetProject = this.findProjectById(target.projectId);
+        const isSyncedTask = !!(task.didaId && this.settings.accessToken);
+        if (!isSyncedTask) return;
+
+        if (parentTask && (!parentTask.didaId || this.resolveTaskProjectInfo(parentTask).isLocalOnly)) {
+            throw new Error("已同步任务不能挂到本地父任务下");
+        }
+
+        if (targetProject?.isLocalOnly || target.projectId === "local") {
+            throw new Error("已同步任务不能移动到本地项目");
+        }
+    }
+
+    private async moveTaskPlacement(task: DidaTask, targetProjectId: string, parentTask: DidaTask | null = null) {
+        if (!task) throw new Error("任务不存在");
+
+        const sourceProjectId = task.projectId || "inbox";
+        const target = this.resolvePlacementTarget(targetProjectId, parentTask);
+        this.validatePlacementMove(task, target, parentTask);
+
+        const previous = this.snapshotTaskPlacement(task);
+        const nextParentId = target.parentId ?? null;
+        const previousParentId = previous.parentId ?? null;
+        if (sourceProjectId === target.projectId && previousParentId === nextParentId) return task;
+
+        task.syncPlacementError = undefined;
+        task.syncPlacementPending = !!(task.didaId && this.settings.accessToken);
+        this.applyTaskPlacement(task, target.projectId, target.projectName, nextParentId);
         await this.saveSettings();
         this.refreshTaskView();
+
+        if (!task.didaId || !this.settings.accessToken) {
+            task.syncPlacementPending = false;
+            await this.saveSettings();
+            this.refreshTaskView();
+            return task;
+        }
+
+        await this.syncManager.queueOperation(task, "placement", {
+            fromProjectId: sourceProjectId,
+            fromProjectName: previous.projectName,
+            fromParentId: previousParentId,
+            toProjectId: target.projectId,
+            toProjectName: target.projectName,
+            toParentId: nextParentId,
+            parentTaskId: target.parentTaskId,
+            parentDidaId: target.parentDidaId
+        });
+
+        await this.syncManager.flushPendingOperations();
         return task;
     }
 

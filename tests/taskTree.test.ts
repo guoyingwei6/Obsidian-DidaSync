@@ -1,5 +1,5 @@
 import { strict as assert } from "assert";
-import { buildDidaTaskDragPayload, buildDidaTaskTreeNodes, getDidaTaskPath } from "../src/taskTree";
+import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeNodes, getDidaTaskPath } from "../src/taskTree";
 import { DidaTask } from "../src/types";
 
 function task(id: string, title: string, parentId: string | null = null): DidaTask {
@@ -79,6 +79,17 @@ function task(id: string, title: string, parentId: string | null = null): DidaTa
     const b = task("b", "B", "a");
     const payload = buildDidaTaskDragPayload(a, [a, b]);
     assert.equal(payload.split("\n").length, 2);
+}
+
+{
+    const tasks = [
+        task("a", "A"),
+        task("b", "B", "a"),
+        task("c", "C", "b")
+    ];
+    const sets = buildDidaTaskFilterSets(tasks, [tasks[2]]);
+    assert.deepEqual(Array.from(sets.matchedTaskKeys), ["c"]);
+    assert.deepEqual(Array.from(sets.renderableTaskKeys), ["c", "b", "a"]);
 }
 
 console.log("taskTree tests passed");

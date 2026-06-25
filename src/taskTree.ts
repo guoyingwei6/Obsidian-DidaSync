@@ -12,6 +12,11 @@ export interface DidaTaskTreeIndex {
     childrenByParentId: Map<string, DidaTask[]>;
 }
 
+export interface DidaTaskFilterSets {
+    matchedTaskKeys: Set<string>;
+    renderableTaskKeys: Set<string>;
+}
+
 export function getDidaTaskTreeKey(task: DidaTask | null | undefined): string | null {
     if (!task) return null;
     return task.didaId || task.id || null;
@@ -158,4 +163,40 @@ export function getDidaTaskPath(task: DidaTask, allTasks: DidaTask[]): string {
         current = current.parentId ? byKey.get(current.parentId) : undefined;
     }
     return path.join(" / ");
+}
+
+export function buildDidaTaskFilterSets(
+    tasks: DidaTask[],
+    matchedTasks: DidaTask[],
+    canIncludeTask?: (task: DidaTask) => boolean
+): DidaTaskFilterSets {
+    const matchedTaskKeys = new Set<string>();
+    const renderableTaskKeys = new Set<string>();
+    const byKey = new Map<string, DidaTask>();
+
+    for (const task of tasks || []) {
+        for (const key of getDidaTaskTreeKeys(task)) byKey.set(key, task);
+    }
+
+    for (const task of matchedTasks || []) {
+        const key = getDidaTaskTreeKey(task);
+        if (!key) continue;
+        matchedTaskKeys.add(key);
+
+        let current: DidaTask | undefined = task;
+        const seen = new Set<string>();
+        while (current) {
+            const currentKey = getDidaTaskTreeKey(current);
+            if (!currentKey || seen.has(currentKey)) break;
+            seen.add(currentKey);
+
+            if (canIncludeTask && !canIncludeTask(current)) break;
+            renderableTaskKeys.add(currentKey);
+
+            if (!current.parentId) break;
+            current = byKey.get(current.parentId);
+        }
+    }
+
+    return { matchedTaskKeys, renderableTaskKeys };
 }
