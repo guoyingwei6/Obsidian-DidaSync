@@ -2,6 +2,7 @@
 import DidaSyncPlugin from '../main';
 import { DatePickerModal } from '../modals/DatePickerModal';
 import { AddTaskModal } from '../modals/AddTaskModal';
+import { getCalendarCompletedFetchDecision, hasCalendarCompletedCacheForRange } from '../calendarCompletedFetch';
 import { buildCalendarMonthGrid, CalendarMode, dedupeCalendarTasks, getCalendarDateKey, getCalendarMonthRange, getCalendarYearRange, groupTasksByCalendarDate } from '../calendarMonth';
 import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
@@ -1880,6 +1881,7 @@ export class TaskView extends ItemView {
             this.plugin.settings.defaultShowCompletedInCalendar = this.showCompletedInCalendar;
             await this.plugin.saveSettings();
             if (this.showCompletedInCalendar && (this.calendarMode === "month" || this.calendarMode === "year")) {
+                this.calendarCompletedMonthKey = "";
                 void this.ensureCalendarCompletedTasks();
             }
             this.renderTaskList();
@@ -1901,10 +1903,38 @@ export class TaskView extends ItemView {
         };
     }
 
-    async ensureCalendarCompletedTasks() {
-        if (this.calendarCompletedLoading) return;
+    hasCalendarCompletedCacheForRange(range: { startDate: Date; endDate: Date }) {
+        return hasCalendarCompletedCacheForRange(
+            range,
+            this.plugin.settings.completedTasksQuery,
+            this.plugin.settings.completedTasksLastFetchedAt
+        );
+    }
+
+    shouldFetchCalendarCompletedTasks() {
         const range = this.getCalendarCompletedRange();
-        if (this.calendarCompletedMonthKey === range.key && !this.calendarCompletedError) return;
+
+        const decision = getCalendarCompletedFetchDecision({
+            showCompletedInCalendar: this.showCompletedInCalendar,
+            calendarCompletedLoading: this.calendarCompletedLoading,
+            accessToken: this.plugin.settings.accessToken,
+            range,
+            calendarCompletedRangeKey: this.calendarCompletedMonthKey,
+            calendarCompletedError: this.calendarCompletedError,
+            completedTasksQuery: this.plugin.settings.completedTasksQuery,
+            completedTasksLastFetchedAt: this.plugin.settings.completedTasksLastFetchedAt
+        });
+
+        if (decision.shouldMarkRangeKey) {
+            this.calendarCompletedMonthKey = range.key;
+        }
+
+        return decision.shouldFetch;
+    }
+
+    async ensureCalendarCompletedTasks() {
+        const range = this.getCalendarCompletedRange();
+        if (!this.shouldFetchCalendarCompletedTasks()) return;
 
         this.calendarCompletedLoading = true;
         this.calendarCompletedError = "";
@@ -2095,8 +2125,7 @@ export class TaskView extends ItemView {
     renderCalendarMonthView(container: HTMLElement) {
         const monthContainer = container.createDiv("dida-calendar-month-view");
         const range = getCalendarMonthRange(this.calendarDisplayDate);
-        const completedRange = this.getCalendarCompletedRange();
-        if (this.showCompletedInCalendar && !this.calendarCompletedLoading && this.calendarCompletedMonthKey !== completedRange.key) {
+        if (this.shouldFetchCalendarCompletedTasks()) {
             void this.ensureCalendarCompletedTasks();
         }
 
@@ -2173,8 +2202,7 @@ export class TaskView extends ItemView {
     renderCalendarYearView(container: HTMLElement) {
         const yearContainer = container.createDiv("dida-calendar-year-view");
         const range = getCalendarYearRange(this.calendarDisplayDate);
-        const completedRange = this.getCalendarCompletedRange();
-        if (this.showCompletedInCalendar && !this.calendarCompletedLoading && this.calendarCompletedMonthKey !== completedRange.key) {
+        if (this.shouldFetchCalendarCompletedTasks()) {
             void this.ensureCalendarCompletedTasks();
         }
 
