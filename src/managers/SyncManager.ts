@@ -729,7 +729,7 @@ export class SyncManager {
                 task.kind = data.kind || "TEXT";
                 task.projectViewMode = data.projectViewMode || "list";
                 task.projectKind = data.projectKind || "TASK";
-                task.parentId = data.parentId || null;
+                task.parentId = data.parentId || task.parentId || null;
                 if (data.items && Array.isArray(data.items) && data.items.length > 0) task.items = data.items;
                 task.reminders = data.reminders || [];
                 task.repeatFlag = data.repeatFlag || null;

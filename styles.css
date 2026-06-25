@@ -1050,6 +1050,30 @@
     background: transparent;
 }
 
+.dida-task-tree-item {
+    position: relative;
+}
+
+.dida-task-tree-child::before {
+    content: "";
+    position: absolute;
+    left: calc((var(--dida-task-depth, 1) * 18px) - 9px);
+    top: 0;
+    bottom: 0;
+    border-left: 1px solid var(--background-modifier-border);
+    opacity: 0.75;
+}
+
+.dida-task-tree-child .dida-task-main-row::before {
+    content: "";
+    width: 10px;
+    height: 1px;
+    margin-right: 2px;
+    background: var(--background-modifier-border);
+    flex: 0 0 10px;
+    opacity: 0.75;
+}
+
 .dida-task-item .dida-task-main-row {
     display: flex;
     align-items: center;
@@ -3841,9 +3865,37 @@ label+.dida-project-select {
     opacity: 0.8;
 }
 
+.dida-suggestion-task-path {
+    font-size: 12px;
+    color: var(--text-muted);
+    opacity: 0.85;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .dida-suggestion-item.selected .dida-suggestion-project {
     color: var(--text-on-accent);
     opacity: 0.9;
+}
+
+.dida-suggestion-item.selected .dida-suggestion-task-path {
+    color: var(--text-on-accent);
+    opacity: 0.9;
+}
+
+.dida-subtask-parent-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 0;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.dida-subtask-parent-label strong {
+    color: var(--text-normal);
+    font-weight: 500;
 }
 
 .dida-no-tasks {
