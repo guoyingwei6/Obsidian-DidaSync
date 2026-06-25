@@ -14,7 +14,7 @@ export class AuthUrlModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
         contentEl.createEl("h2", { text: "OAuth认证" });
-        contentEl.createEl("p", { text: "无法自动打开浏览器，请手动复制以下链接到浏览器中完成认证：" });
+        contentEl.createEl("p", { text: "如果浏览器没有自动打开，请手动复制以下链接到浏览器中完成认证：" });
         const box = contentEl.createDiv("dida-auth-box");
         box.createEl("code", { text: this.url });
         contentEl.createEl("p", { text: "认证完成后，请确保浏览器重定向到了以下地址：" });

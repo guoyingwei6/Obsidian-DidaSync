@@ -59,9 +59,22 @@ async function run() {
     assert.match(authUrl, /redirect_uri=http%3A%2F%2F127\.0\.0\.1%3A8765%2Fcallback/);
     assert.match(authUrl, /scope=tasks%3Awrite\+tasks%3Aread/);
 
+    const originalWindow = (globalThis as any).window;
+
+    platform.isMobile = false;
+    let desktopWindowOpenCalls = 0;
+    (globalThis as any).window = {
+        open: () => {
+            desktopWindowOpenCalls++;
+            return null;
+        }
+    };
+    await (client as any).openAuthUrl("https://example.test/oauth");
+    assert.equal(desktopWindowOpenCalls, 1, "桌面端首选打开方式失败后应尝试 window.open 回退");
+    assert.equal(authUrlModalOpenCount, 0, "桌面端回退打开成功时不应误报手动链接");
+
     platform.isMobile = true;
     assert.equal(client.getRedirectUri(), "http://127.0.0.1:8765/callback");
-    const originalWindow = (globalThis as any).window;
     (globalThis as any).window = { open: () => null };
     await (client as any).openAuthUrl("https://example.test/oauth");
     assert.equal(authUrlModalOpenCount, 0, "移动端 window.open 返回 null 不应误报打开失败");

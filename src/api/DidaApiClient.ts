@@ -120,8 +120,8 @@ export class DidaApiClient {
             }
         } catch (e) { }
         try {
-            const opened = window.open(url, "_blank");
-            if (Platform.isMobile || opened) return;
+            window.open(url, "_blank");
+            return;
         } catch (e) { }
         new AuthUrlModal(this.plugin.app, url, redirectUri).open();
     }
