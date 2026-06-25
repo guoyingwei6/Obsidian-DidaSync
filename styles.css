@@ -3239,6 +3239,346 @@ label+.dida-project-select {
 }
 
 
+.dida-calendar-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.dida-calendar-mode-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-secondary);
+}
+
+.dida-calendar-mode-btn {
+    min-width: 32px;
+    height: 26px;
+    padding: 0 8px;
+    border-radius: 4px;
+    box-shadow: none !important;
+    background: transparent !important;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.dida-calendar-mode-btn.is-active {
+    background: var(--interactive-accent) !important;
+    color: var(--text-on-accent);
+}
+
+.dida-calendar-completed-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.dida-calendar-month-view {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.dida-calendar-month-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.dida-calendar-month-title {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-normal);
+}
+
+.dida-calendar-month-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dida-calendar-status {
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.dida-calendar-status-error {
+    color: var(--text-warning);
+}
+
+.dida-calendar-weekday-row,
+.dida-calendar-month-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.dida-calendar-weekday-cell {
+    padding: 4px 2px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.dida-calendar-month-grid {
+    border-top: 1px solid var(--background-modifier-border);
+    border-left: 1px solid var(--background-modifier-border);
+}
+
+.dida-calendar-month-cell {
+    min-width: 0;
+    min-height: 96px;
+    padding: 4px;
+    border-right: 1px solid var(--background-modifier-border);
+    border-bottom: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.dida-calendar-month-cell.is-outside-month {
+    background: var(--background-secondary);
+    opacity: 0.72;
+}
+
+.dida-calendar-month-cell.is-selected {
+    box-shadow: inset 0 0 0 1px var(--interactive-accent);
+}
+
+.dida-calendar-cell-date {
+    width: fit-content;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: 11px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 22px;
+    cursor: pointer;
+}
+
+.dida-calendar-month-cell.is-today .dida-calendar-cell-date {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.dida-calendar-cell-tasks {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 4px;
+    min-width: 0;
+}
+
+.dida-calendar-task-chip {
+    min-width: 0;
+    padding: 2px 5px;
+    border-radius: 5px;
+    color: rgb(49 51 58);
+    font-size: 11px;
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+
+.dida-calendar-task-chip.is-completed {
+    background: var(--background-modifier-hover);
+    color: var(--text-muted);
+    opacity: 0.78;
+    text-decoration: line-through;
+}
+
+.theme-dark .dida-calendar-task-chip:not(.is-completed) {
+    color: rgb(38 38 38);
+}
+
+.dida-calendar-task-more {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.2;
+}
+
+.dida-calendar-year-view {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.dida-calendar-year-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.dida-calendar-year-title {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--text-normal);
+}
+
+.dida-calendar-year-title-number {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--interactive-accent);
+    line-height: 1;
+}
+
+.dida-calendar-year-title-suffix {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--text-normal);
+    line-height: 1;
+}
+
+.dida-calendar-year-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 22px 34px;
+}
+
+.dida-calendar-year-month {
+    min-width: 0;
+}
+
+.dida-calendar-year-month-title {
+    width: fit-content;
+    margin-bottom: 10px;
+    color: var(--text-error);
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.dida-calendar-year-weekdays,
+.dida-calendar-year-days {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 2px;
+}
+
+.dida-calendar-year-weekday {
+    height: 18px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 18px;
+}
+
+.dida-calendar-year-day {
+    position: relative;
+    height: 20px;
+    border-radius: 4px;
+    text-align: center;
+    color: var(--text-normal);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 20px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dida-calendar-year-day.is-outside-month {
+    color: var(--text-faint);
+    font-weight: 500;
+}
+
+.dida-calendar-year-day.heat-1 {
+    background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+
+.dida-calendar-year-day.heat-2 {
+    background: color-mix(in srgb, var(--interactive-accent) 32%, transparent);
+}
+
+.dida-calendar-year-day.heat-3 {
+    background: color-mix(in srgb, var(--interactive-accent) 48%, transparent);
+}
+
+.dida-calendar-year-day.heat-4 {
+    background: color-mix(in srgb, var(--interactive-accent) 64%, transparent);
+    color: var(--text-on-accent);
+}
+
+.theme-dark .dida-calendar-year-day.heat-1 {
+    background: rgb(35 53 75);
+}
+
+.theme-dark .dida-calendar-year-day.heat-2 {
+    background: rgb(43 70 101);
+}
+
+.theme-dark .dida-calendar-year-day.heat-3 {
+    background: rgb(51 88 130);
+}
+
+.theme-dark .dida-calendar-year-day.heat-4 {
+    background: rgb(70 121 178);
+    color: rgb(245 247 250);
+}
+
+.dida-calendar-year-day.is-today {
+    background: var(--text-error);
+    color: var(--text-on-accent);
+    box-shadow: 0 0 0 2px var(--background-primary);
+    z-index: 1;
+}
+
+.dida-calendar-year-day.is-selected:not(.is-today) {
+    box-shadow: inset 0 0 0 1px var(--interactive-accent);
+}
+
+@media (max-width: 640px) {
+    .dida-calendar-toolbar,
+    .dida-calendar-month-header,
+    .dida-calendar-year-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .dida-calendar-year-grid {
+        grid-template-columns: 1fr;
+        gap: 18px;
+    }
+
+    .dida-calendar-month-cell {
+        min-height: 72px;
+        padding: 3px;
+    }
+
+    .dida-calendar-task-chip:nth-child(n + 3) {
+        display: none;
+    }
+
+    .dida-calendar-task-chip {
+        padding: 1px 4px;
+        font-size: 10px;
+    }
+}
+
 .dida-time-block-all-day-grid {
     display: flex;
     flex-direction: column;

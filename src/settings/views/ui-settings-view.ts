@@ -11,6 +11,18 @@ export class UISettingsView extends AbstractSettingsView {
 
     render(containerEl: HTMLElement): void {
         containerEl.createEl("h3", { text: "主任务视图设置" });
+        const defaultCalendarMode = this.plugin.settings.defaultCalendarMode === "month" || this.plugin.settings.defaultCalendarMode === "year" ? this.plugin.settings.defaultCalendarMode : "day";
+        new Setting(containerEl).setName("默认日历粒度").setDesc("时间段视图打开时默认使用的日历粒度").addDropdown(t => t.addOption("day", "日").addOption("month", "月").addOption("year", "年").setValue(defaultCalendarMode).onChange(async t => {
+            this.plugin.settings.defaultCalendarMode = t as any;
+            await this.plugin.saveSettings();
+            this.plugin.refreshTaskView();
+        }));
+
+        new Setting(containerEl).setName("默认显示已完成").setDesc("在日历视图中默认显示已完成任务，月视图按整月、年视图按全年刷新远端完成记录").addToggle(t => t.setValue(this.plugin.settings.defaultShowCompletedInCalendar === true).onChange(async value => {
+            this.plugin.settings.defaultShowCompletedInCalendar = value;
+            await this.plugin.saveSettings();
+            this.plugin.refreshTaskView();
+        }));
         new Setting(containerEl).setName("默认视图模式").setDesc("右侧边栏打开任务清单时默认显示的视图类型").addDropdown(t => t.addOption("task", "任务列表").addOption("timeblock", "时间段视图").setValue(this.plugin.settings.defaultViewMode || "task").onChange(async t => {
             this.plugin.settings.defaultViewMode = t as any;
             await this.plugin.saveSettings();

@@ -169,6 +169,8 @@ export interface DidaSyncSettings {
     projectCollapsedStates: { [key: string]: boolean };
     projectOrder: string[]; // Array of project names/ids to store order
     defaultViewMode: "task" | "timeblock";
+    defaultCalendarMode?: "day" | "month" | "year";
+    defaultShowCompletedInCalendar?: boolean;
     timeBlockHourHeight: number;
     timeBlockStartHour: number;
 
@@ -238,6 +240,8 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     projectCollapsedStates: {},
     projectOrder: [],
     defaultViewMode: "task",
+    defaultCalendarMode: "day",
+    defaultShowCompletedInCalendar: false,
     timeBlockHourHeight: 80,
     timeBlockStartHour: 0,
     pomodoroSettings: {

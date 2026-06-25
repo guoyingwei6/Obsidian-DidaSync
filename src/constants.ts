@@ -27,6 +27,8 @@ export const DEFAULT_SETTINGS = {
     projectIcons: {},
     projectCatalog: [],
     defaultViewMode: "task",
+    defaultCalendarMode: "day",
+    defaultShowCompletedInCalendar: false,
     timeBlockHourHeight: 80,
     timeBlockStartHour: 0,
     pomodoroSettings: {

@@ -2,6 +2,7 @@
 import DidaSyncPlugin from '../main';
 import { DatePickerModal } from '../modals/DatePickerModal';
 import { AddTaskModal } from '../modals/AddTaskModal';
+import { buildCalendarMonthGrid, CalendarMode, dedupeCalendarTasks, getCalendarDateKey, getCalendarMonthRange, getCalendarYearRange, groupTasksByCalendarDate } from '../calendarMonth';
 import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
@@ -19,6 +20,12 @@ export class TaskView extends ItemView {
     dateFilter: string | null;
     eventCleanupHandlers: (() => void)[];
     selectedDate: Date | null;
+    calendarMode: CalendarMode;
+    showCompletedInCalendar: boolean;
+    calendarDisplayDate: Date;
+    calendarCompletedLoading: boolean;
+    calendarCompletedMonthKey: string;
+    calendarCompletedError: string;
     lastOpenTaskItem: HTMLElement | null = null;
     isPomodoroVisible: boolean;
     pomodoroInterval: number | null;
@@ -53,6 +60,14 @@ export class TaskView extends ItemView {
         this.dateFilter = null;
         this.eventCleanupHandlers = [];
         this.selectedDate = null;
+        this.calendarMode = plugin.settings.defaultCalendarMode === "month" || plugin.settings.defaultCalendarMode === "year"
+            ? plugin.settings.defaultCalendarMode
+            : "day";
+        this.showCompletedInCalendar = plugin.settings.defaultShowCompletedInCalendar === true;
+        this.calendarDisplayDate = new Date();
+        this.calendarCompletedLoading = false;
+        this.calendarCompletedMonthKey = "";
+        this.calendarCompletedError = "";
 
         this.initializePomodoroState();
 
@@ -1817,13 +1832,97 @@ export class TaskView extends ItemView {
         container.empty();
         container.addClass("dida-time-block-view");
         if (!this.selectedDate) this.selectedDate = getTimeGridDay(new Date(), this.plugin.settings.timeBlockStartHour || 0);
+        this.calendarDisplayDate = new Date(this.selectedDate);
+        this.renderCalendarToolbar(container);
+        if (this.calendarMode === "month") {
+            this.renderCalendarMonthView(container);
+            return;
+        }
+        if (this.calendarMode === "year") {
+            this.renderCalendarYearView(container);
+            return;
+        }
         this.renderTimeBlockDateSelector(container);
         this.renderTimeBlocks(container);
     }
 
-    // Placeholder for other methods to ensure compilation, will populate in next steps if needed
-    // or assume they are added in subsequent edits. 
-    // I'll try to add as many as possible now.
+    renderCalendarToolbar(container: HTMLElement) {
+        const toolbar = container.createDiv("dida-calendar-toolbar");
+        const modeGroup = toolbar.createDiv("dida-calendar-mode-group");
+        const modes: { value: CalendarMode; label: string }[] = [
+            { value: "day", label: "日" },
+            { value: "month", label: "月" },
+            { value: "year", label: "年" }
+        ];
+
+        modes.forEach((mode) => {
+            const button = modeGroup.createEl("button", {
+                text: mode.label,
+                cls: "dida-calendar-mode-btn"
+            });
+            button.classList.toggle("is-active", this.calendarMode === mode.value);
+            button.onclick = async () => {
+                this.calendarMode = mode.value;
+                this.plugin.settings.defaultCalendarMode = mode.value;
+                await this.plugin.saveSettings();
+                this.renderTaskList();
+            };
+        });
+
+        const completedLabel = toolbar.createEl("label", {
+            cls: "dida-calendar-completed-toggle"
+        });
+        const completedInput = completedLabel.createEl("input", { type: "checkbox" });
+        completedInput.checked = this.showCompletedInCalendar;
+        completedLabel.createEl("span", { text: "显示已完成" });
+        completedInput.onchange = async () => {
+            this.showCompletedInCalendar = completedInput.checked;
+            this.plugin.settings.defaultShowCompletedInCalendar = this.showCompletedInCalendar;
+            await this.plugin.saveSettings();
+            if (this.showCompletedInCalendar && (this.calendarMode === "month" || this.calendarMode === "year")) {
+                void this.ensureCalendarCompletedTasks();
+            }
+            this.renderTaskList();
+        };
+    }
+
+    getCalendarCompletedRange() {
+        if (this.calendarMode === "year") {
+            const range = getCalendarYearRange(this.calendarDisplayDate);
+            return {
+                ...range,
+                key: String(range.startDate.getFullYear())
+            };
+        }
+        const range = getCalendarMonthRange(this.calendarDisplayDate);
+        return {
+            ...range,
+            key: `${range.startDate.getFullYear()}-${String(range.startDate.getMonth() + 1).padStart(2, "0")}`
+        };
+    }
+
+    async ensureCalendarCompletedTasks() {
+        if (this.calendarCompletedLoading) return;
+        const range = this.getCalendarCompletedRange();
+        if (this.calendarCompletedMonthKey === range.key && !this.calendarCompletedError) return;
+
+        this.calendarCompletedLoading = true;
+        this.calendarCompletedError = "";
+        this.renderTaskList();
+        try {
+            await this.plugin.fetchCompletedTasks({
+                startDate: range.startDate.toISOString(),
+                endDate: range.endDate.toISOString()
+            });
+            this.calendarCompletedMonthKey = range.key;
+        } catch (error) {
+            this.calendarCompletedError = error instanceof Error ? error.message : "已完成任务刷新失败";
+            new Notice(this.calendarCompletedError);
+        } finally {
+            this.calendarCompletedLoading = false;
+            this.renderTaskList();
+        }
+    }
 
     renderTimeBlockDateSelector(container: HTMLElement) {
         const selector = container.createDiv("dida-time-block-date-selector");
@@ -1952,6 +2051,229 @@ export class TaskView extends ItemView {
         const tasks = this.plugin.settings.tasks || [];
         const startHour = this.plugin.settings.timeBlockStartHour || 0;
         return tasks.filter(task => taskBelongsToTimeGridDate(task, date, startHour));
+    }
+
+    getCalendarTasksForRange(range = getCalendarMonthRange(this.calendarDisplayDate)) {
+        const localTasks = (this.plugin.settings.tasks || [])
+            .map((task, index) => task ? { ...task, originalIndex: index } : task)
+            .filter((task) => {
+                if (!task || task.parentId) return false;
+                if (!this.showCompletedInCalendar && task.status === 2) return false;
+                const projectInfo = this.plugin.resolveTaskProjectInfo(task);
+                if (!this.plugin.settings.showArchivedProjects && projectInfo.isArchived) return false;
+                if (!this.plugin.isProjectVisible(projectInfo.id, projectInfo.name)) return false;
+                const rawDate = task.status === 2 ? task.completedTime || task.startDate || task.dueDate : task.startDate || task.dueDate;
+                if (!rawDate) return false;
+                const date = new Date(rawDate);
+                if (Number.isNaN(date.getTime())) return false;
+                if (task.status !== 2 && (date.getTime() < range.startDate.getTime() || date.getTime() > range.endDate.getTime())) return false;
+                return true;
+            });
+
+        const pendingTasks = localTasks.filter((task) => task.status !== 2);
+        const completedTasks = this.showCompletedInCalendar
+            ? dedupeCalendarTasks([
+                ...localTasks.filter((task) => task.status === 2),
+                ...((this.plugin.settings.completedTasks || []) as DidaTask[])
+            ]).filter((task) => {
+                if (!task || task.parentId) return false;
+                const projectInfo = this.plugin.resolveTaskProjectInfo(task);
+                if (!this.plugin.settings.showArchivedProjects && projectInfo.isArchived) return false;
+                if (!this.plugin.isProjectVisible(projectInfo.id, projectInfo.name)) return false;
+                const completedAt = task.completedTime ? new Date(task.completedTime) : null;
+                if (!completedAt || Number.isNaN(completedAt.getTime())) return false;
+                return completedAt.getTime() >= range.startDate.getTime() && completedAt.getTime() <= range.endDate.getTime();
+            })
+            : [];
+
+        return {
+            pending: groupTasksByCalendarDate(pendingTasks as DidaTask[]),
+            completed: groupTasksByCalendarDate(completedTasks, true)
+        };
+    }
+
+    renderCalendarMonthView(container: HTMLElement) {
+        const monthContainer = container.createDiv("dida-calendar-month-view");
+        const range = getCalendarMonthRange(this.calendarDisplayDate);
+        const completedRange = this.getCalendarCompletedRange();
+        if (this.showCompletedInCalendar && !this.calendarCompletedLoading && this.calendarCompletedMonthKey !== completedRange.key) {
+            void this.ensureCalendarCompletedTasks();
+        }
+
+        const header = monthContainer.createDiv("dida-calendar-month-header");
+        const monthTitle = header.createDiv("dida-calendar-month-title");
+        monthTitle.createEl("span", {
+            text: `${this.calendarDisplayDate.getMonth() + 1}月`,
+            cls: "dida-time-block-month-text"
+        });
+        monthTitle.createEl("span", {
+            text: ` ${this.calendarDisplayDate.getFullYear()}`,
+            cls: "dida-time-block-year-text"
+        });
+        const controls = header.createDiv("dida-calendar-month-controls");
+        controls.createEl("button", { text: "‹", cls: "dida-timeline-nav-btn" }).onclick = () => {
+            this.calendarDisplayDate = new Date(this.calendarDisplayDate.getFullYear(), this.calendarDisplayDate.getMonth() - 1, 1);
+            this.selectedDate = new Date(this.calendarDisplayDate);
+            this.renderTaskList();
+        };
+        controls.createEl("button", { text: "今天", cls: "dida-timeline-expand-btn" }).onclick = () => {
+            this.selectedDate = getTimeGridDay(new Date(), this.plugin.settings.timeBlockStartHour || 0);
+            this.calendarDisplayDate = new Date(this.selectedDate);
+            this.renderTaskList();
+        };
+        controls.createEl("button", { text: "›", cls: "dida-timeline-nav-btn" }).onclick = () => {
+            this.calendarDisplayDate = new Date(this.calendarDisplayDate.getFullYear(), this.calendarDisplayDate.getMonth() + 1, 1);
+            this.selectedDate = new Date(this.calendarDisplayDate);
+            this.renderTaskList();
+        };
+
+        if (this.calendarCompletedLoading) {
+            monthContainer.createDiv("dida-calendar-status").textContent = "正在刷新已完成任务...";
+        } else if (this.calendarCompletedError) {
+            monthContainer.createDiv("dida-calendar-status dida-calendar-status-error").textContent = `已完成任务未刷新：${this.calendarCompletedError}`;
+        }
+
+        const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
+        const weekdayRow = monthContainer.createDiv("dida-calendar-weekday-row");
+        weekdays.forEach((day) => weekdayRow.createDiv("dida-calendar-weekday-cell").textContent = day);
+
+        const grid = monthContainer.createDiv("dida-calendar-month-grid");
+        const grouped = this.getCalendarTasksForRange(range);
+        const todayKey = getCalendarDateKey(new Date());
+        const selectedKey = this.selectedDate ? getCalendarDateKey(this.selectedDate) : "";
+
+        buildCalendarMonthGrid(this.calendarDisplayDate).forEach((cell) => {
+            const cellEl = grid.createDiv("dida-calendar-month-cell");
+            if (!cell.inCurrentMonth) cellEl.addClass("is-outside-month");
+            if (cell.key === todayKey) cellEl.addClass("is-today");
+            if (cell.key === selectedKey) cellEl.addClass("is-selected");
+
+            const dateHeader = cellEl.createDiv("dida-calendar-cell-date");
+            dateHeader.textContent = String(cell.date.getDate());
+            dateHeader.onclick = () => {
+                this.selectedDate = new Date(cell.date);
+                this.calendarDisplayDate = new Date(cell.date);
+                this.calendarMode = "day";
+                this.renderTaskList();
+            };
+
+            const taskList = cellEl.createDiv("dida-calendar-cell-tasks");
+            const tasks = [
+                ...(grouped.pending.get(cell.key) || []).map((task) => ({ task, completed: false })),
+                ...(grouped.completed.get(cell.key) || []).map((task) => ({ task, completed: true }))
+            ];
+            const visibleTasks = tasks.slice(0, 4);
+            visibleTasks.forEach(({ task, completed }) => this.renderCalendarTaskChip(taskList, task, completed));
+            if (tasks.length > visibleTasks.length) {
+                taskList.createDiv("dida-calendar-task-more").textContent = `+${tasks.length - visibleTasks.length}`;
+            }
+        });
+    }
+
+    renderCalendarYearView(container: HTMLElement) {
+        const yearContainer = container.createDiv("dida-calendar-year-view");
+        const range = getCalendarYearRange(this.calendarDisplayDate);
+        const completedRange = this.getCalendarCompletedRange();
+        if (this.showCompletedInCalendar && !this.calendarCompletedLoading && this.calendarCompletedMonthKey !== completedRange.key) {
+            void this.ensureCalendarCompletedTasks();
+        }
+
+        const header = yearContainer.createDiv("dida-calendar-year-header");
+        const yearTitle = header.createDiv("dida-calendar-year-title");
+        yearTitle.createEl("span", {
+            text: `${this.calendarDisplayDate.getFullYear()}`,
+            cls: "dida-calendar-year-title-number"
+        });
+        yearTitle.createEl("span", {
+            text: "年",
+            cls: "dida-calendar-year-title-suffix"
+        });
+        const controls = header.createDiv("dida-calendar-month-controls");
+        controls.createEl("button", { text: "‹", cls: "dida-timeline-nav-btn" }).onclick = () => {
+            this.calendarDisplayDate = new Date(this.calendarDisplayDate.getFullYear() - 1, 0, 1);
+            this.selectedDate = new Date(this.calendarDisplayDate);
+            this.renderTaskList();
+        };
+        controls.createEl("button", { text: "今天", cls: "dida-timeline-expand-btn" }).onclick = () => {
+            this.selectedDate = getTimeGridDay(new Date(), this.plugin.settings.timeBlockStartHour || 0);
+            this.calendarDisplayDate = new Date(this.selectedDate);
+            this.renderTaskList();
+        };
+        controls.createEl("button", { text: "›", cls: "dida-timeline-nav-btn" }).onclick = () => {
+            this.calendarDisplayDate = new Date(this.calendarDisplayDate.getFullYear() + 1, 0, 1);
+            this.selectedDate = new Date(this.calendarDisplayDate);
+            this.renderTaskList();
+        };
+
+        if (this.calendarCompletedLoading) {
+            yearContainer.createDiv("dida-calendar-status").textContent = "正在刷新已完成任务...";
+        } else if (this.calendarCompletedError) {
+            yearContainer.createDiv("dida-calendar-status dida-calendar-status-error").textContent = `已完成任务未刷新：${this.calendarCompletedError}`;
+        }
+
+        const grouped = this.getCalendarTasksForRange(range);
+        const todayKey = getCalendarDateKey(new Date());
+        const selectedKey = this.selectedDate ? getCalendarDateKey(this.selectedDate) : "";
+        const monthNames = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"];
+        const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
+        const monthsGrid = yearContainer.createDiv("dida-calendar-year-grid");
+
+        for (let month = 0; month < 12; month++) {
+            const monthDate = new Date(this.calendarDisplayDate.getFullYear(), month, 1);
+            const monthEl = monthsGrid.createDiv("dida-calendar-year-month");
+            const title = monthEl.createDiv("dida-calendar-year-month-title");
+            title.textContent = monthNames[month];
+            title.onclick = () => {
+                this.calendarDisplayDate = new Date(monthDate);
+                this.selectedDate = new Date(monthDate);
+                this.calendarMode = "month";
+                this.renderTaskList();
+            };
+
+            const weekdayRow = monthEl.createDiv("dida-calendar-year-weekdays");
+            weekdays.forEach((day) => weekdayRow.createDiv("dida-calendar-year-weekday").textContent = day);
+
+            const daysGrid = monthEl.createDiv("dida-calendar-year-days");
+            buildCalendarMonthGrid(monthDate, "sunday").forEach((cell) => {
+                const pendingCount = (grouped.pending.get(cell.key) || []).length;
+                const completedCount = (grouped.completed.get(cell.key) || []).length;
+                const dayEl = daysGrid.createDiv("dida-calendar-year-day");
+                dayEl.textContent = String(cell.date.getDate());
+                if (!cell.inCurrentMonth) dayEl.addClass("is-outside-month");
+                if (cell.key === todayKey) dayEl.addClass("is-today");
+                if (cell.key === selectedKey) dayEl.addClass("is-selected");
+                const totalCount = pendingCount + completedCount;
+                if (pendingCount > 0) dayEl.addClass("has-pending");
+                if (completedCount > 0) dayEl.addClass("has-completed");
+                if (totalCount > 0) {
+                    dayEl.addClass(`heat-${Math.min(4, totalCount)}`);
+                }
+                if (totalCount > 0) {
+                    dayEl.title = `${pendingCount} 个未完成，${completedCount} 个已完成`;
+                }
+                dayEl.onclick = () => {
+                    this.selectedDate = new Date(cell.date);
+                    this.calendarDisplayDate = new Date(cell.date);
+                    this.calendarMode = "day";
+                    this.renderTaskList();
+                };
+            });
+        }
+    }
+
+    renderCalendarTaskChip(container: HTMLElement, task: DidaTask, completed: boolean) {
+        const chip = container.createDiv(completed ? "dida-calendar-task-chip is-completed" : "dida-calendar-task-chip");
+        chip.setCssStyles({ backgroundColor: completed ? "" : this.getTaskColor(task) });
+        chip.title = task.title || "";
+        chip.textContent = task.title || "未命名任务";
+        chip.onclick = (event) => {
+            event.stopPropagation();
+            if (this.resolveTaskOriginalIndex(task) !== -1) {
+                this.toggleTaskDetails(chip, task);
+            } else {
+                new Notice("这条已完成任务来自远端记录，当前只能在月历中查看");
+            }
+        };
     }
 
     isAllDayTask(task: any): boolean {
