@@ -60,7 +60,7 @@ async function run() {
     assert.match(authUrl, /scope=tasks%3Awrite\+tasks%3Aread/);
 
     platform.isMobile = true;
-    assert.equal(client.getRedirectUri(), "obsidian://dida-oauth");
+    assert.equal(client.getRedirectUri(), "http://127.0.0.1:8765/callback");
     const originalWindow = (globalThis as any).window;
     (globalThis as any).window = { open: () => null };
     await (client as any).openAuthUrl("https://example.test/oauth");
@@ -73,14 +73,14 @@ async function run() {
     (client as any).openAuthUrl = async (_url: string, redirectUri?: string) => { openedRedirect = redirectUri || client.getRedirectUri(); };
     (client as any).startOAuthServer = async () => { throw new Error("移动端不应启动本地 OAuth 服务"); };
     await client.startOAuthFlow();
-    assert.equal(openedRedirect, "obsidian://dida-oauth");
+    assert.equal(openedRedirect, "http://127.0.0.1:8765/callback");
     await client.startManualOAuthFlow();
     assert.equal(openedRedirect, "http://127.0.0.1:8765/callback");
     queuedResponses = [{ status: 200, text: "{}", json: { access_token: "mobile-access", refresh_token: "mobile-refresh" } }];
     await client.handleOAuthCallback("mobile-code");
     assert.equal(plugin.settings.accessToken, "mobile-access");
     assert.match(requests.at(-1).body, /code=mobile-code/);
-    assert.match(requests.at(-1).body, /redirect_uri=obsidian%3A%2F%2Fdida-oauth/);
+    assert.match(requests.at(-1).body, /redirect_uri=http%3A%2F%2F127\.0\.0\.1%3A8765%2Fcallback/);
     platform.isMobile = false;
     plugin.settings.accessToken = "access-old";
     plugin.settings.refreshToken = "refresh-old";

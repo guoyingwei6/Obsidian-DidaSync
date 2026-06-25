@@ -114,7 +114,7 @@ export class DidaApiClient {
     private async openAuthUrl(url: string, redirectUri: string = this.getRedirectUri()) {
         try {
             if (!Platform.isMobile) {
-                const electron = await (Function("return import('electron')")() as Promise<any>);
+                const electron = await import("electron");
                 await electron.shell.openExternal(url);
                 return;
             }
