@@ -1479,8 +1479,12 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     private applyTaskPlacement(task: DidaTask, targetProjectId: string, targetProjectName?: string, parentId: string | null = null) {
-        const display = this.getProjectDisplayInfo(targetProjectId, targetProjectName);
+        this.applyTaskProject(task, targetProjectId, targetProjectName);
         task.parentId = parentId;
+    }
+
+    private applyTaskProject(task: DidaTask, targetProjectId: string, targetProjectName?: string) {
+        const display = this.getProjectDisplayInfo(targetProjectId, targetProjectName);
         task.projectId = display.id;
         task.projectName = display.name;
         task.projectColor = display.color;
@@ -1530,18 +1534,30 @@ export default class DidaSyncPlugin extends Plugin {
         this.validatePlacementMove(task, target, parentTask);
 
         const previous = this.snapshotTaskPlacement(task);
+        const descendants = this.collectTaskDescendants(task);
+        const descendantSnapshots = descendants.map((descendant) => ({
+            task: descendant,
+            snapshot: this.snapshotTaskPlacement(descendant)
+        }));
         const nextParentId = target.parentId ?? null;
         const previousParentId = previous.parentId ?? null;
         if (sourceProjectId === target.projectId && previousParentId === nextParentId) return task;
 
         task.syncPlacementError = undefined;
-        task.syncPlacementPending = !!(task.didaId && this.settings.accessToken);
+        const shouldSyncPlacement = !!this.settings.accessToken && (!!task.didaId || !!parentTask);
+        task.syncPlacementPending = shouldSyncPlacement;
         this.applyTaskPlacement(task, target.projectId, target.projectName, nextParentId);
+        for (const descendant of descendants) {
+            descendant.syncPlacementError = undefined;
+            descendant.syncPlacementPending = !!(this.settings.accessToken && descendant.didaId);
+            this.applyTaskProject(descendant, target.projectId, target.projectName);
+        }
         await this.saveSettings();
         this.refreshTaskView();
 
-        if (!task.didaId || !this.settings.accessToken) {
+        if (!shouldSyncPlacement) {
             task.syncPlacementPending = false;
+            for (const descendant of descendants) descendant.syncPlacementPending = false;
             await this.saveSettings();
             this.refreshTaskView();
             return task;
@@ -1558,7 +1574,23 @@ export default class DidaSyncPlugin extends Plugin {
             parentDidaId: target.parentDidaId
         });
 
-        await this.syncManager.flushPendingOperations();
+        for (const { task: descendant, snapshot } of descendantSnapshots) {
+            if (!descendant.didaId || snapshot.projectId === target.projectId) continue;
+            const parent = this.findTaskByAnyId(descendant.parentId);
+            await this.syncManager.queueOperation(descendant, "placement", {
+                fromProjectId: snapshot.projectId || "inbox",
+                fromProjectName: snapshot.projectName,
+                fromParentId: snapshot.parentId ?? null,
+                toProjectId: target.projectId,
+                toProjectName: target.projectName,
+                toParentId: descendant.parentId ?? null,
+                parentTaskId: parent?.id,
+                parentDidaId: parent?.didaId
+            });
+        }
+
+        const flushed = await this.syncManager.flushPendingOperations();
+        if (flushed.failed.length > 0) throw new Error(flushed.failed[0]);
         return task;
     }
 
