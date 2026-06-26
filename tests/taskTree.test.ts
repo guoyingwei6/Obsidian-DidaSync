@@ -1,5 +1,5 @@
 import { strict as assert } from "assert";
-import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeNodes, getDidaTaskPath } from "../src/taskTree";
+import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeNodes, buildDidaTaskVisibleTaskKeys, getDidaTaskPath } from "../src/taskTree";
 import { DidaTask } from "../src/types";
 
 function task(id: string, title: string, parentId: string | null = null): DidaTask {
@@ -90,6 +90,31 @@ function task(id: string, title: string, parentId: string | null = null): DidaTa
     const sets = buildDidaTaskFilterSets(tasks, [tasks[2]]);
     assert.deepEqual(Array.from(sets.matchedTaskKeys), ["c"]);
     assert.deepEqual(Array.from(sets.renderableTaskKeys), ["c", "b", "a"]);
+}
+
+{
+    const tasks = [
+        task("root", "主任务"),
+        task("child", "子任务", "root"),
+        task("grand", "孙任务", "child")
+    ];
+    const visible = buildDidaTaskVisibleTaskKeys(tasks, {
+        collapsedTaskKeys: new Set(["root"])
+    });
+    assert.deepEqual(Array.from(visible), ["root"]);
+}
+
+{
+    const tasks = [
+        task("root", "主任务"),
+        task("child", "子任务", "root"),
+        task("grand", "孙任务", "child")
+    ];
+    const visible = buildDidaTaskVisibleTaskKeys(tasks, {
+        collapsedTaskKeys: new Set(["root"]),
+        forceExpandedTaskKeys: new Set(["root", "child", "grand"])
+    });
+    assert.deepEqual(Array.from(visible), ["root", "child", "grand"]);
 }
 
 console.log("taskTree tests passed");

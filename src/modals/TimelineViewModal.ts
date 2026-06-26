@@ -34,6 +34,19 @@ export class TimelineViewModal {
         this.handleKeydown = this.handleKeydown.bind(this);
     }
 
+    private renderChildCountBadge(element: HTMLElement, completedCount: number, totalCount: number) {
+        element.empty();
+        element.addClass("dida-child-task-count-static");
+
+        const branchIcon = element.createSpan({ cls: "dida-child-task-count-icon" });
+        setIconElement(branchIcon, "git-branch-plus");
+
+        element.createSpan({
+            cls: "dida-child-task-count-label",
+            text: `${completedCount}/${totalCount}`
+        });
+    }
+
     renderTimelineTaskTitleContent(container: HTMLElement, content: string) {
         while (container.firstChild) container.removeChild(container.firstChild);
 
@@ -447,10 +460,9 @@ export class TimelineViewModal {
             if (task.didaId && childTasks.length > 0) {
                 const completedChilds = childTasks.filter(t => t.status === 2).length;
                 const childSpan = item.createEl("span", { cls: "dida-child-task-count" });
-                setTextWithIcon(childSpan, `${completedChilds}/${childTasks.length}`, "git-branch-plus");
-                childSpan.addClass("dida-task-count-base", "dida-task-count-child");
-                childSpan.title = "点击查看子任务";
-                childSpan.onclick = () => this.toggleTimelineTaskDetails(item, task, "subtasks-tab");
+                childSpan.addClass("dida-task-count-base", "dida-task-count-child", "dida-child-task-count-static");
+                this.renderChildCountBadge(childSpan, completedChilds, childTasks.length);
+                childSpan.title = "子任务数";
             }
 
             const dateSpan = item.createEl("span", { cls: "dida-task-due-date" });
@@ -565,10 +577,9 @@ export class TimelineViewModal {
             if (task.didaId && childTasks.length > 0) {
                 const completedChilds = childTasks.filter(t => t.status === 2).length;
                 const childSpan = item.createEl("span", { cls: "dida-child-task-count" });
-                setTextWithIcon(childSpan, `${completedChilds}/${childTasks.length}`, "git-branch-plus");
-                childSpan.addClass("dida-task-count-base", "dida-task-count-child");
-                childSpan.title = "点击查看子任务";
-                childSpan.onclick = () => this.toggleTimelineTaskDetails(item, task, "subtasks-tab");
+                childSpan.addClass("dida-task-count-base", "dida-task-count-child", "dida-child-task-count-static");
+                this.renderChildCountBadge(childSpan, completedChilds, childTasks.length);
+                childSpan.title = "子任务数";
             }
 
             const dateSpan = item.createEl("span", { cls: "dida-task-due-date" });
@@ -642,6 +653,7 @@ export class TimelineViewModal {
     }
 
     toggleTimelineTaskDetails(item: HTMLElement, task: DidaTask, tab: string = "task-tab") {
+        const initialTab = tab === "check-items-tab" ? "check-items-tab" : "task-tab";
         document.querySelectorAll(".dida-task-details").forEach(el => {
             if (!item.contains(el)) el.remove();
         });
@@ -662,12 +674,11 @@ export class TimelineViewModal {
             currentTask.items = currentTask.items || [];
 
             const nav = details.createDiv("dida-task-tab-nav");
-            const taskTabBtn = nav.createEl("button", { text: "任务", cls: tab === "task-tab" ? "dida-tab-btn active" : "dida-tab-btn" });
-            const checkTabBtn = nav.createEl("button", { text: "检查项", cls: tab === "check-items-tab" ? "dida-tab-btn active" : "dida-tab-btn" });
-            const subtaskTabBtn = nav.createEl("button", { text: "子任务", cls: tab === "subtasks-tab" ? "dida-tab-btn active" : "dida-tab-btn" });
+            const taskTabBtn = nav.createEl("button", { text: "任务", cls: initialTab === "task-tab" ? "dida-tab-btn active" : "dida-tab-btn" });
+            const checkTabBtn = nav.createEl("button", { text: "检查项", cls: initialTab === "check-items-tab" ? "dida-tab-btn active" : "dida-tab-btn" });
 
             const contentArea = details.createDiv("dida-task-content-area");
-            const taskTab = contentArea.createDiv(tab === "task-tab" ? "dida-tab-content active" : "dida-tab-content");
+            const taskTab = contentArea.createDiv(initialTab === "task-tab" ? "dida-tab-content active" : "dida-tab-content");
             taskTab.id = "task-tab";
             const titleRow = taskTab.createDiv("dida-task-detail-title");
             titleRow.addClass("dida-detail-title-row");
@@ -688,7 +699,7 @@ export class TimelineViewModal {
             contentTextarea.placeholder = "内容...";
             contentTextarea.value = contentValue;
 
-            const checkTab = contentArea.createDiv(tab === "check-items-tab" ? "dida-tab-content active" : "dida-tab-content");
+            const checkTab = contentArea.createDiv(initialTab === "check-items-tab" ? "dida-tab-content active" : "dida-tab-content");
             checkTab.id = "check-items-tab";
             const checkList = checkTab.createDiv("dida-check-items-list");
 
@@ -757,108 +768,6 @@ export class TimelineViewModal {
                 renderCheckItems();
             };
 
-            const subtaskTab = contentArea.createDiv(tab === "subtasks-tab" ? "dida-tab-content active" : "dida-tab-content");
-            subtaskTab.id = "subtasks-tab";
-
-            const refreshSubtaskArea = () => {
-                subtaskTab.empty();
-                const childTasks = this.plugin.settings.tasks.filter(t => t.parentId === (currentTask.didaId || currentTask.id));
-                const incomplete = childTasks.filter(t => t.status !== 2);
-                const complete = childTasks.filter(t => t.status === 2);
-                [...incomplete, ...complete].forEach(sub => {
-                    const itemDiv = subtaskTab.createDiv("dida-task-item dida-subtask-item");
-                    const cb = itemDiv.createEl("input", { type: "checkbox", checked: sub.status === 2 });
-                    const input = itemDiv.createEl("input", {
-                        type: "text",
-                        value: sub.title,
-                        cls: sub.status === 2 ? "dida-task-completed" : "dida-task-title-input",
-                        placeholder: "子任务标题"
-                    });
-                    cb.onchange = async () => {
-                        const idx = this.plugin.settings.tasks.findIndex(t => t.id === sub.id);
-                        if (idx !== -1) {
-                            await this.plugin.toggleTask(idx);
-                            refreshSubtaskArea();
-                        }
-                    };
-                    input.onchange = async () => {
-                        const idx = this.plugin.settings.tasks.findIndex(t => t.id === sub.id);
-                        if (idx !== -1) {
-                            const t = this.plugin.settings.tasks[idx];
-                            t.title = input.value;
-                            t.updatedAt = new Date().toISOString();
-                            await this.plugin.saveSettings();
-                            if (this.plugin.settings.accessToken && t.didaId) this.plugin.updateTaskInDidaList(t);
-                        }
-                    };
-                    const delBtn = itemDiv.createEl("button", { cls: "dida-task-delete" });
-                    setIconElement(delBtn, "x");
-                    delBtn.onclick = async (e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        const idx = this.plugin.settings.tasks.findIndex(t => t.id === sub.id);
-                        if (idx !== -1) {
-                            await this.plugin.deleteTask(idx);
-                            refreshSubtaskArea();
-                        }
-                    };
-                });
-                const addSubBtn = subtaskTab.createEl("button", { cls: "dida-project-add-task-btn" });
-                setIconElement(addSubBtn, "plus");
-                addSubBtn.addClass("dida-floating-add-btn");
-                addSubBtn.title = "添加子任务";
-                addSubBtn.onclick = async () => {
-                    const fixedProject = {
-                        id: currentTask.projectId || "inbox",
-                        name: currentTask.projectName || "收集箱"
-                    };
-                    new AddTaskModal(this.app, async (title, project, schedule) => {
-                        const newSub: DidaTask = {
-                            id: Date.now().toString(),
-                            title,
-                            content: "",
-                            desc: "",
-                            status: 0,
-                            didaId: null,
-                            projectId: project.id,
-                            projectName: project.name,
-                            parentId: currentTask.didaId || currentTask.id,
-                            createdAt: new Date().toISOString(),
-                            updatedAt: new Date().toISOString(),
-                            startDate: schedule.startDate || null,
-                            dueDate: schedule.dueDate || null,
-                            isAllDay: schedule.isAllDay,
-                            repeatFlag: schedule.repeatFlag || null,
-                            items: [],
-                            kind: "TEXT",
-                            priority: 0,
-                            sortOrder: 0,
-                            timeZone: this.plugin.getUserTimeZone(),
-                            isFloating: false
-                        } as any;
-                        this.plugin.settings.tasks.push(newSub);
-                        await this.plugin.saveSettings();
-                        this.renderTimelineView();
-                        refreshSubtaskArea();
-                        if (this.plugin.settings.accessToken) {
-                            try {
-                                await this.plugin.createTaskInDidaList(newSub);
-                            } finally {
-                                this.renderTimelineView();
-                                refreshSubtaskArea();
-                            }
-                        }
-                    }, {
-                        projects: [fixedProject],
-                        defaultProjectId: fixedProject.id,
-                        defaultDate: this.selectedDate,
-                        triggerElement: addSubBtn,
-                        scopeElement: this.windowElement
-                    }).open();
-                };
-            };
-            refreshSubtaskArea();
-
             const saveChanges = () => {
                 const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === currentTask.didaId || t.id === currentTask.id);
                 if (idx !== -1) {
@@ -873,26 +782,14 @@ export class TimelineViewModal {
             taskTabBtn.onclick = () => {
                 taskTabBtn.classList.add("active");
                 checkTabBtn.classList.remove("active");
-                subtaskTabBtn.classList.remove("active");
                 taskTab.classList.add("active");
                 checkTab.classList.remove("active");
-                subtaskTab.classList.remove("active");
             };
             checkTabBtn.onclick = () => {
                 taskTabBtn.classList.remove("active");
                 checkTabBtn.classList.add("active");
-                subtaskTabBtn.classList.remove("active");
                 taskTab.classList.remove("active");
                 checkTab.classList.add("active");
-                subtaskTab.classList.remove("active");
-            };
-            subtaskTabBtn.onclick = () => {
-                taskTabBtn.classList.remove("active");
-                checkTabBtn.classList.remove("active");
-                subtaskTabBtn.classList.add("active");
-                taskTab.classList.remove("active");
-                checkTab.classList.remove("active");
-                subtaskTab.classList.add("active");
             };
         }
     }

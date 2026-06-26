@@ -17,6 +17,12 @@ export interface DidaTaskFilterSets {
     renderableTaskKeys: Set<string>;
 }
 
+export interface DidaTaskVisibilityOptions {
+    collapsedTaskKeys?: Set<string>;
+    forceExpandedTaskKeys?: Set<string>;
+    maxDepth?: number;
+}
+
 export function getDidaTaskTreeKey(task: DidaTask | null | undefined): string | null {
     if (!task) return null;
     return task.didaId || task.id || null;
@@ -199,4 +205,38 @@ export function buildDidaTaskFilterSets(
     }
 
     return { matchedTaskKeys, renderableTaskKeys };
+}
+
+export function buildDidaTaskVisibleTaskKeys(
+    tasks: DidaTask[],
+    options: DidaTaskVisibilityOptions = {}
+): Set<string> {
+    const index = buildDidaTaskTreeIndex(tasks || []);
+    const visibleTaskKeys = new Set<string>();
+    const collapsedTaskKeys = options.collapsedTaskKeys || new Set<string>();
+    const forceExpandedTaskKeys = options.forceExpandedTaskKeys || new Set<string>();
+    const maxDepth = typeof options.maxDepth === "number" ? options.maxDepth : 20;
+
+    const visit = (task: DidaTask, depth: number, ancestors: Set<string>) => {
+        const taskKey = getDidaTaskTreeKey(task);
+        if (!taskKey || ancestors.has(taskKey)) return;
+        visibleTaskKeys.add(taskKey);
+        if (depth >= maxDepth) return;
+
+        const nextAncestors = new Set(ancestors);
+        nextAncestors.add(taskKey);
+
+        const shouldCollapse = collapsedTaskKeys.has(taskKey) && !forceExpandedTaskKeys.has(taskKey);
+        if (shouldCollapse) return;
+
+        for (const child of index.childrenByParentId.get(taskKey) || []) {
+            visit(child, depth + 1, nextAncestors);
+        }
+    };
+
+    for (const root of index.roots) {
+        visit(root, 0, new Set());
+    }
+
+    return visibleTaskKeys;
 }

@@ -2199,17 +2199,80 @@
 /* 子任务相关样式 */
 .dida-child-task-count {
     color: #0066cc !important;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
-    transition: color 0.2s ease;
-    display: flex;
+    transition: color 0.18s ease, background-color 0.18s ease, transform 0.18s ease, opacity 0.18s ease;
+    display: inline-flex;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
     flex-shrink: 0;
+    min-height: 18px;
+    padding: 0 2px;
+    border-radius: 6px;
+    background: transparent;
 }
 
 .dida-child-task-count:hover {
     color: #0052a3 !important;
+    background: color-mix(in srgb, #0066cc 8%, transparent);
+}
+
+.dida-child-task-count.is-collapsed {
+    opacity: 0.72;
+}
+
+.dida-child-task-count.is-interactive:active {
+    transform: translateY(0.5px) scale(0.985);
+}
+
+.dida-child-task-count-static {
+    cursor: default;
+}
+
+.dida-child-task-count-static:hover {
+    color: #0066cc !important;
+    background: transparent;
+}
+
+.dida-child-task-count-icon,
+.dida-child-task-count-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+}
+
+.dida-child-task-count-icon svg {
+    width: 12px;
+    height: 12px;
+    opacity: 0.88;
+}
+
+.dida-child-task-count-label {
+    display: inline-flex;
+    align-items: center;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    font-size: 0.95em;
+}
+
+.dida-child-task-count-chevron {
+    opacity: 0.58;
+    transform-origin: center;
+    transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.dida-child-task-count-chevron svg {
+    width: 11px;
+    height: 11px;
+}
+
+.dida-child-task-count.is-interactive:hover .dida-child-task-count-chevron {
+    opacity: 0.88;
+}
+
+.dida-child-task-count.is-collapsed .dida-child-task-count-chevron {
+    opacity: 0.5;
 }
 
 /* 移除旧的子任务样式，因为现在使用统一的dida-task-item样式 */
