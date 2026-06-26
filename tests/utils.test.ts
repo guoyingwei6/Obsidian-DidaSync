@@ -16,7 +16,10 @@ const {
     compareVersions,
     compareProjectGroups,
     translateRepeatFlag,
-    safeDecode
+    safeDecode,
+    formatCompletedTime,
+    normalizeRemoteCompletedTime,
+    ensureTaskCompletedTime
 } = require("../src/utils");
 
 assert.deepEqual(normalizePomodoroPresetMinutes([25, "40", 25, 0, 120] as any, 1, 90, [15, 25]), [25, 40]);
@@ -56,5 +59,11 @@ assert.equal(
     -1
 );
 assert.equal(safeDecode("hello%20world"), "hello world");
+assert.equal(formatCompletedTime(new Date("2026-06-26T04:05:06.000Z")).includes("T"), true);
+assert.equal(normalizeRemoteCompletedTime("2026-06-26T12:00:00+0800"), "2026-06-26T12:00:00+0800");
+assert.equal(normalizeRemoteCompletedTime("not-a-date"), null);
+const completedTask = { status: 2, completedTime: null as string | null };
+assert.equal(ensureTaskCompletedTime(completedTask, new Date("2026-06-26T04:05:06.000Z")), completedTask.completedTime);
+assert.equal(typeof completedTask.completedTime, "string");
 
 console.log("utils tests passed");

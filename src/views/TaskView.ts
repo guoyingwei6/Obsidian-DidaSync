@@ -6,7 +6,7 @@ import { getCalendarCompletedFetchDecision, hasCalendarCompletedCacheForRange } 
 import { buildCalendarMonthGrid, CalendarMode, dedupeCalendarTasks, getCalendarDateKey, getCalendarMonthRange, getCalendarYearRange, groupTasksByCalendarDate } from '../calendarMonth';
 import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
-import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeIndex, getDidaTaskTreeKey, getDidaTaskTreeKeys, sortDidaTasksForTree } from '../taskTree';
+import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeIndex, getDidaTaskPath, getDidaTaskTreeKey, getDidaTaskTreeKeys, sortDidaTasksForTree } from '../taskTree';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
 import { clampMinutes, dateAtMinutes, getTimeGridDay, getTimeGridRange, gridStartMinutes, isAllDayTimeGridTask, snapDuration, snapMinutes, taskBelongsToTimeGridDate, TIME_GRID_STEP_MINUTES } from '../timeGrid';
 import { appendValidatedSvg, compareProjectGroups, debounce, getTimerRemainingSeconds, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
@@ -130,6 +130,24 @@ export class TaskView extends ItemView {
             const chevron = element.createSpan({ cls: "dida-child-task-count-chevron" });
             setIconElement(chevron, collapsed ? "chevron-right" : "chevron-down");
         }
+    }
+
+    private getTaskPathLabel(task: DidaTask): string {
+        try {
+            return getDidaTaskPath(task, this.plugin.settings.tasks || []);
+        } catch (error) {
+            return task.title || "未命名任务";
+        }
+    }
+
+    private getTaskParentLabel(task: DidaTask): string {
+        if (!task.parentId) return "";
+        const path = this.getTaskPathLabel(task)
+            .split(" / ")
+            .map((part) => part.trim())
+            .filter(Boolean);
+        path.pop();
+        return path.join(" / ");
     }
 
     initializePomodoroState() {
@@ -1184,6 +1202,10 @@ export class TaskView extends ItemView {
         return true;
     }
 
+    hasActiveTaskFilter() {
+        return !!((this.searchQuery && this.searchQuery.trim()) || this.dateFilter);
+    }
+
     resolveVisibleRootTask(task: DidaTask, taskByKey: Map<string, DidaTask>) {
         let current = task;
         const seen = new Set<string>();
@@ -1777,7 +1799,7 @@ export class TaskView extends ItemView {
                 const filterSets = buildDidaTaskFilterSets(tasks as DidaTask[], matchedTasks, canIncludeTaskInFilteredTree);
                 const matchedTaskKeys = filterSets.matchedTaskKeys;
                 const renderableTaskKeys = filterSets.renderableTaskKeys;
-                const shouldForceExpandMatches = !!(this.searchQuery && this.searchQuery.trim());
+                const shouldForceExpandMatches = this.hasActiveTaskFilter();
                 const forceExpandedTaskKeys = shouldForceExpandMatches ? renderableTaskKeys : null;
 
                 matchedTasks.forEach((task) => {
@@ -2231,7 +2253,7 @@ export class TaskView extends ItemView {
         const localTasks = (this.plugin.settings.tasks || [])
             .map((task, index) => task ? { ...task, originalIndex: index } : task)
             .filter((task) => {
-                if (!task || task.parentId) return false;
+                if (!task) return false;
                 if (!this.showCompletedInCalendar && task.status === 2) return false;
                 const projectInfo = this.plugin.resolveTaskProjectInfo(task);
                 if (!this.plugin.settings.showArchivedProjects && projectInfo.isArchived) return false;
@@ -2250,7 +2272,7 @@ export class TaskView extends ItemView {
                 ...localTasks.filter((task) => task.status === 2),
                 ...((this.plugin.settings.completedTasks || []) as DidaTask[])
             ]).filter((task) => {
-                if (!task || task.parentId) return false;
+                if (!task) return false;
                 const projectInfo = this.plugin.resolveTaskProjectInfo(task);
                 if (!this.plugin.settings.showArchivedProjects && projectInfo.isArchived) return false;
                 if (!this.plugin.isProjectVisible(projectInfo.id, projectInfo.name)) return false;
@@ -2436,8 +2458,9 @@ export class TaskView extends ItemView {
     renderCalendarTaskChip(container: HTMLElement, task: DidaTask, completed: boolean) {
         const chip = container.createDiv(completed ? "dida-calendar-task-chip is-completed" : "dida-calendar-task-chip");
         chip.setCssStyles({ backgroundColor: completed ? "" : this.getTaskColor(task) });
-        chip.title = task.title || "";
-        chip.textContent = task.title || "未命名任务";
+        if (task.parentId) chip.addClass("is-subtask");
+        chip.title = this.getTaskPathLabel(task);
+        chip.textContent = `${task.parentId ? "↳ " : ""}${task.title || "未命名任务"}`;
         chip.onclick = (event) => {
             event.stopPropagation();
             if (this.resolveTaskOriginalIndex(task) !== -1) {
@@ -2510,10 +2533,18 @@ export class TaskView extends ItemView {
                 }
             };
 
-            const titleSpan = item.createEl("span", {
+            const titleStack = item.createDiv("dida-time-block-task-text");
+            const titleSpan = titleStack.createEl("span", {
                 cls: task.status === 2 ? "dida-task-completed" : "dida-task-title"
             });
             this.renderTaskTitleContent(titleSpan, task.title || "");
+            const parentLabel = this.getTaskParentLabel(task);
+            if (parentLabel) {
+                titleStack.createEl("span", {
+                    cls: "dida-time-block-parent-label",
+                    text: `↳ ${parentLabel}`
+                });
+            }
 
             // Edit title logic
             titleSpan.contentEditable = "false";
@@ -2998,6 +3029,13 @@ export class TaskView extends ItemView {
 
             const titleDiv = block.createDiv("dida-time-block-task-title");
             this.renderTaskTitleContent(titleDiv, task.title || "");
+            const parentLabel = this.getTaskParentLabel(task);
+            if (parentLabel) {
+                block.createDiv({
+                    cls: "dida-time-block-parent-label",
+                    text: `↳ ${parentLabel}`
+                });
+            }
             titleDiv.contentEditable = "true";
             titleDiv.setCssStyles({
                 outline: "none",

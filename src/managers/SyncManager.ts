@@ -1,6 +1,7 @@
 import { Notice } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { DidaTask, PendingPlacementOperationPayload, PendingSyncOperation, PendingSyncOperationType, SyncResult } from "../types";
+import { ensureTaskCompletedTime, normalizeRemoteCompletedTime } from "../utils";
 import { TASK_VIEW_TYPE, TaskView } from "../views/TaskView";
 
 // Reverse completion verification constants
@@ -553,32 +554,11 @@ export class SyncManager {
                             changed = true;
                         }
                         if (remote.status === 2) {
-                            if (remote.completedTime) {
-                                let completed: string | null = null;
-                                if (typeof remote.completedTime === "number") {
-                                    const dt = new Date(remote.completedTime);
-                                    const y = dt.getFullYear();
-                                    const m = String(dt.getMonth() + 1).padStart(2, "0");
-                                    const d = String(dt.getDate()).padStart(2, "0");
-                                    const h = String(dt.getHours()).padStart(2, "0");
-                                    const min = String(dt.getMinutes()).padStart(2, "0");
-                                    const s = String(dt.getSeconds()).padStart(2, "0");
-                                    const offset = dt.getTimezoneOffset();
-                                    const oh = Math.abs(Math.floor(offset / 60));
-                                    const om = Math.abs(offset % 60);
-                                    const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
-                                    completed = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
-                                } else if (typeof remote.completedTime === "string") {
-                                    completed = remote.completedTime;
-                                }
-                                if (completed && local.completedTime !== completed) {
-                                    local.completedTime = completed;
-                                    changed = true;
-                                }
-                            } else if (local.completedTime) {
-                                local.completedTime = null;
-                                changed = true;
-                            }
+                            const completed = normalizeRemoteCompletedTime(remote.completedTime);
+                            const previousCompletedTime = local.completedTime || null;
+                            if (completed) local.completedTime = completed;
+                            else ensureTaskCompletedTime(local);
+                            if ((local.completedTime || null) !== previousCompletedTime) changed = true;
                         } else if (local.completedTime) {
                             local.completedTime = null;
                             changed = true;
@@ -613,21 +593,8 @@ export class SyncManager {
                         }
                         if (remote.items !== undefined && JSON.stringify(remote.items) !== JSON.stringify(local.items)) {
                             const mappedItems = remote.items.map((item: any) => {
-                                if (item.completedTime && typeof item.completedTime === "number") {
-                                    const dt = new Date(item.completedTime);
-                                    const y = dt.getFullYear();
-                                    const m = String(dt.getMonth() + 1).padStart(2, "0");
-                                    const d = String(dt.getDate()).padStart(2, "0");
-                                    const h = String(dt.getHours()).padStart(2, "0");
-                                    const min = String(dt.getMinutes()).padStart(2, "0");
-                                    const s = String(dt.getSeconds()).padStart(2, "0");
-                                    const offset = dt.getTimezoneOffset();
-                                    const oh = Math.abs(Math.floor(offset / 60));
-                                    const om = Math.abs(offset % 60);
-                                    const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
-                                    return { ...item, completedTime: `${y}-${m}-${d}T${h}:${min}:${s}${tz}` };
-                                }
-                                return item;
+                                const completedTime = normalizeRemoteCompletedTime(item.completedTime);
+                                return completedTime ? { ...item, completedTime } : item;
                             });
                             local.items = mappedItems;
                             changed = true;
@@ -717,21 +684,8 @@ export class SyncManager {
                 if (!await this._decideReverseCompletion(task, { verifyBudget, decisionCache })) continue;
                 const idx = this.plugin.settings.tasks.findIndex(t => t.didaId === task.didaId);
                 if (idx !== -1) {
-                    const now = new Date();
-                    const y = now.getFullYear();
-                    const m = String(now.getMonth() + 1).padStart(2, "0");
-                    const d = String(now.getDate()).padStart(2, "0");
-                    const h = String(now.getHours()).padStart(2, "0");
-                    const min = String(now.getMinutes()).padStart(2, "0");
-                    const s = String(now.getSeconds()).padStart(2, "0");
-                    const offset = now.getTimezoneOffset();
-                    const oh = Math.abs(Math.floor(offset / 60));
-                    const om = Math.abs(offset % 60);
-                    const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
                     this.plugin.settings.tasks[idx].status = 2;
-                    if (!this.plugin.settings.tasks[idx].parentId) {
-                        this.plugin.settings.tasks[idx].completedTime = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
-                    }
+                    ensureTaskCompletedTime(this.plugin.settings.tasks[idx]);
                     this.plugin.settings.tasks[idx].updatedAt = new Date().toISOString();
                     count++;
                 }
@@ -835,7 +789,8 @@ export class SyncManager {
                 task.updatedAt = new Date().toISOString();
                 task.etag = data.etag || null;
                 task.status = data.status || 0;
-                if (!task.parentId) task.completedTime = data.completedTime || null;
+                task.completedTime = normalizeRemoteCompletedTime(data.completedTime);
+                if (task.status === 2) ensureTaskCompletedTime(task);
                 task.dueDate = data.dueDate || null;
                 task.startDate = data.startDate || null;
                 task.isAllDay = data.isAllDay || false;
@@ -904,21 +859,7 @@ export class SyncManager {
                 const rf = task.repeatFlag.trim();
                 payload.repeatFlag = rf === "" ? "" : rf;
             }
-            if (task.status === 2 && !task.parentId && !task.completedTime) {
-                const now = new Date();
-                const y = now.getFullYear();
-                const m = String(now.getMonth() + 1).padStart(2, "0");
-                const d = String(now.getDate()).padStart(2, "0");
-                const h = String(now.getHours()).padStart(2, "0");
-                const min = String(now.getMinutes()).padStart(2, "0");
-                const s = String(now.getSeconds()).padStart(2, "0");
-                const offset = now.getTimezoneOffset();
-                const oh = Math.abs(Math.floor(offset / 60));
-                const om = Math.abs(offset % 60);
-                const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
-                const completed = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
-                task.completedTime = payload.completedTime = completed;
-            }
+            if (task.status === 2) payload.completedTime = ensureTaskCompletedTime(task);
             try {
                 const res = await this.plugin.apiClient.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/" + task.didaId, {
                     method: "POST",
@@ -1040,7 +981,8 @@ export class SyncManager {
         local.repeatFlag = remote.repeatFlag || local.repeatFlag || null;
         local.priority = remote.priority || 0;
         local.status = remote.status || 0;
-        local.completedTime = null;
+        local.completedTime = normalizeRemoteCompletedTime(remote.completedTime);
+        if (local.status === 2) ensureTaskCompletedTime(local);
         local.projectColor = remote.projectColor || project?.color;
         local.projectClosed = remote.projectClosed || project?.closed;
         local.projectViewMode = remote.projectViewMode || project?.viewMode;
@@ -1083,7 +1025,7 @@ export class SyncManager {
             repeatFlag: task.repeatFlag || null,
             priority: task.priority || 0,
             status: task.status || 0,
-            completedTime: null,
+            completedTime: normalizeRemoteCompletedTime(task.completedTime),
             projectColor: task.projectColor || project?.color,
             projectClosed: task.projectClosed || project?.closed,
             projectViewMode: task.projectViewMode || project?.viewMode,
@@ -1091,23 +1033,11 @@ export class SyncManager {
             projectPermission: task.projectPermission || project?.permission,
             parentId: task.parentId || null,
             items: task.items && Array.isArray(task.items) ? task.items.map((item: any) => {
-                if (item.completedTime && typeof item.completedTime === "number") {
-                    const dt = new Date(item.completedTime);
-                    const y = dt.getFullYear();
-                    const m = String(dt.getMonth() + 1).padStart(2, "0");
-                    const d = String(dt.getDate()).padStart(2, "0");
-                    const h = String(dt.getHours()).padStart(2, "0");
-                    const min = String(dt.getMinutes()).padStart(2, "0");
-                    const s = String(dt.getSeconds()).padStart(2, "0");
-                    const offset = dt.getTimezoneOffset();
-                    const oh = Math.abs(Math.floor(offset / 60));
-                    const om = Math.abs(offset % 60);
-                    const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
-                    return { ...item, completedTime: `${y}-${m}-${d}T${h}:${min}:${s}${tz}` };
-                }
-                return item;
+                const completedTime = normalizeRemoteCompletedTime(item.completedTime);
+                return completedTime ? { ...item, completedTime } : item;
             }) : []
         };
+        if (newTask.status === 2) ensureTaskCompletedTime(newTask);
         this.plugin.settings.tasks.push(newTask);
         await this.plugin.saveSettings();
         return newTask;
@@ -1297,21 +1227,8 @@ export class SyncManager {
         for (const task of tasks) {
             const localTask = this.plugin.settings.tasks.find((t: any) => t && t.didaId === task.didaId);
             if (localTask && localTask.status !== 2) {
-                const now = new Date();
-                const y = now.getFullYear();
-                const m = String(now.getMonth() + 1).padStart(2, "0");
-                const d = String(now.getDate()).padStart(2, "0");
-                const h = String(now.getHours()).padStart(2, "0");
-                const min = String(now.getMinutes()).padStart(2, "0");
-                const s = String(now.getSeconds()).padStart(2, "0");
-                const offset = now.getTimezoneOffset();
-                const oh = Math.abs(Math.floor(offset / 60));
-                const om = Math.abs(offset % 60);
-                const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
                 localTask.status = 2;
-                if (!localTask.parentId) {
-                    localTask.completedTime = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
-                }
+                ensureTaskCompletedTime(localTask);
                 localTask.updatedAt = new Date().toISOString();
                 await this.plugin.saveSettings();
             }

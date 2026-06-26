@@ -67,4 +67,40 @@ const deduped = dedupeCalendarTasks([
 ]);
 assertEqual(deduped.length, 2, "tasks are deduped by didaId/id");
 
+const dedupedCompletedCache = dedupeCalendarTasks([
+    task({ id: "local-completed", didaId: "remote-completed", status: 2, parentId: "parent-remote" }),
+    task({
+        id: "cached-completed",
+        didaId: "remote-completed",
+        status: 2,
+        parentId: "parent-remote",
+        completedTime: "2026-06-20T10:00:00+0800"
+    })
+]);
+assertEqual(dedupedCompletedCache.length, 1, "completed cache conflict is still deduped");
+assertEqual(dedupedCompletedCache[0].id, "cached-completed", "completed cache with valid completedTime wins over incomplete local record");
+assertEqual(dedupedCompletedCache[0].parentId, "parent-remote", "subtask structure survives completed cache dedupe");
+
+const dedupedCompletedBothDated = dedupeCalendarTasks([
+    task({
+        id: "local-dated",
+        didaId: "remote-dated",
+        status: 2,
+        completedTime: "2026-06-21T10:00:00+0800"
+    }),
+    {
+        ...task({
+            id: "cached-dated",
+            didaId: "remote-dated",
+            status: 2,
+            completedTime: "2026-06-21T10:00:00+0800"
+        }),
+        content: "full",
+        desc: "full",
+        projectName: "Project",
+        updatedAt: "2026-06-21T11:00:00+0800"
+    }
+]);
+assertEqual(dedupedCompletedBothDated[0].id, "cached-dated", "more complete completed record wins when both have completedTime");
+
 console.log("calendarMonth tests passed");

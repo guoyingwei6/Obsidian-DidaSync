@@ -64,15 +64,58 @@ export function getCalendarTaskDate(task: DidaTask, completed = false): Date | n
 }
 
 export function dedupeCalendarTasks(tasks: DidaTask[]): DidaTask[] {
-    const seen = new Set<string>();
+    const indexesByKey = new Map<string, number>();
     const result: DidaTask[] = [];
     tasks.forEach((task) => {
         const key = task.didaId || task.id;
-        if (key && seen.has(key)) return;
-        if (key) seen.add(key);
+        if (key && indexesByKey.has(key)) {
+            const existingIndex = indexesByKey.get(key)!;
+            const existing = result[existingIndex];
+            if (getCalendarTaskCompletenessScore(task) > getCalendarTaskCompletenessScore(existing)) {
+                result[existingIndex] = task;
+            }
+            return;
+        }
+        if (key) indexesByKey.set(key, result.length);
         result.push(task);
     });
     return result;
+}
+
+function hasValidCompletedTime(task: DidaTask): boolean {
+    if (!task.completedTime) return false;
+    const date = new Date(task.completedTime);
+    return !Number.isNaN(date.getTime());
+}
+
+function getCalendarTaskCompletenessScore(task: DidaTask): number {
+    const fields: Array<keyof DidaTask> = [
+        "title",
+        "content",
+        "desc",
+        "projectId",
+        "projectName",
+        "startDate",
+        "dueDate",
+        "completedTime",
+        "parentId",
+        "createdAt",
+        "updatedAt",
+        "etag",
+        "kind",
+        "repeatFlag"
+    ];
+    const fieldScore = fields.reduce((score, field) => {
+        const value = task[field];
+        if (value === null || value === undefined || value === "") return score;
+        return score + 1;
+    }, 0);
+    const collectionScore = (Array.isArray(task.items) ? task.items.length : 0)
+        + (Array.isArray(task.reminders) ? task.reminders.length : 0);
+    return (hasValidCompletedTime(task) ? 10000 : 0)
+        + (task.status === 2 ? 1000 : 0)
+        + fieldScore
+        + collectionScore;
 }
 
 export function groupTasksByCalendarDate(tasks: DidaTask[], completed = false): Map<string, DidaTask[]> {

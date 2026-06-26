@@ -19,7 +19,7 @@ import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
 import { buildCompletedTaskCacheSegment, fetchCompletedTasksByRange, filterCompletedTasksByQuery, getMonthlyCompletedTaskRanges, isCompletedTaskRangeCovered, mergeCompletedTaskCacheSegments, mergeCompletedTasks, normalizeCompletedTaskCacheSegments } from './completedTaskCache';
 import { CompletedTaskCacheSegment, CompletedTasksQuery, DEFAULT_SETTINGS, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry, TaskScheduleInput } from './types';
 import { applyParsedLineToTask, formatTaskLine, formatTaskLineFromTask, makeLocalDateTime, parseTaskLine, TaskLineMetadata } from './taskLineFormat';
-import { normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes } from './utils';
+import { ensureTaskCompletedTime, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes } from './utils';
 import { DidaTimeBlockView, TIME_BLOCK_VIEW_TYPE } from './views/DidaTimeBlockView';
 import { TaskActionMenu } from './views/TaskActionMenu';
 import { TASK_VIEW_TYPE, TaskView } from './views/TaskView';
@@ -2066,18 +2066,7 @@ export default class DidaSyncPlugin extends Plugin {
                 task.completed = false;
             } else {
                 task.status = 2;
-                const now = new Date();
-                const y = now.getFullYear();
-                const m = String(now.getMonth() + 1).padStart(2, "0");
-                const d = String(now.getDate()).padStart(2, "0");
-                const h = String(now.getHours()).padStart(2, "0");
-                const min = String(now.getMinutes()).padStart(2, "0");
-                const s = String(now.getSeconds()).padStart(2, "0");
-                const offset = now.getTimezoneOffset();
-                const oh = Math.abs(Math.floor(offset / 60));
-                const om = Math.abs(offset % 60);
-                const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
-                task.completedTime = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
+                ensureTaskCompletedTime(task);
                 task.completed = true;
 
             }
@@ -2088,18 +2077,7 @@ export default class DidaSyncPlugin extends Plugin {
                 for (const sub of this.settings.tasks.filter(t => t.parentId === task.didaId)) {
                     if (sub.status !== 2) {
                         sub.status = 2;
-                        const now = new Date();
-                        const y = now.getFullYear();
-                        const m = String(now.getMonth() + 1).padStart(2, "0");
-                        const d = String(now.getDate()).padStart(2, "0");
-                        const h = String(now.getHours()).padStart(2, "0");
-                        const min = String(now.getMinutes()).padStart(2, "0");
-                        const s = String(now.getSeconds()).padStart(2, "0");
-                        const offset = now.getTimezoneOffset();
-                        const oh = Math.abs(Math.floor(offset / 60));
-                        const om = Math.abs(offset % 60);
-                        const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
-                        sub.completedTime = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
+                        ensureTaskCompletedTime(sub);
                         sub.updatedAt = new Date().toISOString();
                         if (this.settings.accessToken && sub.didaId) {
                             setTimeout(() => {
@@ -3291,19 +3269,8 @@ export default class DidaSyncPlugin extends Plugin {
     updateTaskStatusDirectly(task: DidaTask, status: number) {
         task.status = status;
         if (status === 2) {
-            const now = new Date();
-            const y = now.getFullYear();
-            const m = String(now.getMonth() + 1).padStart(2, "0");
-            const d = String(now.getDate()).padStart(2, "0");
-            const h = String(now.getHours()).padStart(2, "0");
-            const min = String(now.getMinutes()).padStart(2, "0");
-            const s = String(now.getSeconds()).padStart(2, "0");
-            const offset = now.getTimezoneOffset();
-            const oh = Math.abs(Math.floor(offset / 60));
-            const om = Math.abs(offset % 60);
-            const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
             task.completed = true;
-            task.completedTime = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
+            ensureTaskCompletedTime(task);
         } else {
             task.completed = false;
             task.completedTime = null;

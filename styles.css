@@ -3486,6 +3486,11 @@ label+.dida-project-select {
     cursor: pointer;
 }
 
+.dida-calendar-task-chip.is-subtask {
+    opacity: 0.92;
+    padding-left: 8px;
+}
+
 .dida-calendar-task-chip.is-completed {
     background: var(--background-modifier-hover);
     color: var(--text-muted);
@@ -3680,14 +3685,36 @@ label+.dida-project-select {
     width: 100%;
 }
 
-.dida-time-block-all-day .dida-task-title {
+.dida-time-block-all-day .dida-time-block-task-text {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dida-time-block-all-day .dida-task-title,
+.dida-time-block-all-day .dida-task-completed {
     text-align: left;
     min-width: 0;
     max-width: none;
     font-size: 10px;
     font-weight: 600;
     line-height: 1.25;
+}
+
+.dida-time-block-parent-label {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.2;
+    opacity: 0.82;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dida-time-block-all-day .dida-task-delete {
@@ -3786,6 +3813,40 @@ label+.dida-project-select {
     color: var(--text-muted);
     text-decoration: line-through;
     line-height: 1.4;
+}
+
+.dida-timeline-task-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dida-timeline-task-main .dida-timeline-task-title,
+.dida-timeline-task-main .dida-timeline-task-completed {
+    flex-grow: 0;
+    min-width: 0;
+}
+
+.dida-timeline-subtask-row {
+    margin-left: 20px;
+}
+
+.dida-timeline-subtask-row::after {
+    display: none;
+}
+
+.dida-timeline-parent-label {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dida-timeline-repeat-icon {

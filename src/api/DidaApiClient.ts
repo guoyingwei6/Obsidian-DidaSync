@@ -2,6 +2,7 @@ import { Notice, Platform, requestUrl } from "obsidian";
 import DidaSyncPlugin from "../main";
 import { AuthUrlModal } from "../modals/AuthUrlModal";
 import { DidaSyncSettings, OAUTH_CONFIG, OAuthCallbackMode } from "../types";
+import { formatCompletedTime } from "../utils";
 
 type ResponseLike = {
     ok: boolean;
@@ -474,18 +475,7 @@ export class DidaApiClient {
             taskData.timeZone = taskData.timeZone || this.plugin.getUserTimeZone();
         }
         if (taskData && taskData.status === 2 && !taskData.completedTime) {
-            const now = new Date();
-            const y = now.getFullYear();
-            const m = String(now.getMonth() + 1).padStart(2, "0");
-            const d = String(now.getDate()).padStart(2, "0");
-            const h = String(now.getHours()).padStart(2, "0");
-            const min = String(now.getMinutes()).padStart(2, "0");
-            const s = String(now.getSeconds()).padStart(2, "0");
-            const offset = now.getTimezoneOffset();
-            const oh = Math.abs(Math.floor(offset / 60));
-            const om = Math.abs(offset % 60);
-            const tz = (offset <= 0 ? "+" : "-") + String(oh).padStart(2, "0") + String(om).padStart(2, "0");
-            taskData.completedTime = `${y}-${m}-${d}T${h}:${min}:${s}${tz}`;
+            taskData.completedTime = formatCompletedTime();
         }
         const res = await this.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/task/${taskId}`, {
             method: "POST",

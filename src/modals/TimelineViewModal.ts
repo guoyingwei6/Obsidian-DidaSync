@@ -1,6 +1,7 @@
 import { App } from 'obsidian';
 import DidaSyncPlugin from '../main';
 import { resolveTaskIndex } from '../taskIndex';
+import { getDidaTaskPath, getDidaTaskTreeKeys } from '../taskTree';
 import { DidaTask } from '../types';
 import { debounce, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
 import { AddTaskModal } from './AddTaskModal';
@@ -45,6 +46,23 @@ export class TimelineViewModal {
             cls: "dida-child-task-count-label",
             text: `${completedCount}/${totalCount}`
         });
+    }
+
+    private getTaskPathLabel(task: DidaTask): string {
+        try {
+            return getDidaTaskPath(task, this.plugin.settings.tasks || []);
+        } catch (error) {
+            return task.title || "未命名任务";
+        }
+    }
+
+    private getParentTaskLabel(task: DidaTask): string | null {
+        if (!task.parentId) return null;
+        const parent = (this.plugin.settings.tasks || []).find((candidate) => {
+            const keys = getDidaTaskTreeKeys(candidate);
+            return keys.includes(task.parentId!);
+        });
+        return parent?.title || null;
     }
 
     renderTimelineTaskTitleContent(container: HTMLElement, content: string) {
@@ -363,7 +381,6 @@ export class TimelineViewModal {
         target.setHours(0, 0, 0, 0);
 
         return tasks.filter(t => {
-            if (t.parentId) return false; // Only top level?
             if (!t.dueDate) return false;
             const d = new Date(t.dueDate);
             d.setHours(0, 0, 0, 0);
@@ -415,12 +432,22 @@ export class TimelineViewModal {
             const cb = elementContainer.createEl("input", { type: "checkbox" });
             cb.checked = task.status === 2;
 
-            const titleSpan = item.createEl("span", {
+            const titleStack = item.createDiv("dida-timeline-task-main");
+            const titleSpan = titleStack.createEl("span", {
                 cls: task.status === 2 ? "dida-timeline-task-completed dida-task-title-clickable" : "dida-timeline-task-title dida-task-title-clickable"
             });
             this.renderTimelineTaskTitleContent(titleSpan, task.title || "无标题任务");
+            titleSpan.title = this.getTaskPathLabel(task);
 
             titleSpan.onclick = () => this.toggleTimelineTaskDetails(item, task);
+
+            const parentLabel = this.getParentTaskLabel(task);
+            if (parentLabel) {
+                titleStack.createEl("span", {
+                    cls: "dida-timeline-parent-label",
+                    text: `↳ ${parentLabel}`
+                });
+            }
 
             if (task.repeatFlag && task.repeatFlag.trim() !== "") {
                 const repeatText = translateRepeatFlag(task.repeatFlag);
@@ -533,11 +560,21 @@ export class TimelineViewModal {
 
             const cb = elementContainer.createEl("input", { type: "checkbox" });
             cb.checked = task.status === 2;
-            const titleSpan = item.createEl("span", {
+            const titleStack = item.createDiv("dida-timeline-task-main");
+            const titleSpan = titleStack.createEl("span", {
                 cls: task.status === 2 ? "dida-timeline-task-completed dida-task-title-clickable" : "dida-timeline-task-title dida-task-title-clickable"
             });
             this.renderTimelineTaskTitleContent(titleSpan, task.title || "无标题任务");
+            titleSpan.title = this.getTaskPathLabel(task);
             titleSpan.onclick = () => this.toggleTimelineTaskDetails(item, task);
+
+            const parentLabel = this.getParentTaskLabel(task);
+            if (parentLabel) {
+                titleStack.createEl("span", {
+                    cls: "dida-timeline-parent-label",
+                    text: `↳ ${parentLabel}`
+                });
+            }
 
             if (task.repeatFlag && task.repeatFlag.trim() !== "") {
                 const repeatText = translateRepeatFlag(task.repeatFlag);
