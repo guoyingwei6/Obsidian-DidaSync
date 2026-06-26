@@ -143,6 +143,37 @@ async function run() {
         /网络请求错误: DNS failed/
     );
 
+    requests.length = 0;
+    queuedResponses = [{ status: 200, text: "[{\"taskId\":\"task-1\"}]", json: [{ taskId: "task-1" }] }];
+    await client.moveTask("p1", "p2", "task-1");
+    assert.equal(requests.length, 1);
+    assert.deepEqual(JSON.parse(requests[0].body), [{ fromProjectId: "p1", toProjectId: "p2", taskId: "task-1" }]);
+
+    requests.length = 0;
+    queuedResponses = [
+        { status: 200, text: "[]", json: [] },
+        { status: 200, text: "{\"id\":\"task-2\"}", json: { id: "task-2" } }
+    ];
+    await client.moveTask("inbox", "p2", "task-2");
+    assert.equal(requests.length, 2);
+    assert.deepEqual(JSON.parse(requests[0].body), [{ fromProjectId: "inbox", toProjectId: "p2", taskId: "task-2" }]);
+    assert.deepEqual(JSON.parse(requests[1].body), { fromProjectId: "inbox", toProjectId: "p2", taskId: "task-2" });
+
+    requests.length = 0;
+    queuedResponses = [{ status: 200, text: "{\"success\":true}", json: { success: true } }];
+    await client.moveTask("p1", "inbox", "task-3");
+    assert.deepEqual(JSON.parse(requests[0].body), [{ fromProjectId: "p1", toProjectId: "inbox", taskId: "task-3" }]);
+
+    requests.length = 0;
+    queuedResponses = [
+        { status: 200, text: "{}", json: {} },
+        { status: 200, text: "[]", json: [] }
+    ];
+    await assert.rejects(
+        () => client.moveTask("p1", "p2", "task-4"),
+        /移动任务失败/
+    );
+
     console.log("DidaApiClient OAuth and request tests passed");
 }
 

@@ -4,7 +4,9 @@ export interface TaskIndexIdentity {
 }
 
 export function resolveTaskIndex(tasks: TaskIndexIdentity[], task: TaskIndexIdentity, visibleIndex?: number): number {
-    const matchedIndex = tasks.findIndex((current) => task.didaId ? current.didaId === task.didaId : current.id === task.id);
+    const matchedIndex = tasks.findIndex((current) =>
+        (!!task.id && current.id === task.id) || (!!task.didaId && current.didaId === task.didaId)
+    );
     if (matchedIndex !== -1) {
         return matchedIndex;
     }

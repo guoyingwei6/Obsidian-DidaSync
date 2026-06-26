@@ -499,8 +499,53 @@ export class DidaApiClient {
         if (!res.ok) throw new Error("Failed to complete task");
     }
 
+    private async readResponseBody(res: ResponseLike): Promise<{ data: any; text: string }> {
+        const text = await res.text().catch(() => "");
+        if (text) {
+            try {
+                return { data: JSON.parse(text), text };
+            } catch (_error) {
+                return { data: text, text };
+            }
+        }
+        try {
+            const data = await res.json();
+            return { data, text: typeof data === "string" ? data : JSON.stringify(data || "") };
+        } catch (_error) {
+            return { data: null, text: "" };
+        }
+    }
+
+    private isMoveResultSuccessful(data: any, taskId: string): boolean {
+        if (data === undefined || data === null || data === "") return false;
+        const items = Array.isArray(data) ? data : [data];
+        if (items.length === 0) return false;
+        return items.some((item) => {
+            if (item === taskId) return true;
+            if (!item || typeof item !== "object") return false;
+            if (item.error || item.errorCode || item.errorMessage || item.success === false) return false;
+            const id = item.id || item.taskId;
+            if (id) return id === taskId;
+            return item.success === true || !!item.etag;
+        });
+    }
+
     async moveTask(fromProjectId: string, toProjectId: string, taskId: string): Promise<any> {
-        return this.moveTasks([{ fromProjectId, toProjectId, taskId }]);
+        const operation = { fromProjectId, toProjectId, taskId };
+        const arrayRes = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/move", {
+            method: "POST",
+            body: JSON.stringify([operation])
+        });
+        const arrayBody = await this.readResponseBody(arrayRes);
+        if (arrayRes.ok && this.isMoveResultSuccessful(arrayBody.data, taskId)) return arrayBody.data;
+
+        const objectRes = await this.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/move", {
+            method: "POST",
+            body: JSON.stringify(operation)
+        });
+        const objectBody = await this.readResponseBody(objectRes);
+        if (objectRes.ok && this.isMoveResultSuccessful(objectBody.data, taskId)) return objectBody.data;
+        throw new Error(`移动任务失败: array ${arrayRes.status} ${arrayBody.text || JSON.stringify(arrayBody.data)}; object ${objectRes.status} ${objectBody.text || JSON.stringify(objectBody.data)}`);
     }
 
     async moveTasks(operations: Array<{ fromProjectId: string; toProjectId: string; taskId: string }>): Promise<any[]> {

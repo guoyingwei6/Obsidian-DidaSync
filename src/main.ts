@@ -262,6 +262,7 @@ export default class DidaSyncPlugin extends Plugin {
             };
         }
         if (!Array.isArray(this.settings.projectCatalog)) this.settings.projectCatalog = [];
+        if (typeof this.settings.remoteInboxProjectId !== "string") this.settings.remoteInboxProjectId = "";
         this.settings.projectCatalog = this.normalizeProjectCatalog(this.settings.projectCatalog);
         await this.ensureProjectCatalogFromTasks();
         this.sanitizeHiddenProjectKeys();
@@ -1410,6 +1411,36 @@ export default class DidaSyncPlugin extends Plugin {
         return false;
     }
 
+    private getTaskIdentityKeys(task: DidaTask | null | undefined): string[] {
+        if (!task) return [];
+        return [task.didaId, task.id].filter((key): key is string => !!key);
+    }
+
+    private findTaskByAnyId(id: string | null | undefined): DidaTask | undefined {
+        if (!id) return undefined;
+        return (this.settings.tasks || []).find((task) => task.id === id || task.didaId === id);
+    }
+
+    private collectTaskDescendants(task: DidaTask): DidaTask[] {
+        const descendants: DidaTask[] = [];
+        const seen = new Set(this.getTaskIdentityKeys(task));
+        const queue: DidaTask[] = [task];
+        while (queue.length > 0) {
+            const current = queue.shift();
+            if (!current) continue;
+            const parentKeys = new Set(this.getTaskIdentityKeys(current));
+            for (const candidate of this.settings.tasks || []) {
+                if (!candidate.parentId || !parentKeys.has(candidate.parentId)) continue;
+                const keys = this.getTaskIdentityKeys(candidate);
+                if (keys.some((key) => seen.has(key))) continue;
+                keys.forEach((key) => seen.add(key));
+                descendants.push(candidate);
+                queue.push(candidate);
+            }
+        }
+        return descendants;
+    }
+
     async reparentTask(task: DidaTask, parentTask: DidaTask) {
         if (!task || !parentTask) throw new Error("任务不存在");
         const taskKeys = new Set([task.didaId, task.id].filter(Boolean));
@@ -2012,49 +2043,7 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     async updateTaskContentInDidaList(task: DidaTask) {
-        if (task.didaId) {
-            const payload: any = {
-                id: task.didaId,
-                title: task.title,
-                content: task.content || "",
-                desc: task.desc || "",
-                status: task.status
-            };
-            if (task.items && Array.isArray(task.items) && task.items.length > 0) {
-                const content = task.content || task.desc || "";
-                payload.content = content;
-                payload.desc = content;
-            }
-            if (task.projectId && task.projectId !== "inbox") payload.projectId = task.projectId;
-            if (task.dueDate !== undefined) {
-                if (task.dueDate === null) payload.dueDate = null;
-                else if (task.dueDate.endsWith("Z")) payload.dueDate = task.dueDate.replace("Z", "+0000");
-                else payload.dueDate = task.dueDate;
-            }
-            if (task.startDate) payload.startDate = task.startDate;
-            if (task.isAllDay !== undefined) payload.isAllDay = task.isAllDay;
-            if (task.priority !== undefined) payload.priority = task.priority;
-            if (task.parentId) payload.parentId = task.parentId;
-            if (task.items && Array.isArray(task.items)) payload.items = task.items;
-            if (typeof task.repeatFlag === "string") {
-                const rf = task.repeatFlag.trim();
-                payload.repeatFlag = rf === "" ? "" : rf;
-            }
-            try {
-                const res = await this.apiClient.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/" + task.didaId, {
-                    method: "POST",
-                    body: JSON.stringify(payload)
-                } as any);
-                if (!res.ok) {
-                    await res.text();
-                    throw new Error("更新任务失败: " + res.status);
-                }
-                task.updatedAt = new Date().toISOString();
-                await this.saveSettings();
-            } catch (e) {
-                throw e;
-            }
-        }
+        return this.syncManager.updateTaskInDidaList(task);
     }
 
     async toggleTask(index: number) {
@@ -2073,8 +2062,9 @@ export default class DidaSyncPlugin extends Plugin {
 
             task.updatedAt = new Date().toISOString();
 
-            if (task.status === 2 && task.didaId) {
-                for (const sub of this.settings.tasks.filter(t => t.parentId === task.didaId)) {
+            if (task.status === 2) {
+                const parentKeys = new Set([task.id, task.didaId].filter(Boolean));
+                for (const sub of this.settings.tasks.filter(t => !!t.parentId && parentKeys.has(t.parentId))) {
                     if (sub.status !== 2) {
                         sub.status = 2;
                         ensureTaskCompletedTime(sub);

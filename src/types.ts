@@ -153,6 +153,7 @@ export interface DidaSyncSettings {
     clientSecret: string;
     accessToken: string;
     refreshToken: string;
+    remoteInboxProjectId?: string;
 
     tasks: DidaTask[];
     projects: DidaProject[]; // Cache of projects
@@ -229,6 +230,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     clientSecret: "",
     accessToken: "",
     refreshToken: "",
+    remoteInboxProjectId: "",
     tasks: [],
     projects: [],
     projectCatalog: [],

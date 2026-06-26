@@ -39,6 +39,172 @@ export class SyncManager {
         return this.getPendingOperations().some(operation => operation.didaId === didaId && operation.type === "delete");
     }
 
+    private isInboxProjectId(projectId: string | null | undefined): boolean {
+        if (!projectId) return true;
+        return projectId === "inbox" || projectId.startsWith("inbox");
+    }
+
+    private cacheRemoteInboxProjectId(projectId: string | null | undefined): boolean {
+        if (!projectId || projectId === "inbox" || !projectId.startsWith("inbox")) return false;
+        if (this.plugin.settings.remoteInboxProjectId === projectId) return false;
+        this.plugin.settings.remoteInboxProjectId = projectId;
+        return true;
+    }
+
+    private normalizeRemoteProjectId(projectId: string | null | undefined): string {
+        if (this.isInboxProjectId(projectId)) {
+            this.cacheRemoteInboxProjectId(projectId || null);
+            return "inbox";
+        }
+        return projectId as string;
+    }
+
+    private async ensureRemoteInboxProjectId(): Promise<string> {
+        const cached = this.plugin.settings.remoteInboxProjectId;
+        if (cached && cached !== "inbox" && cached.startsWith("inbox")) return cached;
+
+        const candidates = [
+            ...(this.plugin.settings.projects || []),
+            ...(this.plugin.settings.projectCatalog || []),
+            ...(this.plugin.settings.tasks || [])
+        ];
+        for (const item of candidates) {
+            const id = typeof item?.projectId === "string" ? item.projectId : item?.id;
+            const name = typeof item?.projectName === "string" ? item.projectName : item?.name;
+            if (id && id !== "inbox" && id.startsWith("inbox") && (!name || name === "收集箱" || String(name).toLowerCase() === "inbox")) {
+                this.plugin.settings.remoteInboxProjectId = id;
+                await this.plugin.saveSettings();
+                return id;
+            }
+        }
+
+        const title = `DidaSync inbox probe ${Date.now()}`;
+        const res = await this.plugin.apiClient.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task", {
+            method: "POST",
+            body: JSON.stringify({ title, content: "", desc: "" })
+        } as any);
+        if (!res.ok) throw new Error("无法创建临时任务以识别远端收集箱 ID: " + res.status);
+        const data = await this.readResponseJson<any>(res, {});
+        const inboxId = typeof data.projectId === "string" ? data.projectId : "";
+        if (!inboxId || inboxId === "inbox" || !inboxId.startsWith("inbox")) {
+            throw new Error("无法从临时任务识别远端收集箱 ID");
+        }
+        this.plugin.settings.remoteInboxProjectId = inboxId;
+        await this.plugin.saveSettings();
+
+        if (data.id) {
+            try {
+                await this.plugin.apiClient.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/project/${inboxId}/task/${data.id}`, {
+                    method: "DELETE"
+                } as any);
+            } catch (_error) { }
+        }
+        return inboxId;
+    }
+
+    private async resolveRemoteProjectId(projectId: string | null | undefined): Promise<string> {
+        if (projectId === "local") throw new Error("本地项目不能同步到滴答清单远端");
+        if (this.isInboxProjectId(projectId)) return this.ensureRemoteInboxProjectId();
+        return projectId as string;
+    }
+
+    private getTaskIdentityKeys(task: DidaTask | null | undefined): string[] {
+        if (!task) return [];
+        return [task.id, task.didaId].filter((key): key is string => !!key);
+    }
+
+    private findTaskByAnyId(id: string | null | undefined): DidaTask | undefined {
+        if (!id) return undefined;
+        return (this.plugin.settings.tasks || []).find((task) => task.id === id || task.didaId === id);
+    }
+
+    private getTaskUploadDepth(task: DidaTask, seen: Set<string> = new Set()): number {
+        const key = task.id || task.didaId;
+        if (key) {
+            if (seen.has(key)) return 0;
+            seen.add(key);
+        }
+        const parent = this.findTaskByAnyId(task.parentId);
+        if (!parent) return 0;
+        return 1 + this.getTaskUploadDepth(parent, seen);
+    }
+
+    private sortTasksForUpload(tasks: DidaTask[]): DidaTask[] {
+        return tasks
+            .map((task, index) => ({ task, index, depth: this.getTaskUploadDepth(task) }))
+            .sort((a, b) => a.depth - b.depth || a.index - b.index)
+            .map((item) => item.task);
+    }
+
+    private sortPendingOperationsForFlush(operations: PendingSyncOperation[]): PendingSyncOperation[] {
+        return operations
+            .map((operation, index) => {
+                const task = this.plugin.settings.tasks.find(item =>
+                    item.id === operation.localTaskId || (!!operation.didaId && item.didaId === operation.didaId)
+                );
+                const depth = task && (operation.type === "upsert" || operation.type === "complete" || operation.type === "placement")
+                    ? this.getTaskUploadDepth(task)
+                    : 0;
+                return { operation, index, depth };
+            })
+            .sort((a, b) => a.depth - b.depth || a.index - b.index)
+            .map((item) => item.operation);
+    }
+
+    private normalizeChildrenParentId(parent: DidaTask) {
+        if (!parent.id || !parent.didaId) return;
+        for (const child of this.plugin.settings.tasks || []) {
+            if (child.parentId === parent.id) child.parentId = parent.didaId;
+        }
+    }
+
+    private assertNoParentCycle(task: DidaTask) {
+        const seen = new Set<string>();
+        let current: DidaTask | undefined = task;
+        while (current) {
+            const keys = this.getTaskIdentityKeys(current);
+            if (keys.some(key => seen.has(key))) throw new Error("检测到循环父任务关系");
+            for (const key of keys) seen.add(key);
+            current = this.findTaskByAnyId(current.parentId);
+        }
+    }
+
+    private async resolveRemoteParentId(task: DidaTask, seen: Set<string> = new Set()): Promise<string | null | undefined> {
+        this.assertNoParentCycle(task);
+        if (task.parentId === undefined) return undefined;
+        if (task.parentId === null || task.parentId === "") return null;
+
+        const parent = this.findTaskByAnyId(task.parentId);
+        if (!parent) return task.parentId;
+
+        const taskKeys = new Set(this.getTaskIdentityKeys(task));
+        if (this.getTaskIdentityKeys(parent).some(key => taskKeys.has(key))) {
+            throw new Error("不能将任务设为自己的父任务");
+        }
+
+        const parentKey = parent.id || parent.didaId;
+        if (parentKey) {
+            if (seen.has(parentKey)) throw new Error("检测到循环父任务关系");
+            seen.add(parentKey);
+        }
+
+        if (!parent.didaId) {
+            await this.createTaskInDidaList(parent, false);
+        }
+        if (!parent.didaId) throw new Error("父任务未同步，无法同步子任务");
+
+        if (task.parentId !== parent.didaId) {
+            task.parentId = parent.didaId;
+            this.normalizeChildrenParentId(parent);
+            await this.plugin.saveSettings();
+        }
+        return parent.didaId;
+    }
+
+    private encodeParentIdForTaskUpdate(parentId: string | null): string {
+        return parentId === null ? "" : parentId;
+    }
+
     async queueOperation(task: DidaTask, type: PendingSyncOperationType, payload?: PendingSyncOperation["payload"]) {
         const operations = this.getPendingOperations();
         const existing = operations.find(operation => operation.localTaskId === task.id);
@@ -82,7 +248,8 @@ export class SyncManager {
     async flushPendingOperations(): Promise<{ uploaded: number; failed: string[] }> {
         let uploaded = 0;
         const failed: string[] = [];
-        for (const operation of [...this.getPendingOperations()]) {
+        for (const operation of this.sortPendingOperationsForFlush([...this.getPendingOperations()])) {
+            if (!this.getPendingOperations().some(item => item === operation)) continue;
             const task = this.plugin.settings.tasks.find(item =>
                 item.id === operation.localTaskId || (!!operation.didaId && item.didaId === operation.didaId)
             );
@@ -158,7 +325,9 @@ export class SyncManager {
     private async rollbackPlacementMove(task: DidaTask, payload: PendingPlacementOperationPayload): Promise<boolean> {
         if (!task.didaId || payload.fromProjectId === payload.toProjectId) return true;
         try {
-            await this.plugin.apiClient.moveTask(payload.toProjectId, payload.fromProjectId, task.didaId);
+            const remoteFromProjectId = await this.resolveRemoteProjectId(payload.toProjectId);
+            const remoteToProjectId = await this.resolveRemoteProjectId(payload.fromProjectId);
+            await this.plugin.apiClient.moveTask(remoteFromProjectId, remoteToProjectId, task.didaId);
             return true;
         } catch (_error) {
             return false;
@@ -167,15 +336,16 @@ export class SyncManager {
 
     private async flushPlacementOperation(task: DidaTask, operation: PendingSyncOperation) {
         if (!task.didaId) {
-            await this.removeOperation(operation);
-            return;
+            await this.updatePlacementState(task, true);
+            await this.createTaskInDidaList(task, false, false);
+            if (!task.didaId) throw new Error("任务创建后未返回远端 ID");
         }
 
         const payload = this.getPlacementPayload(operation);
         const fromProjectId = payload.fromProjectId || "inbox";
         const toProjectId = payload.toProjectId || task.projectId || "inbox";
         const fromParentId = payload.fromParentId ?? null;
-        const toParentId = payload.toParentId ?? null;
+        const toParentId = await this.resolvePlacementRemoteParentId(task, payload);
         const movedAcrossProjects = fromProjectId !== toProjectId;
         const changedParent = fromParentId !== toParentId;
         let moved = false;
@@ -184,21 +354,24 @@ export class SyncManager {
 
         try {
             if (movedAcrossProjects) {
-                await this.plugin.apiClient.moveTask(fromProjectId, toProjectId, task.didaId);
+                const remoteFromProjectId = await this.resolveRemoteProjectId(fromProjectId);
+                const remoteToProjectId = await this.resolveRemoteProjectId(toProjectId);
+                await this.plugin.apiClient.moveTask(remoteFromProjectId, remoteToProjectId, task.didaId);
                 moved = true;
             }
             if (changedParent) {
-                await this.updateTaskInDidaList(task, false);
-            } else {
-                await this.removeOperation(operation);
-                await this.updatePlacementState(task, false);
+                task.parentId = toParentId;
+                await this.updateTaskInDidaList(task, false, false);
             }
+            await this.removeOperation(operation);
+            await this.updatePlacementState(task, false);
         } catch (error: any) {
             const message = error?.message || String(error);
             if (!moved) {
-                this.restorePlacementLocally(task, payload);
-                await this.removeOperation(operation);
-                await this.updatePlacementState(task, false, message);
+                task.syncPlacementPending = true;
+                task.syncPlacementError = message;
+                await this.plugin.saveSettings();
+                this.plugin.refreshTaskView();
                 throw error;
             }
 
@@ -222,12 +395,33 @@ export class SyncManager {
         }
     }
 
+    private async resolvePlacementRemoteParentId(task: DidaTask, payload: PendingPlacementOperationPayload): Promise<string | null> {
+        if (payload.toParentId === null || payload.toParentId === undefined || payload.toParentId === "") {
+            task.parentId = null;
+            return null;
+        }
+        const parent = this.findTaskByAnyId(payload.parentTaskId)
+            || this.findTaskByAnyId(payload.parentDidaId)
+            || this.findTaskByAnyId(payload.toParentId);
+        if (!parent) {
+            task.parentId = payload.toParentId;
+            return payload.toParentId;
+        }
+        if (!parent.didaId) await this.createTaskInDidaList(parent, false);
+        if (!parent.didaId) throw new Error("父任务未同步，无法同步位置");
+        task.parentId = parent.didaId;
+        payload.toParentId = parent.didaId;
+        payload.parentTaskId = parent.id;
+        payload.parentDidaId = parent.didaId;
+        return parent.didaId;
+    }
+
     async syncToDidaList(): Promise<SyncResult> {
         const result: SyncResult = { outcome: "success", uploaded: 0, downloaded: 0, failedScopes: [], failedOperations: [], cleanupPerformed: false };
         if (this.plugin.settings.accessToken) {
             try {
                 this.plugin.updateStatusBar("同步中...");
-                for (const task of this.plugin.settings.tasks || []) {
+                for (const task of this.sortTasksForUpload(this.plugin.settings.tasks || [])) {
                     if (!task.didaId && !this.hasPendingOperation(task)) await this.queueOperation(task, "upsert");
                 }
                 const flushed = await this.flushPendingOperations();
@@ -250,7 +444,7 @@ export class SyncManager {
 
     async syncNewTasksToDidaList(): Promise<SyncResult> {
         const result: SyncResult = { outcome: "success", uploaded: 0, downloaded: 0, failedScopes: [], failedOperations: [], cleanupPerformed: false };
-        for (const task of this.plugin.settings.tasks || []) {
+        for (const task of this.sortTasksForUpload(this.plugin.settings.tasks || [])) {
             if (!task.didaId && !this.hasPendingOperation(task)) await this.queueOperation(task, "upsert");
         }
         const flushed = await this.flushPendingOperations();
@@ -316,10 +510,12 @@ export class SyncManager {
                     const list = await res.json();
                     if (Array.isArray(list)) {
                         projectListSucceeded = true;
+                        const previousRemoteInboxProjectId = this.plugin.settings.remoteInboxProjectId || "";
                         list.forEach(p => {
-                            expectedProjects.add(p.id);
-                            projectMap.set(p.id, {
-                                id: p.id,
+                            const localProjectId = this.normalizeRemoteProjectId(p.id);
+                            expectedProjects.add(localProjectId);
+                            projectMap.set(localProjectId, {
+                                id: localProjectId,
                                 name: p.name,
                                 color: p.color,
                                 closed: p.closed,
@@ -329,6 +525,7 @@ export class SyncManager {
                                 kind: p.kind
                             });
                         });
+                        if ((this.plugin.settings.remoteInboxProjectId || "") !== previousRemoteInboxProjectId) await this.plugin.saveSettings();
                         if (!projectMap.has("inbox")) {
                             projectMap.set("inbox", {
                                 id: "inbox",
@@ -369,11 +566,12 @@ export class SyncManager {
                                         }
                                         if (validPayload) {
                                             projectFetched = true;
-                                            successfulProjects.add(project.id);
+                                            const localProjectId = this.normalizeRemoteProjectId(project.id);
+                                            successfulProjects.add(localProjectId);
                                             items.forEach(t => {
-                                                const proj = projectMap.get(project.id);
-                                                t.projectId = project.id;
-                                                t.projectName = project.name;
+                                                const proj = projectMap.get(localProjectId);
+                                                t.projectId = localProjectId;
+                                                t.projectName = localProjectId === "inbox" ? "收集箱" : project.name;
                                                 t.projectColor = proj?.color;
                                                 t.projectClosed = proj?.closed;
                                                 t.projectViewMode = proj?.viewMode;
@@ -394,10 +592,11 @@ export class SyncManager {
             if (!projectListSucceeded) result.failedScopes.push("projects");
 
             try {
+                const remoteInboxProjectId = await this.ensureRemoteInboxProjectId().catch(() => "inbox");
                 for (const url of [
-                    "https://api.dida365.com/open/v1/project/inbox/task",
-                    "https://api.dida365.com/open/v1/project/inbox/data",
-                    "https://api.dida365.com/open/v1/task?projectId=inbox",
+                    `https://api.dida365.com/open/v1/project/${remoteInboxProjectId}/task`,
+                    `https://api.dida365.com/open/v1/project/${remoteInboxProjectId}/data`,
+                    `https://api.dida365.com/open/v1/task?projectId=${remoteInboxProjectId}`,
                     "https://api.dida365.com/open/v1/task"
                 ]) {
                     try {
@@ -407,7 +606,7 @@ export class SyncManager {
                             let items: any[] = [];
                             let validPayload = false;
                             if (Array.isArray(data)) {
-                                items = url.includes("/task") && !url.includes("projectId") ? data.filter(t => !t.projectId || t.projectId === "inbox" || t.projectId === null) : data;
+                                items = url.endsWith("/open/v1/task") ? data.filter(t => this.isInboxProjectId(t.projectId)) : data;
                                 validPayload = true;
                             } else if (data && data.tasks && Array.isArray(data.tasks)) {
                                 items = data.tasks;
@@ -420,7 +619,7 @@ export class SyncManager {
                                 inboxSucceeded = true;
                                 const proj = projectMap.get("inbox");
                                 items.forEach(t => {
-                                    t.projectId = t.projectId || "inbox";
+                                    t.projectId = this.normalizeRemoteProjectId(t.projectId);
                                     t.projectName = "收集箱";
                                     t.projectColor = proj?.color;
                                     t.projectClosed = proj?.closed;
@@ -737,10 +936,13 @@ export class SyncManager {
         } catch (e) { }
     }
 
-    async createTaskInDidaList(task: DidaTask, trackPending: boolean = true) {
+    async createTaskInDidaList(task: DidaTask, trackPending: boolean = true, clearOnSuccess: boolean = true) {
         if (trackPending) await this.queueOperation(task, "upsert");
         let content = task.content || "";
         let desc = task.desc || "";
+        const wasCompleted = task.status === 2;
+        const previousCompletedTime = task.completedTime || null;
+        const remoteParentId = await this.resolveRemoteParentId(task);
         if (task.items && Array.isArray(task.items) && task.items.length > 0) {
             const merged = task.content || task.desc || "";
             content = merged;
@@ -751,8 +953,8 @@ export class SyncManager {
             content,
             desc
         };
-        if (task.projectId && task.projectId !== "inbox") payload.projectId = task.projectId;
-        if (task.parentId) payload.parentId = task.parentId;
+        if (task.projectId && !this.isInboxProjectId(task.projectId)) payload.projectId = await this.resolveRemoteProjectId(task.projectId);
+        if (remoteParentId) payload.parentId = remoteParentId;
         if (task.items && Array.isArray(task.items)) payload.items = task.items;
         if (task.dueDate !== undefined) {
             if (task.dueDate === null) payload.dueDate = null;
@@ -790,7 +992,14 @@ export class SyncManager {
                 task.etag = data.etag || null;
                 task.status = data.status || 0;
                 task.completedTime = normalizeRemoteCompletedTime(data.completedTime);
-                if (task.status === 2) ensureTaskCompletedTime(task);
+                if (wasCompleted && task.status !== 2) {
+                    task.status = 2;
+                    task.completedTime = previousCompletedTime || task.completedTime || null;
+                    ensureTaskCompletedTime(task);
+                    await this.completeTaskInDida(task);
+                } else if (task.status === 2) {
+                    ensureTaskCompletedTime(task);
+                }
                 task.dueDate = data.dueDate || null;
                 task.startDate = data.startDate || null;
                 task.isAllDay = data.isAllDay || false;
@@ -798,12 +1007,13 @@ export class SyncManager {
                 task.projectViewMode = data.projectViewMode || "list";
                 task.projectKind = data.projectKind || "TASK";
                 task.parentId = data.parentId || task.parentId || null;
+                if (task.didaId) this.normalizeChildrenParentId(task);
                 if (data.items && Array.isArray(data.items) && data.items.length > 0) task.items = data.items;
                 task.reminders = data.reminders || [];
                 task.repeatFlag = data.repeatFlag || null;
                 task.priority = data.priority || 0;
                 await this.plugin.saveSettings();
-                await this.clearOperation(task);
+                if (clearOnSuccess) await this.clearOperation(task);
                 return data;
             }
             const errorText = await res.text();
@@ -814,19 +1024,20 @@ export class SyncManager {
         }
     }
 
-    async updateTaskInDidaList(task: DidaTask, trackPending: boolean = true) {
+    async updateTaskInDidaList(task: DidaTask, trackPending: boolean = true, clearOnSuccess: boolean = true, includeParent: boolean = true) {
         if (task.didaId) {
             if (trackPending) await this.queueOperation(task, "upsert");
             const hasTimeRange = !!(task.startDate && task.dueDate && task.startDate !== task.dueDate);
             let content = task.content || task.desc || "";
+            const remoteParentId = await this.resolveRemoteParentId(task);
             const payload: any = {
                 id: task.didaId,
                 title: task.title,
                 content,
-                desc: content,
-                status: task.status
+                desc: content
             };
-            if (task.projectId && task.projectId !== "inbox") payload.projectId = task.projectId;
+            if (task.status !== 2) payload.status = task.status;
+            if (task.projectId && !this.isInboxProjectId(task.projectId)) payload.projectId = await this.resolveRemoteProjectId(task.projectId);
             if (task.dueDate !== undefined) {
                 if (task.dueDate === null) payload.dueDate = null;
                 else {
@@ -852,14 +1063,14 @@ export class SyncManager {
                 if (task.isAllDay) payload.timeZone = this.plugin.getUserTimeZone();
             }
             if (task.priority !== undefined) payload.priority = task.priority;
-            if (task.parentId !== undefined) payload.parentId = task.parentId;
+            if (includeParent && remoteParentId !== undefined) payload.parentId = this.encodeParentIdForTaskUpdate(remoteParentId);
             if (task.items && Array.isArray(task.items)) payload.items = task.items;
             if (task.reminders && Array.isArray(task.reminders)) payload.reminders = task.reminders;
             if (typeof task.repeatFlag === "string") {
                 const rf = task.repeatFlag.trim();
                 payload.repeatFlag = rf === "" ? "" : rf;
             }
-            if (task.status === 2) payload.completedTime = ensureTaskCompletedTime(task);
+            if (task.status === 2) ensureTaskCompletedTime(task);
             try {
                 const res = await this.plugin.apiClient.makeAuthenticatedRequest("https://api.dida365.com/open/v1/task/" + task.didaId, {
                     method: "POST",
@@ -879,13 +1090,25 @@ export class SyncManager {
                 task.updatedAt = new Date().toISOString();
                 if (data.etag !== undefined) task.etag = data.etag;
                 if (data.priority !== undefined) task.priority = data.priority;
+                if (task.status === 2) await this.completeTaskInDida(task);
                 await this.plugin.saveSettings();
-                await this.clearOperation(task);
+                if (clearOnSuccess) await this.clearOperation(task);
             } catch (e) {
                 if (trackPending) await this.markOperationFailed(task, e);
                 throw e;
             }
         }
+    }
+
+    private async completeTaskInDida(task: DidaTask) {
+        if (!task.didaId) throw new Error("完成任务失败: 缺少远端 ID");
+        const projectId = await this.resolveRemoteProjectId(task.projectId || "inbox");
+        const res = await this.plugin.apiClient.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/project/${projectId}/task/${task.didaId}/complete`, {
+            method: "POST"
+        } as any);
+        if (!res.ok) throw new Error("完成任务失败: " + res.status);
+        task.status = 2;
+        ensureTaskCompletedTime(task);
     }
 
     private async readResponseJson<T>(res: { text?: () => Promise<string>; json?: () => Promise<any> }, fallback: T): Promise<T> {
@@ -916,6 +1139,7 @@ export class SyncManager {
     }
 
     async deleteTaskInDidaList(taskId: string, projectId: string = "inbox", trackPending: boolean = true) {
+        const remoteProjectId = await this.resolveRemoteProjectId(projectId);
         const task = this.plugin.settings.tasks.find(item => item.didaId === taskId) || {
             id: taskId,
             didaId: taskId,
@@ -926,7 +1150,7 @@ export class SyncManager {
         } as DidaTask;
         if (trackPending) await this.queueOperation(task, "delete");
         try {
-            const res = await this.plugin.apiClient.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/project/${projectId}/task/${taskId}`, {
+            const res = await this.plugin.apiClient.makeAuthenticatedRequest(`https://api.dida365.com/open/v1/project/${remoteProjectId}/task/${taskId}`, {
                 method: "DELETE"
             } as any);
             if (!res.ok) throw new Error("删除任务失败: " + res.status);
@@ -944,7 +1168,7 @@ export class SyncManager {
     }
 
     normalizeProjectIdForMatch(value: any): string {
-        return value || "inbox";
+        return this.normalizeRemoteProjectId(value);
     }
 
     findLocalRepeatTaskCopyIndex(remote: any): number {
@@ -968,7 +1192,7 @@ export class SyncManager {
         if (!local) return null;
 
         local.didaId = remote.id;
-        local.projectId = remote.projectId || "inbox";
+        local.projectId = this.normalizeRemoteProjectId(remote.projectId);
         local.projectName = project ? project.name : remote.projectName || local.projectName;
         local.createdAt = remote.createdTime || local.createdAt || new Date().toISOString();
         local.updatedAt = new Date().toISOString();
@@ -1012,7 +1236,7 @@ export class SyncManager {
             content,
             desc,
             didaId: task.id,
-            projectId: task.projectId || "inbox",
+            projectId: this.normalizeRemoteProjectId(task.projectId),
             projectName: project ? project.name : task.projectName || "收集箱",
             createdAt: task.createdTime || new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -1047,7 +1271,7 @@ export class SyncManager {
         if (task.didaId) {
             if (trackPending) await this.queueOperation(task, task.status === 2 ? "complete" : "upsert");
             try {
-                const projectId = task.projectId || "inbox";
+                const projectId = await this.resolveRemoteProjectId(task.projectId || "inbox");
                 if (task.status !== 2) {
                     await this.updateTaskInDidaList(task);
                 } else {
