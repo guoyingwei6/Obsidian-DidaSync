@@ -97,9 +97,12 @@ Organize complex task structures more naturally inside Obsidian and sync the res
 4. Choose a day, week, month, year, or custom date range.
 5. DidaSync writes the matching tasks into the range note, or creates a fresh note when "Always create a new note" is enabled.
 
-![Task Note Sync Settings](./assets/synctasktofile.png)
+| Month Calendar | Year Calendar |
+|:--:|:--:|
+| ![Month Calendar](./assets/monthcalender.png) | ![Year Calendar](./assets/yearcalendar.png) |
+| Review tasks in a monthly calendar layout. | See long-range completion patterns across the full year. |
 
-The sync-to-note settings page lets you configure the target block, output folder, and date-based note patterns without hand-editing JSON.
+The calendar views make it easier to browse workload by month or year while keeping note-based sync configuration inside DidaSync.
 
 You can also define a block-based sync view inside any working note. The default block header can be `> [!didasync]`, or the custom header configured in sync settings:
 
