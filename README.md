@@ -50,7 +50,7 @@ A task sync plugin for Obsidian that brings your Dida365 or TickTick tasks into 
 
 | Time Block View | List View |
 |:--:|:--:|
-| ![Time Block View](./assets/time-block-view.png) | ![Timeline View](./assets/timeline-view.png) |
+|![Time Block View](./assets/time-block-view.png) | ![Timeline View](./assets/timeline-view.png) |
 | Schedule and drag tasks by day. | Review progress and deadlines quickly. |
 
 ## Core Capabilities
