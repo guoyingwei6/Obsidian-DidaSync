@@ -15,6 +15,17 @@ assert.equal(fresh.isAllDay, true);
 assert.equal(fresh.startMinutes, 10 * 60 + 15);
 assert.equal(taskScheduleStateToValue(fresh).startDate?.getHours(), 0);
 
+const unscheduled = createTaskScheduleState({
+    now,
+    defaultDate: new Date(2026, 5, 30, 0, 0, 0, 0),
+    isScheduled: false
+});
+assert.equal(unscheduled.isScheduled, false);
+assert.equal(unscheduled.selectedDate.getFullYear(), 2026);
+assert.equal(unscheduled.selectedDate.getMonth(), 5);
+assert.equal(unscheduled.selectedDate.getDate(), 30);
+assert.equal(taskScheduleStateToValue(unscheduled).startDate, null);
+
 const timed = createTaskScheduleState({
     now,
     startDate: new Date(2026, 5, 26, 9, 30),

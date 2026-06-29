@@ -23,6 +23,7 @@ export interface TaskScheduleStateOptions {
     dueDate?: string | Date | null;
     isAllDay?: boolean;
     repeatFlag?: string | null;
+    isScheduled?: boolean;
     defaultDate?: Date;
     now?: Date;
 }
@@ -63,7 +64,9 @@ export function createTaskScheduleState(options: TaskScheduleStateOptions = {}):
         selectedDate,
         displayYear: selectedDate.getFullYear(),
         displayMonth: selectedDate.getMonth(),
-        isScheduled: !!(start || due) || options.defaultDate !== undefined || (!options.startDate && !options.dueDate),
+        isScheduled: options.isScheduled !== undefined
+            ? options.isScheduled
+            : !!(start || due) || options.defaultDate !== undefined || (!options.startDate && !options.dueDate),
         isAllDay: options.isAllDay !== undefined ? options.isAllDay : true,
         startMinutes,
         endMinutes: Math.min(1440, endMinutes),

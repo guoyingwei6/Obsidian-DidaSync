@@ -2502,7 +2502,15 @@ export default class DidaSyncPlugin extends Plugin {
             if (action === "sync") {
                 await this.syncTaskToDidaList(editor, cursor, line);
             } else if (action === "date") {
-                this.addDateToTask(editor, cursor, line, data.date);
+                const startDate = data?.startDate instanceof Date ? this.formatDidaDateTime(data.startDate) : null;
+                const dueDate = data?.dueDate instanceof Date ? this.formatDidaDateTime(data.dueDate) : null;
+                const hasSchedule = !!(startDate || dueDate);
+                await this.updateTaskLineMetadata(editor, cursor, line, {
+                    startDate,
+                    dueDate,
+                    isAllDay: hasSchedule ? data?.isAllDay === true : false,
+                    repeatFlag: hasSchedule ? (data?.repeatFlag ?? null) : null
+                });
             } else if (action === "priority") {
                 await this.updateTaskLineMetadata(editor, cursor, line, {
                     priority: data.priority

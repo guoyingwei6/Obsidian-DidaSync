@@ -1,6 +1,7 @@
 import { App, Editor, EditorPosition } from "obsidian";
 import { RRuleParser } from "../core/RRuleParser";
 import DidaSyncPlugin from "../main";
+import { DatePickerModal } from "../modals/DatePickerModal";
 import { parseTaskLine, tasksRepeatToRRule } from "../taskLineFormat";
 
 export class TaskActionMenu {
@@ -18,7 +19,6 @@ export class TaskActionMenu {
     keyHandler: ((e: KeyboardEvent) => void) | null = null;
     clickOutsideHandler: ((e: MouseEvent) => void) | null = null;
     scrollHandler: (() => void) | null = null;
-    _calendarViewMonth: Date | null = null;
 
     constructor(app: App, plugin: DidaSyncPlugin, editor: Editor, cursor: EditorPosition, onAction: (action: string, data?: any) => void) {
         this.app = app;
@@ -411,9 +411,7 @@ export class TaskActionMenu {
         const dateOption = optionsDiv.createEl("div", { cls: "task-action-menu-option", text: "📅 到期日期" });
         dateOption.addEventListener("click", (e) => {
             e.preventDefault(); e.stopPropagation();
-            this._calendarViewMonth = null;
-            this.showingDateMenu = true;
-            this.renderDateMenu();
+            this.openSchedulePicker();
         });
         this.menuItems.push(dateOption);
 
@@ -434,109 +432,42 @@ export class TaskActionMenu {
         this.updateSelectedItem();
     }
 
-    renderDateMenu() {
-        if (!this.menuElement) return;
-        this.menuElement.empty();
-        this.menuElement.addClass("task-action-menu-with-calendar");
-        this.selectedIndex = 0;
-        this.menuItems = [];
+    openSchedulePicker() {
+        const line = this.editor?.getLine(this.cursor?.line || 0) || "";
+        const parsed = parseTaskLine(line);
+        const taskIndex = parsed?.didaId ? this.plugin.settings.tasks.findIndex(t => t.didaId === parsed.didaId) : -1;
+        const initialSchedule = parsed ? {
+            startDate: parsed.startDate,
+            dueDate: parsed.dueDate,
+            isAllDay: parsed.isAllDay,
+            repeatFlag: parsed.repeatFlag
+        } : null;
 
-        const today = new Date();
-        const todayStr = this.formatDate(today);
+        let scopeElement: HTMLElement | null = null;
+        // @ts-ignore
+        if (this.editor?.cm?.dom) scopeElement = this.editor.cm.dom;
+        // @ts-ignore
+        else if (this.editor?.getInputField && typeof this.editor.getInputField === "function") scopeElement = this.editor.getInputField();
+        // @ts-ignore
+        else if (this.editor?.dom) scopeElement = this.editor.dom;
+        this.close();
 
-        if (!this._calendarViewMonth) {
-            const initial = this.initialTaskInfo;
-            if (initial && initial.date && /^\d{4}-\d{2}-\d{2}$/.test(initial.date)) {
-                const parts = initial.date.split("-");
-                const year = parseInt(parts[0], 10);
-                const month = parseInt(parts[1], 10) - 1;
-                if (!isNaN(year) && !isNaN(month)) {
-                    this._calendarViewMonth = new Date(year, month, 1);
-                }
-            }
-            if (!this._calendarViewMonth) {
-                this._calendarViewMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-            }
-        }
-
-        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "选择到期日期";
-
-        const backBtn = this.menuElement.createEl("div", { cls: "task-action-menu-back", text: "← 返回" });
-        backBtn.addEventListener("click", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            this._calendarViewMonth = null;
-            this.showingDateMenu = false;
-            this.renderMainMenu();
-        });
-        this.menuItems.push(backBtn);
-
-        const year = this._calendarViewMonth.getFullYear();
-        const month = this._calendarViewMonth.getMonth();
-
-        const navDiv = this.menuElement.createEl("div", { cls: "task-action-cal-nav" });
-
-        const prevBtn = navDiv.createEl("span", { cls: "task-action-cal-nav-btn", text: "‹", attr: { title: "上一月" } });
-        prevBtn.addEventListener("click", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            this._calendarViewMonth = new Date(year, month - 1, 1);
-            this.renderDateMenu();
-        });
-
-        const monthLabel = navDiv.createEl("span", { cls: "task-action-cal-nav-label" });
-        monthLabel.textContent = `${year}年${month + 1}月`;
-
-        const nextBtn = navDiv.createEl("span", { cls: "task-action-cal-nav-btn", text: "›", attr: { title: "下一月" } });
-        nextBtn.addEventListener("click", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            this._calendarViewMonth = new Date(year, month + 1, 1);
-            this.renderDateMenu();
-        });
-
-        const weekdaysDiv = this.menuElement.createEl("div", { cls: "task-action-cal-weekdays" });
-        ["日", "一", "二", "三", "四", "五", "六"].forEach(day => {
-            weekdaysDiv.createEl("span", { cls: "task-action-cal-weekday", text: day });
-        });
-
-        const gridDiv = this.menuElement.createEl("div", { cls: "task-action-cal-grid" });
-        const firstDay = new Date(year, month, 1).getDay();
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
-        const existingDate = this.initialTaskInfo && this.initialTaskInfo.date;
-        let dayCount = 1;
-        const totalCells = 7 * Math.ceil((firstDay + daysInMonth) / 7);
-
-        for (let i = 0; i < totalCells; i++) {
-            if (i < firstDay || dayCount > daysInMonth) {
-                gridDiv.createDiv({ cls: "task-action-cal-cell task-action-cal-cell-empty" });
-            } else {
-                const cellDate = new Date(year, month, dayCount);
-                const dateStr = this.formatDate(cellDate);
-                const cell = gridDiv.createDiv({ cls: "task-action-cal-cell", text: String(dayCount), attr: { role: "button", tabindex: "0" } });
-
-                if (dateStr === todayStr) {
-                    cell.addClass("task-action-cal-cell-today");
-                    cell.title = "今天";
-                }
-                if (existingDate && dateStr === existingDate) {
-                    cell.addClass("task-action-cal-cell-due");
-                }
-
-                cell.addEventListener("click", (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    this.close();
-                    this.onAction("date", { date: dateStr });
+        new DatePickerModal(
+            this.app,
+            initialSchedule?.startDate || initialSchedule?.dueDate || null,
+            async (startDate, isAllDay, dueDate, repeatFlag) => {
+                this.onAction("date", {
+                    startDate,
+                    dueDate: dueDate || startDate,
+                    isAllDay,
+                    repeatFlag: repeatFlag ?? null
                 });
-
-                this.menuItems.push(cell);
-                dayCount++;
-            }
-        }
-
-        this.updateSelectedItem();
-        this.positionMenu();
+            },
+            null,
+            taskIndex >= 0 ? this.plugin : null,
+            taskIndex >= 0 ? taskIndex : null,
+            { initialSchedule, scopeElement }
+        ).open();
     }
 
     renderPriorityMenu() {

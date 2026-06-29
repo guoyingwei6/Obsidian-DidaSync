@@ -97,6 +97,32 @@ const didaId = "6a24462bc500bf31a90ce7dd";
 }
 
 {
+    const line = `> - [ ] 时间段任务 [Dida](obsidian://dida-task?didaId=${didaId}) 📅 2026-06-09`;
+    const updated = formatTaskLine(line, {
+        startDate: "2026-06-10T09:30:00+0800",
+        dueDate: "2026-06-10T11:15:00+0800",
+        isAllDay: false,
+        repeatFlag: "RRULE:FREQ=DAILY;INTERVAL=1"
+    });
+    assert.ok(updated.includes("[09:30 - 11:15]"));
+    assert.ok(updated.includes("📅 2026-06-10"));
+    assert.ok(updated.includes("every day"));
+}
+
+{
+    const line = `> - [ ] 清除日期 [Dida](obsidian://dida-task?didaId=${didaId}) [09:30 - 11:15] 📅 2026-06-10 🔁 every day`;
+    const updated = formatTaskLine(line, {
+        startDate: null,
+        dueDate: null,
+        isAllDay: false,
+        repeatFlag: null
+    });
+    assert.ok(!updated.includes("[09:30 - 11:15]"));
+    assert.ok(!updated.includes("📅"));
+    assert.ok(!updated.includes("every day"));
+}
+
+{
     const lines = [
         `> - [ ] 任务 [Dida](obsidian://dida-task?didaId=${didaId}) 2026-06-09`,
         `> - [x] 任务 [Dida](obsidian://dida-task?didaId=${didaId}) 2026-06-09`
