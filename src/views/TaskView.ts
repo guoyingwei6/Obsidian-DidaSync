@@ -6,7 +6,7 @@ import { getCalendarCompletedFetchDecision, hasCalendarCompletedCacheForRange } 
 import { buildCalendarMonthGrid, CalendarMode, dedupeCalendarTasks, getCalendarDateKey, getCalendarMonthRange, getCalendarYearRange, groupTasksByCalendarDate } from '../calendarMonth';
 import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
-import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeIndex, getDidaTaskPath, getDidaTaskTreeKey, getDidaTaskTreeKeys, sortDidaTasksForTree } from '../taskTree';
+import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeIndex, getDidaTaskPath, getDidaTaskTreeKey, getDidaTaskTreeKeys, resolveDidaTaskCollapsedState, sortDidaTasksForTree } from '../taskTree';
 import { DEFAULT_SETTINGS, DidaTask } from '../types';
 import { clampMinutes, dateAtMinutes, getTimeGridDay, getTimeGridRange, gridStartMinutes, isAllDayTimeGridTask, snapDuration, snapMinutes, taskBelongsToTimeGridDate, TIME_GRID_STEP_MINUTES } from '../timeGrid';
 import { appendValidatedSvg, compareProjectGroups, debounce, getTimerRemainingSeconds, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
@@ -42,7 +42,6 @@ export class TaskView extends ItemView {
     pomodoroState: any;
     pomodoroToggleBtn: HTMLButtonElement | null = null;
     pomodoroHostEl: HTMLElement | null = null;
-    collapsedTaskKeys: Set<string>;
 
     constructor(leaf: WorkspaceLeaf, plugin: DidaSyncPlugin) {
         super(leaf);
@@ -71,7 +70,6 @@ export class TaskView extends ItemView {
         this.calendarCompletedLoading = false;
         this.calendarCompletedMonthKey = "";
         this.calendarCompletedError = "";
-        this.collapsedTaskKeys = new Set();
 
         this.initializePomodoroState();
 
@@ -98,16 +96,17 @@ export class TaskView extends ItemView {
         return this.plugin.settings.tasks.filter((candidate) => !!candidate.parentId && parentKeys.has(candidate.parentId));
     }
 
-    private isTaskCollapsed(task: DidaTask): boolean {
-        const taskKey = getDidaTaskTreeKey(task);
-        return !!taskKey && this.collapsedTaskKeys.has(taskKey);
-    }
-
-    private toggleTaskChildrenCollapsed(task: DidaTask) {
+    private async toggleTaskChildrenCollapsed(task: DidaTask) {
         const taskKey = getDidaTaskTreeKey(task);
         if (!taskKey) return;
-        if (this.collapsedTaskKeys.has(taskKey)) this.collapsedTaskKeys.delete(taskKey);
-        else this.collapsedTaskKeys.add(taskKey);
+        const childTasks = this.getTaskChildTasks(task);
+        if (childTasks.length === 0) return;
+        const nextCollapsed = !resolveDidaTaskCollapsedState(task, childTasks.length, this.plugin.settings.childTaskCollapsedStates);
+        this.plugin.settings.childTaskCollapsedStates = {
+            ...(this.plugin.settings.childTaskCollapsedStates || {}),
+            [taskKey]: nextCollapsed
+        };
+        await this.plugin.saveSettings();
         this.renderTaskList({ preserveSearch: true });
     }
 
@@ -1449,7 +1448,8 @@ export class TaskView extends ItemView {
             taskItem.addClass("dida-task-filter-context");
         }
 
-        const shouldExpandChildren = !this.isTaskCollapsed(task) || (!!taskKey && !!forceExpandedTaskKeys?.has(taskKey));
+        const collapsed = resolveDidaTaskCollapsedState(task, children.length, this.plugin.settings.childTaskCollapsedStates);
+        const shouldExpandChildren = !collapsed || (!!taskKey && !!forceExpandedTaskKeys?.has(taskKey));
         if (!shouldExpandChildren) return;
 
         for (const child of children) {
@@ -3997,12 +3997,12 @@ export class TaskView extends ItemView {
             const span = existing || document.createElement("span");
             span.className = "dida-child-task-count";
             span.addClass("dida-task-count-base", "dida-task-count-child");
-            const collapsed = this.isTaskCollapsed(task);
+            const collapsed = resolveDidaTaskCollapsedState(task, childTasks.length, this.plugin.settings.childTaskCollapsedStates);
             this.renderChildCountControl(span, completedChilds, childTasks.length, collapsed, true);
             span.title = collapsed ? "点击展开子任务" : "点击收起子任务";
-            span.onclick = (event) => {
+            span.onclick = async (event) => {
                 event.stopPropagation();
-                this.toggleTaskChildrenCollapsed(task);
+                await this.toggleTaskChildrenCollapsed(task);
             };
             span.setAttribute("aria-expanded", collapsed ? "false" : "true");
             if (!existing) taskItem.querySelector(".dida-task-left-content")?.appendChild(span);

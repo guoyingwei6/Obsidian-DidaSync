@@ -23,6 +23,10 @@ export interface DidaTaskVisibilityOptions {
     maxDepth?: number;
 }
 
+export interface DidaTaskCollapsedStateMap {
+    [taskKey: string]: boolean;
+}
+
 export function getDidaTaskTreeKey(task: DidaTask | null | undefined): string | null {
     if (!task) return null;
     return task.didaId || task.id || null;
@@ -32,6 +36,43 @@ export function getDidaTaskTreeKeys(task: DidaTask | null | undefined): string[]
     if (!task) return [];
     const keys = [task.didaId, task.id].filter((key): key is string => !!key);
     return Array.from(new Set(keys));
+}
+
+export function resolveDidaTaskCollapsedState(
+    task: DidaTask | null | undefined,
+    childCount: number,
+    collapsedStates: DidaTaskCollapsedStateMap | null | undefined
+): boolean {
+    if (!task || childCount <= 0) return false;
+    const taskKey = getDidaTaskTreeKey(task);
+    if (!taskKey) return true;
+    return Object.prototype.hasOwnProperty.call(collapsedStates || {}, taskKey)
+        ? collapsedStates?.[taskKey] === true
+        : true;
+}
+
+export function normalizeDidaTaskCollapsedStates(
+    tasks: DidaTask[],
+    collapsedStates: DidaTaskCollapsedStateMap | null | undefined
+): DidaTaskCollapsedStateMap {
+    const source = collapsedStates && typeof collapsedStates === "object" ? collapsedStates : {};
+    const index = buildDidaTaskTreeIndex(tasks || []);
+    const normalized: DidaTaskCollapsedStateMap = {};
+    const seenKeys = new Set<string>();
+
+    for (const task of tasks || []) {
+        const taskKey = getDidaTaskTreeKey(task);
+        if (!taskKey || seenKeys.has(taskKey)) continue;
+        seenKeys.add(taskKey);
+
+        if ((index.childrenByParentId.get(taskKey) || []).length === 0) continue;
+
+        const matchedKey = getDidaTaskTreeKeys(task).find((key) => Object.prototype.hasOwnProperty.call(source, key));
+        if (!matchedKey) continue;
+        normalized[taskKey] = source[matchedKey] === true;
+    }
+
+    return normalized;
 }
 
 export function sortDidaTasksForTree(tasks: DidaTask[]): DidaTask[] {

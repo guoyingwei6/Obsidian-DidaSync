@@ -19,6 +19,7 @@ import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
 import { buildCompletedTaskCacheSegment, fetchCompletedTasksByRange, filterCompletedTasksByQuery, getMonthlyCompletedTaskRanges, isCompletedTaskRangeCovered, mergeCompletedTaskCacheSegments, mergeCompletedTasks, normalizeCompletedTaskCacheSegments } from './completedTaskCache';
 import { CompletedTaskCacheSegment, CompletedTasksQuery, DEFAULT_SETTINGS, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry, TaskScheduleInput } from './types';
 import { applyParsedLineToTask, formatTaskLine, formatTaskLineFromTask, makeLocalDateTime, parseTaskLine, TaskLineMetadata } from './taskLineFormat';
+import { normalizeDidaTaskCollapsedStates } from './taskTree';
 import { ensureTaskCompletedTime, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes } from './utils';
 import { DidaTimeBlockView, TIME_BLOCK_VIEW_TYPE } from './views/DidaTimeBlockView';
 import { TaskActionMenu } from './views/TaskActionMenu';
@@ -249,6 +250,9 @@ export default class DidaSyncPlugin extends Plugin {
         if (this.settings.autoCleanCompletedTasks === undefined) this.settings.autoCleanCompletedTasks = false;
         if (this.settings.autoCleanInterval === undefined) this.settings.autoCleanInterval = 1;
         if (this.settings.projectCollapsedStates === undefined) this.settings.projectCollapsedStates = {};
+        if (!this.settings.childTaskCollapsedStates || typeof this.settings.childTaskCollapsedStates !== "object") {
+            this.settings.childTaskCollapsedStates = {};
+        }
         if (!this.settings.projectIcons || typeof this.settings.projectIcons !== "object") this.settings.projectIcons = {};
         if (!Array.isArray(this.settings.hiddenProjectKeys)) this.settings.hiddenProjectKeys = [];
         if (!["all", "visible", "custom"].includes(this.settings.taskNoteSyncProjectScope)) this.settings.taskNoteSyncProjectScope = "all";
@@ -311,7 +315,15 @@ export default class DidaSyncPlugin extends Plugin {
         await this.saveSettings();
     }
 
+    sanitizeChildTaskCollapsedStates() {
+        this.settings.childTaskCollapsedStates = normalizeDidaTaskCollapsedStates(
+            Array.isArray(this.settings.tasks) ? this.settings.tasks : [],
+            this.settings.childTaskCollapsedStates
+        );
+    }
+
     async saveSettings() {
+        this.sanitizeChildTaskCollapsedStates();
         await this.saveData(this.settings);
     }
 

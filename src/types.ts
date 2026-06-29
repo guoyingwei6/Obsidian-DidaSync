@@ -191,6 +191,7 @@ export interface DidaSyncSettings {
 
     // UI Settings
     projectCollapsedStates: { [key: string]: boolean };
+    childTaskCollapsedStates: { [key: string]: boolean };
     projectOrder: string[]; // Array of project names/ids to store order
     defaultViewMode: "task" | "timeblock";
     defaultCalendarMode?: "day" | "month" | "year";
@@ -264,6 +265,7 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     taskNoteSyncProjectScope: "all",
     taskNoteSyncProjectKeys: [],
     projectCollapsedStates: {},
+    childTaskCollapsedStates: {},
     projectOrder: [],
     defaultViewMode: "task",
     defaultCalendarMode: "day",

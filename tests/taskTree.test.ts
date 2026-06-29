@@ -1,5 +1,5 @@
 import { strict as assert } from "assert";
-import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeNodes, buildDidaTaskVisibleTaskKeys, getDidaTaskPath } from "../src/taskTree";
+import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeNodes, buildDidaTaskVisibleTaskKeys, getDidaTaskPath, normalizeDidaTaskCollapsedStates, resolveDidaTaskCollapsedState } from "../src/taskTree";
 import { DidaTask } from "../src/types";
 
 function task(id: string, title: string, parentId: string | null = null): DidaTask {
@@ -115,6 +115,39 @@ function task(id: string, title: string, parentId: string | null = null): DidaTa
         forceExpandedTaskKeys: new Set(["root", "child", "grand"])
     });
     assert.deepEqual(Array.from(visible), ["root", "child", "grand"]);
+}
+
+{
+    const parent = task("root", "主任务");
+    const child = task("child", "子任务", "root");
+    assert.equal(resolveDidaTaskCollapsedState(parent, 1, {}), true);
+    assert.equal(resolveDidaTaskCollapsedState(parent, 1, { root: false }), false);
+    assert.equal(resolveDidaTaskCollapsedState(child, 0, { child: true }), false);
+}
+
+{
+    const tasks = [
+        task("root", "主任务"),
+        task("child", "子任务", "root"),
+        task("leaf", "叶子任务")
+    ];
+    const normalized = normalizeDidaTaskCollapsedStates(tasks, {
+        root: false,
+        child: true,
+        ghost: true,
+        leaf: true
+    });
+    assert.deepEqual(normalized, { root: false });
+}
+
+{
+    const parent = task("local-parent", "父任务");
+    parent.didaId = "remote-parent";
+    const child = task("child", "子任务", "local-parent");
+    const normalized = normalizeDidaTaskCollapsedStates([parent, child], {
+        "local-parent": false
+    });
+    assert.deepEqual(normalized, { "remote-parent": false });
 }
 
 console.log("taskTree tests passed");
