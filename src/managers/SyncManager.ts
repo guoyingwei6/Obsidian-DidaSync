@@ -59,6 +59,10 @@ export class SyncManager {
         return projectId as string;
     }
 
+    private filterRemoteTaskItems(items: any[]): any[] {
+        return items.filter((item) => item?.kind !== "NOTE");
+    }
+
     private async ensureRemoteInboxProjectId(): Promise<string> {
         const cached = this.plugin.settings.remoteInboxProjectId;
         if (cached && cached !== "inbox" && cached.startsWith("inbox")) return cached;
@@ -568,6 +572,7 @@ export class SyncManager {
                                             projectFetched = true;
                                             const localProjectId = this.normalizeRemoteProjectId(project.id);
                                             successfulProjects.add(localProjectId);
+                                            items = this.filterRemoteTaskItems(items);
                                             items.forEach(t => {
                                                 const proj = projectMap.get(localProjectId);
                                                 t.projectId = localProjectId;
@@ -618,6 +623,7 @@ export class SyncManager {
                             if (validPayload) {
                                 inboxSucceeded = true;
                                 const proj = projectMap.get("inbox");
+                                items = this.filterRemoteTaskItems(items);
                                 items.forEach(t => {
                                     t.projectId = this.normalizeRemoteProjectId(t.projectId);
                                     t.projectName = "收集箱";
@@ -1223,6 +1229,7 @@ export class SyncManager {
     }
 
     async createTaskFromDida(task: any, project: any = null) {
+        if (task?.kind === "NOTE") return;
         let content = task.content || "";
         let desc = task.desc || "";
         if (task.items && Array.isArray(task.items) && task.items.length > 0) {

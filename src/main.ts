@@ -3,6 +3,7 @@ import { DidaApiClient } from './api/DidaApiClient';
 import { RRuleParser } from './core/RRuleParser';
 import { TaskNoteSyncManager } from './managers/TaskNoteSyncManager';
 import { NativeTaskSyncManager } from './managers/NativeTaskSyncManager';
+import { NoteSyncManager } from './managers/NoteSyncManager';
 import { RepeatTaskManager } from './managers/RepeatTaskManager';
 import { SyncManager } from './managers/SyncManager';
 import { DIDA_SKILL_DOC } from './skills/dida-skill-doc';
@@ -17,7 +18,7 @@ import { TaskSuggestionPopup } from './modals/TaskSuggestionPopup';
 import { TimelineViewModal } from './modals/TimelineViewModal';
 import { DidaSyncSettingTab } from './settings/DidaSyncSettingTab';
 import { buildCompletedTaskCacheSegment, fetchCompletedTasksByRange, filterCompletedTasksByQuery, getMonthlyCompletedTaskRanges, isCompletedTaskRangeCovered, mergeCompletedTaskCacheSegments, mergeCompletedTasks, normalizeCompletedTaskCacheSegments } from './completedTaskCache';
-import { CompletedTaskCacheSegment, CompletedTasksQuery, DEFAULT_SETTINGS, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry, TaskScheduleInput } from './types';
+import { CompletedTaskCacheSegment, CompletedTasksQuery, DEFAULT_SETTINGS, DidaNoteSyncRunSource, DidaProject, DidaSyncSettings, DidaTask, ProjectCatalogEntry, SyncResult, TaskScheduleInput } from './types';
 import { applyParsedLineToTask, formatTaskLine, formatTaskLineFromTask, makeLocalDateTime, parseTaskLine, TaskLineMetadata } from './taskLineFormat';
 import { normalizeDidaTaskCollapsedStates } from './taskTree';
 import { ensureTaskCompletedTime, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes } from './utils';
@@ -65,6 +66,7 @@ export default class DidaSyncPlugin extends Plugin {
     syncManager: SyncManager;
     mcpServerManager: any | null = null;
     nativeTaskSyncManager: NativeTaskSyncManager;
+    noteSyncManager: NoteSyncManager;
     repeatTaskManager: RepeatTaskManager;
     taskNoteSyncManager: TaskNoteSyncManager;
     currentTaskActionMenu: TaskActionMenu | null = null;
@@ -101,6 +103,7 @@ export default class DidaSyncPlugin extends Plugin {
             this.mcpServerManager = new McpServerManager(this);
         }
         this.nativeTaskSyncManager = new NativeTaskSyncManager(this);
+        this.noteSyncManager = new NoteSyncManager(this.app, this);
         this.repeatTaskManager = new RepeatTaskManager(this);
         this.taskNoteSyncManager = new TaskNoteSyncManager(this.app, this);
 
@@ -176,6 +179,14 @@ export default class DidaSyncPlugin extends Plugin {
             }
         });
 
+        this.addCommand({
+            id: 'sync-dida-notes',
+            name: '同步滴答笔记到 Obsidian',
+            callback: () => {
+                this.syncDidaNotes();
+            }
+        });
+
         this.registerTaskNoteSyncMenuEntrypoints();
         this.initializePluginFeatures();
         if (this.mcpServerManager) {
@@ -223,6 +234,7 @@ export default class DidaSyncPlugin extends Plugin {
         delete legacySettings.dailySyncTargetBlockHeader;
         delete legacySettings.taskNoteSyncFileNamePattern;
         if (!this.settings.tasks) this.settings.tasks = [];
+        this.settings.tasks = this.settings.tasks.filter((task) => task?.kind !== "NOTE");
         if (!Array.isArray(this.settings.completedTasks)) this.settings.completedTasks = [];
         if (!Array.isArray(this.settings.pendingSyncOperations)) this.settings.pendingSyncOperations = [];
         this.settings.completedTaskCacheSegments = normalizeCompletedTaskCacheSegments(this.settings.completedTaskCacheSegments);
@@ -257,6 +269,29 @@ export default class DidaSyncPlugin extends Plugin {
         if (!Array.isArray(this.settings.hiddenProjectKeys)) this.settings.hiddenProjectKeys = [];
         if (!["all", "visible", "custom"].includes(this.settings.taskNoteSyncProjectScope)) this.settings.taskNoteSyncProjectScope = "all";
         if (!Array.isArray(this.settings.taskNoteSyncProjectKeys)) this.settings.taskNoteSyncProjectKeys = [];
+        if (this.settings.enableDidaNoteSync === undefined) this.settings.enableDidaNoteSync = false;
+        if (!this.settings.didaNoteSyncFolder) this.settings.didaNoteSyncFolder = DEFAULT_SETTINGS.didaNoteSyncFolder;
+        if (!Array.isArray(this.settings.didaNoteSyncProjectIds)) this.settings.didaNoteSyncProjectIds = [];
+        if (!Array.isArray(this.settings.didaNoteSyncRecords)) this.settings.didaNoteSyncRecords = [];
+        if (!this.settings.didaNoteSyncLastRun || typeof this.settings.didaNoteSyncLastRun !== "object") {
+            this.settings.didaNoteSyncLastRun = null;
+        } else {
+            const lastRun = this.settings.didaNoteSyncLastRun as any;
+            this.settings.didaNoteSyncLastRun = {
+                source: ["manual", "auto", "recovery"].includes(lastRun.source) ? lastRun.source : "manual",
+                startedAt: typeof lastRun.startedAt === "string" ? lastRun.startedAt : "",
+                finishedAt: typeof lastRun.finishedAt === "string" ? lastRun.finishedAt : "",
+                outcome: ["success", "partial", "failed", "skipped"].includes(lastRun.outcome) ? lastRun.outcome : "skipped",
+                fetched: Number.isFinite(lastRun.fetched) ? lastRun.fetched : 0,
+                synced: Number.isFinite(lastRun.synced) ? lastRun.synced : 0,
+                pushed: Number.isFinite(lastRun.pushed) ? lastRun.pushed : 0,
+                conflicts: Number.isFinite(lastRun.conflicts) ? lastRun.conflicts : 0,
+                skipped: Number.isFinite(lastRun.skipped) ? lastRun.skipped : 0,
+                missing: Number.isFinite(lastRun.missing) ? lastRun.missing : 0,
+                errors: Array.isArray(lastRun.errors) ? lastRun.errors.filter((item: unknown) => typeof item === "string") : [],
+                summaryText: typeof lastRun.summaryText === "string" ? lastRun.summaryText : ""
+            };
+        }
         if (!this.settings.taskNoteSyncPathPatterns || typeof this.settings.taskNoteSyncPathPatterns !== "object") {
             this.settings.taskNoteSyncPathPatterns = { ...DEFAULT_SETTINGS.taskNoteSyncPathPatterns };
         } else {
@@ -1254,6 +1289,7 @@ export default class DidaSyncPlugin extends Plugin {
             reminders: task.reminders || [],
             repeatFlag: task.repeatFlag || null,
             priority: task.priority ?? 0,
+            tags: Array.isArray(task.tags) ? task.tags.slice() : [],
             status: task.status || 0,
             completed: task.status === 2,
             completedTime: task.completedTime || null,
@@ -1299,6 +1335,18 @@ export default class DidaSyncPlugin extends Plugin {
 
     showCompletedTasksModal() {
         new CompletedTasksModal(this.app, this).open();
+    }
+
+    async syncDidaNotes(options: { silent?: boolean; source?: DidaNoteSyncRunSource } = {}) {
+        try {
+            return await this.noteSyncManager.syncNow({
+                silent: options.silent,
+                source: options.source || "manual"
+            });
+        } catch (error: any) {
+            if (!options.silent) new Notice(error?.message || "滴答笔记同步失败");
+            throw error;
+        }
     }
 
     showTaskNoteSyncModal(sourceFile?: TFile | null) {
@@ -1699,7 +1747,7 @@ export default class DidaSyncPlugin extends Plugin {
             }
             this._autoSyncDeferredSince = null;
             try {
-                await this.syncManager.runBidirectionalSync();
+                await this.runIntegratedSync({ silentNotes: true, noteSyncSource: "auto" });
             } catch (e) {
             } finally {
                 if (this.settings.autoSync && this.settings.accessToken) {
@@ -1864,7 +1912,7 @@ export default class DidaSyncPlugin extends Plugin {
         if (this.settings.accessToken) {
             setTimeout(async () => {
                 try {
-                    await this.safeManualSync();
+                    await this.runIntegratedSync({ silentNotes: true, noteSyncSource: "auto" });
                 } catch (e) { }
             }, 2000);
         }
@@ -1885,15 +1933,46 @@ export default class DidaSyncPlugin extends Plugin {
         return true;
     }
 
+    async runIntegratedSync(options: { silentNotes?: boolean; noteSyncSource?: DidaNoteSyncRunSource } = {}): Promise<SyncResult> {
+        let taskResult: SyncResult;
+        try {
+            taskResult = await this.syncManager.runBidirectionalSync();
+        } catch (error: any) {
+            taskResult = {
+                outcome: "failed",
+                uploaded: 0,
+                downloaded: 0,
+                failedScopes: [error?.message || String(error)],
+                failedOperations: [],
+                cleanupPerformed: false
+            };
+        }
+
+        const shouldSyncNotes = this.settings.enableDidaNoteSync
+            && (this.settings.didaNoteSyncProjectIds || []).filter(Boolean).length > 0;
+        if (shouldSyncNotes) {
+            try {
+                await this.noteSyncManager.syncNow({
+                    silent: options.silentNotes === true,
+                    source: options.noteSyncSource || "manual"
+                });
+            } catch (error: any) {
+                if (!options.silentNotes) new Notice(error?.message || "滴答笔记同步失败");
+            }
+        }
+
+        return taskResult;
+    }
+
     async manualSync() {
         if (await this.checkPluginStatusAndNotify()) {
-            return this.syncManager.runBidirectionalSync();
+            return this.runIntegratedSync({ silentNotes: false, noteSyncSource: "manual" });
         }
     }
 
     async safeManualSync() {
         if (await this.checkPluginStatusAndNotify()) {
-            return this.syncManager.runBidirectionalSync();
+            return this.runIntegratedSync({ silentNotes: false, noteSyncSource: "manual" });
         }
     }
 
@@ -1908,7 +1987,7 @@ export default class DidaSyncPlugin extends Plugin {
         const now = Date.now();
         if (now - this._lastRecoverySyncAt < 1500) return;
         this._lastRecoverySyncAt = now;
-        this._recoverySyncPromise = this.syncManager.runBidirectionalSync()
+        this._recoverySyncPromise = this.runIntegratedSync({ silentNotes: true, noteSyncSource: "recovery" })
             .finally(() => { this._recoverySyncPromise = null; });
         return this._recoverySyncPromise;
     }

@@ -1,5 +1,6 @@
 ﻿import { ItemView, Notice, WorkspaceLeaf } from 'obsidian';
 import DidaSyncPlugin from '../main';
+import { Menu } from 'obsidian';
 import { DatePickerModal } from '../modals/DatePickerModal';
 import { AddTaskModal } from '../modals/AddTaskModal';
 import { getCalendarCompletedFetchDecision, hasCalendarCompletedCacheForRange } from '../calendarCompletedFetch';
@@ -7,7 +8,7 @@ import { buildCalendarMonthGrid, CalendarMode, dedupeCalendarTasks, getCalendarD
 import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
 import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeIndex, getDidaTaskPath, getDidaTaskTreeKey, getDidaTaskTreeKeys, resolveDidaTaskCollapsedState, sortDidaTasksForTree } from '../taskTree';
-import { DEFAULT_SETTINGS, DidaTask } from '../types';
+import { DEFAULT_SETTINGS, DidaNoteSyncRecord, DidaNoteSyncRunState, DidaTask } from '../types';
 import { clampMinutes, dateAtMinutes, getTimeGridDay, getTimeGridRange, gridStartMinutes, isAllDayTimeGridTask, snapDuration, snapMinutes, taskBelongsToTimeGridDate, TIME_GRID_STEP_MINUTES } from '../timeGrid';
 import { appendValidatedSvg, compareProjectGroups, debounce, getTimerRemainingSeconds, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
 
@@ -1461,6 +1462,10 @@ export class TaskView extends ItemView {
         const container = this.containerEl.children[1];
         let taskListContainer: HTMLElement;
 
+        if (this.viewMode === "note" && !this.plugin.settings.enableDidaNoteSync) {
+            this.viewMode = "task";
+        }
+
         if (this.isPomodoroVisible && options && options.preserveSearch) {
             options = {};
         }
@@ -1486,7 +1491,10 @@ export class TaskView extends ItemView {
                 cls: "dida-timeline-btn dida-time-block-toggle-btn"
             });
 
-            if (this.viewMode === "timeblock") {
+            if (this.viewMode === "note") {
+                setIconElement(viewToggleBtn, "list-checks");
+                viewToggleBtn.title = "切换到任务列表";
+            } else if (this.viewMode === "timeblock") {
                 setIconElement(viewToggleBtn, "list-checks");
                 viewToggleBtn.title = "切换到任务列表";
             } else {
@@ -1496,6 +1504,9 @@ export class TaskView extends ItemView {
             viewToggleBtn.onclick = async () => {
                 if (this.isPomodoroVisible) {
                     await this.exitPomodoroPanel();
+                } else if (this.viewMode === "note") {
+                    this.viewMode = "task";
+                    this.renderTaskList();
                 } else {
                     this.toggleViewMode();
                 }
@@ -1541,6 +1552,22 @@ export class TaskView extends ItemView {
                     await this.checkPluginStatusAndNotify();
                 }
             };
+
+            if (this.plugin.settings.enableDidaNoteSync) {
+                const noteSyncBtn = headerControls.createEl("button", {
+                    cls: "dida-sync-btn dida-note-sync-btn"
+                });
+                setIconElement(noteSyncBtn, "notebook-tabs");
+                noteSyncBtn.title = "查看滴答笔记";
+                noteSyncBtn.onclick = async () => {
+                    if (this.plugin.isPluginActivated) {
+                        this.viewMode = "note";
+                        await this.renderTaskList();
+                    } else {
+                        await this.checkPluginStatusAndNotify();
+                    }
+                };
+            }
 
             this.pomodoroHostEl = container.createDiv("dida-pomodoro-host");
             this.renderPomodoroPanel();
@@ -1719,7 +1746,9 @@ export class TaskView extends ItemView {
             taskListContainer = container.createDiv("dida-task-list");
         }
 
-        if (this.viewMode === "timeblock") {
+        if (this.viewMode === "note") {
+            this.renderDidaNoteSyncPanel(taskListContainer);
+        } else if (this.viewMode === "timeblock") {
             this.renderTimeBlockView(taskListContainer);
         } else {
             // Task List View implementation
@@ -1982,6 +2011,333 @@ export class TaskView extends ItemView {
                     });
                 }
             }
+        }
+    }
+
+    renderDidaNoteSyncPanel(container: Element) {
+        const taskListContainer = container as HTMLElement;
+        taskListContainer.empty();
+        taskListContainer.addClass("dida-note-list-view");
+
+        const records = this.plugin.settings.didaNoteSyncRecords || [];
+        const lastRun = this.plugin.settings.didaNoteSyncLastRun;
+        const conflicts = records.filter((record) => record.status === "conflict").length;
+        const errors = records.filter((record) => record.status === "error").length;
+        const missing = records.filter((record) => record.status === "missing" || record.remoteMissing).length;
+        const issueCount = conflicts + errors + missing;
+        const renderFooter = () => {
+            const footer = taskListContainer.createDiv("dida-note-sync-footer");
+            const summary = footer.createDiv("dida-note-sync-footer-summary");
+            summary.createEl("span", { text: `已同步笔记 ${records.length}` });
+            if (issueCount > 0) summary.createEl("span", { text: `异常 ${issueCount}`, cls: "is-error" });
+        };
+
+        if (!this.plugin.settings.enableDidaNoteSync) {
+            taskListContainer.createEl("p", {
+                text: "滴答笔记同步未启用，请先在设置中启用。",
+                cls: "dida-empty-state"
+            });
+            return;
+        }
+
+        if (lastRun) {
+            this.renderNoteSyncRunCard(taskListContainer, lastRun);
+        }
+
+        if ((this.plugin.settings.didaNoteSyncProjectIds || []).length === 0) {
+            const emptyText = records.length === 0
+                ? "尚未选择笔记同步清单，请先在设置中选择清单。"
+                : "尚未选择笔记同步清单，下方仅显示已有本地同步记录。";
+            taskListContainer.createEl("p", {
+                text: emptyText,
+                cls: "dida-empty-state"
+            });
+            renderFooter();
+            if (records.length === 0) return;
+        }
+
+        if (records.length === 0) {
+            taskListContainer.createEl("p", {
+                text: "暂无已同步笔记，点击底部同步按钮拉取。",
+                cls: "dida-empty-state"
+            });
+            renderFooter();
+            return;
+        }
+
+        if (issueCount > 0) {
+            const summary = taskListContainer.createDiv("dida-note-sync-summary");
+            summary.setText(`${issueCount} 条笔记同步异常，可通过右键菜单继续处理。`);
+            summary.addClass("is-error");
+        }
+
+        const projectCatalog = this.plugin.getProjectCatalog ? this.plugin.getProjectCatalog() : [];
+        const groups = new Map<string, { projectId: string; projectName: string; records: typeof records }>();
+        records
+            .slice()
+            .sort((a, b) => new Date(b.lastSyncedAt || 0).getTime() - new Date(a.lastSyncedAt || 0).getTime())
+            .forEach((record) => {
+                const projectId = record.projectId || "unknown";
+                const catalogProject = projectCatalog.find((project: any) => project.id === projectId);
+                const projectName = record.projectName || catalogProject?.name || (projectId === "unknown" ? "未知清单" : projectId);
+                if (!groups.has(projectId)) groups.set(projectId, { projectId, projectName, records: [] });
+                groups.get(projectId)!.records.push(record);
+            });
+
+        Array.from(groups.values()).forEach((group) => {
+            const projectHeader = taskListContainer.createDiv("dida-project-header");
+            const titleEl = projectHeader.createEl("h4", { cls: "dida-project-title" });
+            titleEl.createEl("span", { text: `${group.projectName} (${group.records.length})` });
+            const list = taskListContainer.createDiv("dida-project-tasks");
+
+            group.records.forEach((record) => {
+                const file = this.plugin.app.vault.getAbstractFileByPath(record.path);
+                const fileMissing = !file;
+                const status = fileMissing ? "missing" : record.status;
+                const item = list.createDiv("dida-task-item dida-note-sync-record");
+                item.addClass(`is-${status}`);
+                const mainRow = item.createDiv("dida-task-main-row");
+                const leftContent = mainRow.createDiv("dida-task-left-content");
+                const rightButtons = mainRow.createDiv("dida-task-right-buttons");
+
+                const titleSpan = leftContent.createEl("span", { cls: "dida-task-title dida-task-title-clickable dida-note-sync-record-title" });
+                titleSpan.setText(record.title || record.path);
+                const metaText = this.getNoteRecordMeta(record, fileMissing);
+                if (metaText) {
+                    leftContent.createDiv({
+                        cls: "dida-note-sync-record-meta",
+                        text: metaText
+                    });
+                }
+
+                const timeSpan = rightButtons.createEl("span", { cls: "dida-task-due-date" });
+                timeSpan.textContent = this.formatNoteRecordTime(record.remoteModifiedTime || record.lastSyncedAt);
+
+                const syncStatusSpan = rightButtons.createEl("span", { cls: `dida-sync-status ${status}` });
+                syncStatusSpan.title = fileMissing
+                    ? "本地 Markdown 文件不存在"
+                    : record.status === "missing" || record.remoteMissing
+                        ? "远端笔记已不存在"
+                        : record.status === "conflict"
+                            ? "需要手动合并"
+                            : record.status === "error"
+                                ? (record.error || "同步失败")
+                                : "已同步";
+                setIconElement(syncStatusSpan, status === "synced" ? "cloud-check" : "cloud-alert");
+
+                item.onclick = async () => {
+                    const currentFile = this.plugin.app.vault.getAbstractFileByPath(record.path);
+                    if (currentFile) {
+                        await this.plugin.app.workspace.getLeaf(false).openFile(currentFile as any);
+                    } else {
+                        new Notice("文件不存在");
+                    }
+                };
+                item.addEventListener("contextmenu", (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.openNoteContextMenu(record, event);
+                });
+            });
+        });
+        renderFooter();
+    }
+
+    renderNoteSyncRunCard(container: HTMLElement, lastRun: DidaNoteSyncRunState) {
+        const tone = this.getNoteSyncRunTone(lastRun);
+        const panel = container.createDiv("dida-note-sync-panel");
+        const header = panel.createDiv("dida-note-sync-panel-header");
+        const titleGroup = header.createDiv("dida-note-sync-panel-title-group");
+        titleGroup.createDiv({
+            cls: "dida-note-sync-panel-eyebrow",
+            text: "同步概览"
+        });
+        const title = titleGroup.createDiv("dida-note-sync-panel-title");
+        title.setText(this.getNoteSyncRunLabel(lastRun.source));
+
+        const meta = header.createDiv("dida-note-sync-panel-meta");
+        const health = meta.createEl("span", {
+            cls: "dida-note-sync-panel-health"
+        });
+        health.addClass(`is-${tone}`);
+        health.setText(this.getNoteSyncRunHealthLabel(lastRun));
+
+        const sourceChip = meta.createEl("span", {
+            cls: "dida-note-sync-panel-source",
+            text: this.getNoteSyncRunSourceChip(lastRun.source)
+        });
+        sourceChip.addClass(`is-${tone}`);
+
+        const time = meta.createEl("span", {
+            cls: "dida-note-sync-panel-status",
+            text: this.formatNoteRecordTime(lastRun.finishedAt)
+        });
+
+        const summary = panel.createDiv("dida-note-sync-panel-summary");
+        summary.addClass(`is-${tone}`);
+        summary.setText(lastRun.summaryText || "笔记同步已完成");
+
+        const statusLine = panel.createDiv("dida-note-sync-panel-status-line");
+        statusLine.createEl("span", {
+            cls: "dida-note-sync-panel-subtext",
+            text: this.getNoteSyncRunSubtext(lastRun)
+        });
+        const issueCount = this.getNoteSyncRunIssueCount(lastRun);
+        if (issueCount > 0) {
+            const issueChip = statusLine.createEl("span", {
+                cls: "dida-note-sync-panel-issue-chip",
+                text: `异常 ${issueCount}`
+            });
+            issueChip.addClass(`is-${tone}`);
+        }
+
+        const hint = this.getNoteSyncRunHint(lastRun);
+        if (hint) {
+            const hintEl = panel.createDiv("dida-note-sync-panel-hint");
+            hintEl.addClass(`is-${tone}`);
+            hintEl.setText(hint);
+        }
+
+        if (lastRun.errors.length > 0) {
+            const messages = panel.createDiv("dida-note-sync-panel-messages");
+            lastRun.errors.slice(0, 3).forEach((message) => {
+                messages.createEl("div", {
+                    cls: "dida-note-sync-panel-message",
+                    text: message
+                });
+            });
+        }
+    }
+
+    openNoteContextMenu(record: DidaNoteSyncRecord, event: MouseEvent) {
+        const file = this.plugin.app.vault.getAbstractFileByPath(record.path);
+        const hasDuplicateLocalFiles = this.isDuplicateLocalFileRecord(record);
+        const menu = new Menu();
+        menu.setUseNativeMenu(false);
+        menu.addItem((item) => {
+            item.setTitle(file ? "打开 Markdown" : "本地 Markdown 不存在")
+                .setIcon("file-text")
+                .setDisabled(!file)
+                .onClick(async () => {
+                    const currentFile = this.plugin.app.vault.getAbstractFileByPath(record.path);
+                    if (!currentFile) {
+                        new Notice("文件不存在");
+                        return;
+                    }
+                    await this.plugin.app.workspace.getLeaf(false).openFile(currentFile as any);
+                });
+        });
+        menu.addItem((item) => {
+            item.setTitle(hasDuplicateLocalFiles ? "检测到重复文件，暂不可执行远程覆盖" : "以远程版本覆盖本地")
+                .setIcon("cloud-download")
+                .setDisabled(hasDuplicateLocalFiles)
+                .onClick(async () => {
+                    await this.handleNoteRecordForcePull(record);
+                });
+        });
+        menu.addItem((item) => {
+            item.setTitle(
+                hasDuplicateLocalFiles
+                    ? "检测到重复文件，暂不可执行本地上传"
+                    : file ? "以上本地版本更新远程" : "本地文件不存在，无法执行上传"
+            )
+                .setIcon("cloud-upload")
+                .setDisabled(!file || hasDuplicateLocalFiles)
+                .onClick(async () => {
+                    await this.handleNoteRecordForcePush(record);
+                });
+        });
+        menu.addItem((item) => {
+            item.setTitle("移除同步记录")
+                .setIcon("trash")
+                .onClick(async () => {
+                    if (!window.confirm(`移除“${record.title || record.path}”的同步记录？此操作不会删除本地文件或远程笔记。`)) return;
+                    const deleted = await this.plugin.noteSyncManager.deleteLocalRecord(record.didaId);
+                    if (deleted) {
+                        new Notice("同步记录已移除");
+                        this.renderTaskList();
+                    }
+                });
+        });
+        menu.showAtMouseEvent(event);
+    }
+
+    formatNoteRecordTime(value: string | null | undefined) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "";
+        return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+    }
+
+    getNoteSyncRunTone(lastRun: DidaNoteSyncRunState) {
+        if (lastRun.errors.length > 0 || lastRun.outcome === "failed") return "error";
+        if (lastRun.conflicts > 0) return "conflict";
+        if (lastRun.missing > 0) return "missing";
+        return "success";
+    }
+
+    getNoteSyncRunLabel(source: DidaNoteSyncRunState["source"]) {
+        return "笔记同步";
+    }
+
+    getNoteSyncRunSourceChip(source: DidaNoteSyncRunState["source"]) {
+        if (source === "auto") return "自动";
+        if (source === "recovery") return "恢复";
+        return "手动";
+    }
+
+    getNoteSyncRunHealthLabel(lastRun: DidaNoteSyncRunState) {
+        if (this.getNoteSyncRunIssueCount(lastRun) > 0 || lastRun.outcome === "failed") return "需要处理";
+        if (lastRun.outcome === "skipped") return "未执行";
+        return "运行正常";
+    }
+
+    getNoteSyncRunSubtext(lastRun: DidaNoteSyncRunState) {
+        const parts = [`拉取 ${lastRun.synced}`, `推送 ${lastRun.pushed}`];
+        if (lastRun.skipped > 0) parts.push(`跳过 ${lastRun.skipped}`);
+        return parts.join(" · ");
+    }
+
+    getNoteSyncRunIssueCount(lastRun: DidaNoteSyncRunState) {
+        return lastRun.conflicts + lastRun.errors.length + lastRun.missing;
+    }
+
+    getNoteSyncRunHint(lastRun: DidaNoteSyncRunState) {
+        if (this.getNoteSyncRunIssueCount(lastRun) > 0) return "异常记录会保留在下方列表，可通过右键菜单继续处理。";
+        return "";
+    }
+
+    getNoteRecordMeta(record: DidaNoteSyncRecord, fileMissing: boolean) {
+        if (fileMissing) return "本地 Markdown 文件不存在";
+        if (record.status === "conflict") return record.error || "本地与远程版本同时更新，可通过右键菜单选择处理方式。";
+        if (record.status === "missing" || record.remoteMissing) return record.error || "远端笔记已不存在";
+        if (record.status === "error") return record.error || "同步失败";
+        return "";
+    }
+
+    isDuplicateLocalFileRecord(record: DidaNoteSyncRecord) {
+        return typeof record.error === "string" && record.error.includes("多个本地 Markdown");
+    }
+
+    async handleNoteRecordForcePull(record: DidaNoteSyncRecord) {
+        if (!window.confirm(`用云端笔记覆盖本地“${record.title || record.path}”？本地未同步修改会丢失。`)) return;
+        try {
+            const pulled = await this.plugin.noteSyncManager.forcePullRecord(record.didaId);
+            new Notice(pulled ? "已从云端覆盖本地" : "云端不存在，已标记缺失");
+            this.renderTaskList();
+        } catch (error: any) {
+            new Notice(error?.message || "拉取失败");
+        }
+    }
+
+    async handleNoteRecordForcePush(record: DidaNoteSyncRecord) {
+        if (!window.confirm(`用本地 Markdown 覆盖云端笔记“${record.title || record.path}”？云端未同步修改会丢失。`)) return;
+        try {
+            await this.plugin.noteSyncManager.forcePushRecord(record.didaId);
+            new Notice("已从本地覆盖云端");
+            this.renderTaskList();
+        } catch (error: any) {
+            new Notice(error?.message || "推送失败");
         }
     }
 
