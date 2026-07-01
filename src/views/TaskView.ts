@@ -2029,7 +2029,17 @@ export class TaskView extends ItemView {
             const footer = taskListContainer.createDiv("dida-note-sync-footer");
             const summary = footer.createDiv("dida-note-sync-footer-summary");
             summary.createEl("span", { text: `已同步笔记 ${records.length}` });
-            if (issueCount > 0) summary.createEl("span", { text: `异常 ${issueCount}`, cls: "is-error" });
+            if (lastRun) {
+                const updatedCount = this.getNoteSyncRunUpdatedCount(lastRun);
+                const currentIssueCount = this.getNoteSyncRunIssueCount(lastRun);
+                if (updatedCount > 0) summary.createEl("span", { text: `更新 ${updatedCount}`, cls: "is-update" });
+                if (currentIssueCount > 0) summary.createEl("span", { text: `异常 ${currentIssueCount}`, cls: "is-error" });
+                if (updatedCount === 0 && currentIssueCount === 0) {
+                    summary.createEl("span", { text: "状态正常", cls: "is-ok" });
+                }
+            } else if (issueCount > 0) {
+                summary.createEl("span", { text: `异常 ${issueCount}`, cls: "is-error" });
+            }
         };
 
         if (!this.plugin.settings.enableDidaNoteSync) {
@@ -2038,10 +2048,6 @@ export class TaskView extends ItemView {
                 cls: "dida-empty-state"
             });
             return;
-        }
-
-        if (lastRun) {
-            this.renderNoteSyncRunCard(taskListContainer, lastRun);
         }
 
         if ((this.plugin.settings.didaNoteSyncProjectIds || []).length === 0) {
@@ -2063,12 +2069,6 @@ export class TaskView extends ItemView {
             });
             renderFooter();
             return;
-        }
-
-        if (issueCount > 0) {
-            const summary = taskListContainer.createDiv("dida-note-sync-summary");
-            summary.setText(`${issueCount} 条笔记同步异常，可通过右键菜单继续处理。`);
-            summary.addClass("is-error");
         }
 
         const projectCatalog = this.plugin.getProjectCatalog ? this.plugin.getProjectCatalog() : [];
@@ -2143,72 +2143,6 @@ export class TaskView extends ItemView {
         renderFooter();
     }
 
-    renderNoteSyncRunCard(container: HTMLElement, lastRun: DidaNoteSyncRunState) {
-        const tone = this.getNoteSyncRunTone(lastRun);
-        const panel = container.createDiv("dida-note-sync-panel");
-        const header = panel.createDiv("dida-note-sync-panel-header");
-        const titleGroup = header.createDiv("dida-note-sync-panel-title-group");
-        titleGroup.createDiv({
-            cls: "dida-note-sync-panel-eyebrow",
-            text: "同步概览"
-        });
-        const title = titleGroup.createDiv("dida-note-sync-panel-title");
-        title.setText(this.getNoteSyncRunLabel(lastRun.source));
-
-        const meta = header.createDiv("dida-note-sync-panel-meta");
-        const health = meta.createEl("span", {
-            cls: "dida-note-sync-panel-health"
-        });
-        health.addClass(`is-${tone}`);
-        health.setText(this.getNoteSyncRunHealthLabel(lastRun));
-
-        const sourceChip = meta.createEl("span", {
-            cls: "dida-note-sync-panel-source",
-            text: this.getNoteSyncRunSourceChip(lastRun.source)
-        });
-        sourceChip.addClass(`is-${tone}`);
-
-        const time = meta.createEl("span", {
-            cls: "dida-note-sync-panel-status",
-            text: this.formatNoteRecordTime(lastRun.finishedAt)
-        });
-
-        const summary = panel.createDiv("dida-note-sync-panel-summary");
-        summary.addClass(`is-${tone}`);
-        summary.setText(lastRun.summaryText || "笔记同步已完成");
-
-        const statusLine = panel.createDiv("dida-note-sync-panel-status-line");
-        statusLine.createEl("span", {
-            cls: "dida-note-sync-panel-subtext",
-            text: this.getNoteSyncRunSubtext(lastRun)
-        });
-        const issueCount = this.getNoteSyncRunIssueCount(lastRun);
-        if (issueCount > 0) {
-            const issueChip = statusLine.createEl("span", {
-                cls: "dida-note-sync-panel-issue-chip",
-                text: `异常 ${issueCount}`
-            });
-            issueChip.addClass(`is-${tone}`);
-        }
-
-        const hint = this.getNoteSyncRunHint(lastRun);
-        if (hint) {
-            const hintEl = panel.createDiv("dida-note-sync-panel-hint");
-            hintEl.addClass(`is-${tone}`);
-            hintEl.setText(hint);
-        }
-
-        if (lastRun.errors.length > 0) {
-            const messages = panel.createDiv("dida-note-sync-panel-messages");
-            lastRun.errors.slice(0, 3).forEach((message) => {
-                messages.createEl("div", {
-                    cls: "dida-note-sync-panel-message",
-                    text: message
-                });
-            });
-        }
-    }
-
     openNoteContextMenu(record: DidaNoteSyncRecord, event: MouseEvent) {
         const file = this.plugin.app.vault.getAbstractFileByPath(record.path);
         const hasDuplicateLocalFiles = this.isDuplicateLocalFileRecord(record);
@@ -2269,42 +2203,12 @@ export class TaskView extends ItemView {
         return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
     }
 
-    getNoteSyncRunTone(lastRun: DidaNoteSyncRunState) {
-        if (lastRun.errors.length > 0 || lastRun.outcome === "failed") return "error";
-        if (lastRun.conflicts > 0) return "conflict";
-        if (lastRun.missing > 0) return "missing";
-        return "success";
-    }
-
-    getNoteSyncRunLabel(source: DidaNoteSyncRunState["source"]) {
-        return "笔记同步";
-    }
-
-    getNoteSyncRunSourceChip(source: DidaNoteSyncRunState["source"]) {
-        if (source === "auto") return "自动";
-        if (source === "recovery") return "恢复";
-        return "手动";
-    }
-
-    getNoteSyncRunHealthLabel(lastRun: DidaNoteSyncRunState) {
-        if (this.getNoteSyncRunIssueCount(lastRun) > 0 || lastRun.outcome === "failed") return "需要处理";
-        if (lastRun.outcome === "skipped") return "未执行";
-        return "运行正常";
-    }
-
-    getNoteSyncRunSubtext(lastRun: DidaNoteSyncRunState) {
-        const parts = [`拉取 ${lastRun.synced}`, `推送 ${lastRun.pushed}`];
-        if (lastRun.skipped > 0) parts.push(`跳过 ${lastRun.skipped}`);
-        return parts.join(" · ");
-    }
-
     getNoteSyncRunIssueCount(lastRun: DidaNoteSyncRunState) {
         return lastRun.conflicts + lastRun.errors.length + lastRun.missing;
     }
 
-    getNoteSyncRunHint(lastRun: DidaNoteSyncRunState) {
-        if (this.getNoteSyncRunIssueCount(lastRun) > 0) return "异常记录会保留在下方列表，可通过右键菜单继续处理。";
-        return "";
+    getNoteSyncRunUpdatedCount(lastRun: DidaNoteSyncRunState) {
+        return lastRun.synced + lastRun.pushed;
     }
 
     getNoteRecordMeta(record: DidaNoteSyncRecord, fileMissing: boolean) {
