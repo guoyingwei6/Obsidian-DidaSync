@@ -120,7 +120,7 @@ export class NoteSyncManager {
             return false;
         }
 
-        const body = this.getNoteBody(remote);
+        const body = this.buildLocalMarkdownBody(remote, this.getNoteBody(remote));
         const hash = this.hash(body);
         const path = record.path || await this.buildUniqueNotePath(remote, didaId);
         const file = await this.ensureNoteFile(path, remote);
@@ -265,7 +265,7 @@ export class NoteSyncManager {
         const didaId = note.didaId || note.id;
         if (!didaId) return "skipped";
 
-        const body = this.getNoteBody(note);
+        const body = this.buildLocalMarkdownBody(note, this.getNoteBody(note));
         const remoteHash = this.hash(body);
         const record = await this.ensureRecord(didaId, note);
         if (record && this.isDuplicateLocalFileError(record.error)) {
@@ -324,12 +324,40 @@ export class NoteSyncManager {
         if (record && this.isDuplicateLocalFileError(record.error)) return;
 
         const path = record?.path || await this.buildUniqueNotePath(note, didaId);
-        const hash = record?.lastSyncedContentHash || this.hash(this.getNoteBody(note));
+        const hash = record?.lastSyncedContentHash || this.hash(this.buildLocalMarkdownBody(note, this.getNoteBody(note)));
         this.upsertRecord(note, path, hash, "error", message);
     }
 
     private getNoteBody(note: DidaTask): string {
         return String(note.content || note.desc || "").replace(/\r\n/g, "\n");
+    }
+
+    private buildLocalMarkdownBody(note: DidaTask, body: string): string {
+        const title = (note.title || "Untitled").trim() || "Untitled";
+        const normalizedBody = String(body || "").replace(/\r\n/g, "\n").replace(/^\n+/, "").trimEnd();
+        return normalizedBody ? `## ${title}\n\n${normalizedBody}` : `## ${title}`;
+    }
+
+    private extractLocalNoteContent(markdownBody: string, fallbackTitle: string = "Untitled"): { title: string; content: string } {
+        const normalized = String(markdownBody || "").replace(/\r\n/g, "\n");
+        const lines = normalized.split("\n");
+        const headingIndex = lines.findIndex((line) => /^##(?!#)\s+/.test(line.trim()));
+        if (headingIndex === -1) {
+            return {
+                title: (fallbackTitle || "Untitled").trim() || "Untitled",
+                content: normalized.replace(/^\n+/, "").trimEnd()
+            };
+        }
+
+        const title = lines[headingIndex].trim().replace(/^##(?!#)\s+/, "").trim() || fallbackTitle || "Untitled";
+        const contentLines = [
+            ...lines.slice(0, headingIndex),
+            ...lines.slice(headingIndex + 1)
+        ];
+        return {
+            title: title.trim() || "Untitled",
+            content: contentLines.join("\n").replace(/^\n+/, "").trimEnd()
+        };
     }
 
     private remoteChanged(record: DidaNoteSyncRecord, note: DidaTask, remoteHash: string): boolean {
@@ -346,11 +374,13 @@ export class NoteSyncManager {
     private async pushLocalToRemote(note: DidaTask, body: string) {
         const didaId = note.didaId || note.id;
         if (!didaId) throw new Error("缺少滴答笔记 id，无法回写");
+        const localNote = this.extractLocalNoteContent(body, note.title);
+        note.title = localNote.title;
         const payload = {
             id: didaId,
-            title: note.title,
-            content: body,
-            desc: body,
+            title: localNote.title,
+            content: localNote.content,
+            desc: localNote.content,
             projectId: note.projectId,
             status: note.status ?? 0,
             kind: "NOTE",
