@@ -167,6 +167,7 @@ async function run() {
     assert.equal(record.projectName, "Notes Project");
     assert.match(record.path, /^DidaNotes\/Test Note-/);
     assert.match(vaultData.get(record.path) || "", /didaNoteId: 'note-1'/);
+    assert.match(vaultData.get(record.path) || "", /\n---\nremote body\n?$/);
     assert.match(vaultData.get(record.path) || "", /remote body/);
 
     const file = app.vault.getAbstractFileByPath(record.path);
@@ -197,6 +198,10 @@ async function run() {
     assert.equal(pulled, true);
     assert.match(vaultData.get(record.path) || "", /forced remote body/);
     assert.equal(plugin.settings.didaNoteSyncRecords[0].status, "synced");
+    assert.equal(plugin.settings.didaNoteSyncLastRun.synced, 1);
+    assert.equal(plugin.settings.didaNoteSyncLastRun.pushed, 0);
+    assert.equal(plugin.settings.didaNoteSyncLastRun.conflicts, 0);
+    assert.match(vaultData.get(record.path) || "", /\n---\nforced remote body\n?$/);
 
     const beforeForcePushUpdates = updates.length;
     await app.vault.modify(file, (vaultData.get(record.path) || "").replace("forced remote body", "forced local body"));
@@ -205,6 +210,10 @@ async function run() {
     assert.equal(updates.length, beforeForcePushUpdates + 1);
     assert.match(updates.at(-1).content, /forced local body/);
     assert.equal(plugin.settings.didaNoteSyncRecords[0].status, "synced");
+    assert.equal(plugin.settings.didaNoteSyncLastRun.synced, 0);
+    assert.equal(plugin.settings.didaNoteSyncLastRun.pushed, 1);
+    assert.equal(plugin.settings.didaNoteSyncLastRun.conflicts, 0);
+    assert.match(vaultData.get(record.path) || "", /\n---\nforced local body\n?$/);
 
     setRemoteItems([]);
     const missingPulled = await manager.forcePullRecord("note-1");

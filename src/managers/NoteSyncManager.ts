@@ -112,8 +112,11 @@ export class NoteSyncManager {
             record.remoteMissing = true;
             record.status = "missing";
             record.error = "远端笔记已不存在";
-            await this.plugin.saveSettings();
-            this.plugin.refreshTaskView();
+            await this.persistManualActionSummary({
+                synced: 0,
+                pushed: 0,
+                summaryText: "远端笔记已不存在"
+            });
             return false;
         }
 
@@ -123,8 +126,11 @@ export class NoteSyncManager {
         const file = await this.ensureNoteFile(path, remote);
         await this.writeSyncedFile(file, remote, body, hash, "synced");
         this.upsertRecord(remote, file.path, hash, "synced");
-        await this.plugin.saveSettings();
-        this.plugin.refreshTaskView();
+        await this.persistManualActionSummary({
+            synced: 1,
+            pushed: 0,
+            summaryText: "笔记已更新"
+        });
         return true;
     }
 
@@ -156,8 +162,11 @@ export class NoteSyncManager {
         const hash = this.hash(body);
         await this.writeSyncedFile(file, note, body, hash, "synced");
         this.upsertRecord(note, file.path, hash, "synced");
-        await this.plugin.saveSettings();
-        this.plugin.refreshTaskView();
+        await this.persistManualActionSummary({
+            synced: 0,
+            pushed: 1,
+            summaryText: "笔记已更新"
+        });
         return true;
     }
 
@@ -193,6 +202,34 @@ export class NoteSyncManager {
             new Notice(summary.summaryText);
         }
         return summary;
+    }
+
+    private async persistManualActionSummary(partial: {
+        synced: number;
+        pushed: number;
+        summaryText: string;
+    }) {
+        const errors = this.collectRecordErrors();
+        const summary: DidaNoteSyncSummary = {
+            outcome: this.resolveRecordSummaryOutcome(partial.synced, partial.pushed, errors.length),
+            fetched: this.plugin.settings.didaNoteSyncLastRun?.fetched || 0,
+            synced: partial.synced,
+            pushed: partial.pushed,
+            conflicts: this.countRecordsByStatus("conflict"),
+            skipped: 0,
+            missing: this.countMissingRecords(),
+            errors,
+            summaryText: partial.summaryText
+        };
+        await this.persistSummary(summary, "manual", new Date().toISOString(), true);
+    }
+
+    private resolveRecordSummaryOutcome(synced: number, pushed: number, errorCount: number): DidaNoteSyncSummary["outcome"] {
+        const issueCount = this.countRecordsByStatus("conflict") + this.countMissingRecords() + errorCount;
+        if (issueCount > 0) {
+            return synced > 0 || pushed > 0 ? "partial" : "failed";
+        }
+        return synced === 0 && pushed === 0 ? "skipped" : "success";
     }
 
     private resolveSummaryOutcome(summary: DidaNoteSyncSummary): DidaNoteSyncSummary["outcome"] {
@@ -543,7 +580,12 @@ export class NoteSyncManager {
         Object.entries(frontmatter).forEach(([key, value]) => {
             lines.push(`${key}: ${this.formatFrontmatterValue(value)}`);
         });
-        lines.push("---", "", body.replace(/\r\n/g, "\n").trimEnd(), "");
+        lines.push("---");
+        const normalizedBody = body.replace(/\r\n/g, "\n").replace(/^\n+/, "").trimEnd();
+        if (!normalizedBody) {
+            return `${lines.join("\n")}\n`;
+        }
+        lines.push(normalizedBody, "");
         return lines.join("\n");
     }
 
@@ -558,7 +600,8 @@ export class NoteSyncManager {
     private parseNoteFile(content: string): ParsedNoteFile {
         const normalized = content.replace(/\r\n/g, "\n");
         if (!normalized.startsWith("---\n")) return { frontmatter: {}, body: normalized };
-        const end = normalized.indexOf("\n---", 4);
+        const marker = "\n---\n";
+        const end = normalized.indexOf(marker, 4);
         if (end === -1) return { frontmatter: {}, body: normalized };
         const rawFrontmatter = normalized.slice(4, end).split("\n");
         const frontmatter: Record<string, any> = {};
@@ -571,7 +614,7 @@ export class NoteSyncManager {
         });
         return {
             frontmatter,
-            body: normalized.slice(end + 4).replace(/^\n/, "")
+            body: normalized.slice(end + marker.length).replace(/^\n/, "")
         };
     }
 
@@ -658,6 +701,20 @@ export class NoteSyncManager {
         if (index === -1) records.push(next);
         else records[index] = next;
         this.plugin.settings.didaNoteSyncRecords = records;
+    }
+
+    private countRecordsByStatus(status: DidaNoteSyncStatus): number {
+        return (this.plugin.settings.didaNoteSyncRecords || []).filter((record) => record.status === status).length;
+    }
+
+    private countMissingRecords(): number {
+        return (this.plugin.settings.didaNoteSyncRecords || []).filter((record) => record.status === "missing" || record.remoteMissing).length;
+    }
+
+    private collectRecordErrors(): string[] {
+        return (this.plugin.settings.didaNoteSyncRecords || [])
+            .filter((record) => record.status === "error" && typeof record.error === "string" && record.error.trim())
+            .map((record) => record.error!.trim());
     }
 
     private slugify(value: string): string {
