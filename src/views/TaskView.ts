@@ -1,6 +1,6 @@
 ﻿import { ItemView, Notice, WorkspaceLeaf } from 'obsidian';
 import DidaSyncPlugin from '../main';
-import { Menu } from 'obsidian';
+import { Menu, Platform } from 'obsidian';
 import { DatePickerModal } from '../modals/DatePickerModal';
 import { AddTaskModal } from '../modals/AddTaskModal';
 import { getCalendarCompletedFetchDecision, hasCalendarCompletedCacheForRange } from '../calendarCompletedFetch';
@@ -8,7 +8,7 @@ import { buildCalendarMonthGrid, CalendarMode, dedupeCalendarTasks, getCalendarD
 import { resolveTaskIndex } from '../taskIndex';
 import { formatTaskLine, formatTaskLineFromTask, parseTaskLine } from '../taskLineFormat';
 import { buildDidaTaskDragPayload, buildDidaTaskFilterSets, buildDidaTaskTreeIndex, getDidaTaskPath, getDidaTaskTreeKey, getDidaTaskTreeKeys, resolveDidaTaskCollapsedState, sortDidaTasksForTree } from '../taskTree';
-import { DEFAULT_SETTINGS, DidaNoteSyncRecord, DidaNoteSyncRunState, DidaTask } from '../types';
+import { CompletedTasksQuery, DEFAULT_SETTINGS, DidaNoteSyncRecord, DidaNoteSyncRunState, DidaTask } from '../types';
 import { clampMinutes, dateAtMinutes, getTimeGridDay, getTimeGridRange, gridStartMinutes, isAllDayTimeGridTask, snapDuration, snapMinutes, taskBelongsToTimeGridDate, TIME_GRID_STEP_MINUTES } from '../timeGrid';
 import { appendValidatedSvg, compareProjectGroups, debounce, getTimerRemainingSeconds, normalizePomodoroCompletionHistory, normalizePomodoroPresetMinutes, setIconElement, setTextWithIcon, translateRepeatFlag } from '../utils';
 
@@ -17,6 +17,8 @@ export const TASK_VIEW_TYPE = "dida-task-view";
 export class TaskView extends ItemView {
     plugin: DidaSyncPlugin;
     searchQuery: string;
+    taskStatusFilter: "active" | "completed";
+    completedDateFilter: "last7" | "last30" | "last90";
     isComposing: boolean;
     viewMode: string;
     debouncedSearch: (query: string) => void;
@@ -43,11 +45,16 @@ export class TaskView extends ItemView {
     pomodoroState: any;
     pomodoroToggleBtn: HTMLButtonElement | null = null;
     pomodoroHostEl: HTMLElement | null = null;
+    completedTasksQuery: CompletedTasksQuery;
+    completedTasksLoading: boolean;
+    completedTasksError: string;
 
     constructor(leaf: WorkspaceLeaf, plugin: DidaSyncPlugin) {
         super(leaf);
         this.plugin = plugin;
         this.searchQuery = "";
+        this.taskStatusFilter = "active";
+        this.completedDateFilter = "last7";
         this.isComposing = false;
         this.viewMode = "task";
         this.isPomodoroVisible = false;
@@ -71,6 +78,12 @@ export class TaskView extends ItemView {
         this.calendarCompletedLoading = false;
         this.calendarCompletedMonthKey = "";
         this.calendarCompletedError = "";
+        this.completedTasksQuery = {
+            ...this.plugin.buildDefaultCompletedTaskQuery(),
+            ...(this.plugin.settings.completedTasksQuery || {})
+        };
+        this.completedTasksLoading = false;
+        this.completedTasksError = "";
 
         this.initializePomodoroState();
 
@@ -1206,6 +1219,210 @@ export class TaskView extends ItemView {
         return !!((this.searchQuery && this.searchQuery.trim()) || this.dateFilter);
     }
 
+    formatDateOnly(date: Date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, "0");
+        const d = String(date.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
+    }
+
+    extractDateValue(value?: string) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "";
+        return this.formatDateOnly(date);
+    }
+
+    openCompletedDatePicker(kind: "start" | "end", trigger: HTMLElement) {
+        const currentValue = kind === "start" ? this.completedTasksQuery.startDate : this.completedTasksQuery.endDate;
+        new DatePickerModal(
+            this.app,
+            currentValue || null,
+            (date) => {
+                if (!date) return;
+                const dateOnly = this.formatDateOnly(date);
+                this.completedTasksQuery = {
+                    ...this.completedTasksQuery,
+                    [kind === "start" ? "startDate" : "endDate"]: this.plugin.formatDidaDateTime(
+                        new Date(`${dateOnly}T${kind === "start" ? "00:00:00" : "23:59:59.999"}`)
+                    )
+                };
+                this.renderTaskList({ preserveSearch: true });
+            },
+            trigger,
+            undefined,
+            undefined,
+            { dateOnly: true }
+        ).open();
+    }
+
+    async refreshCompletedTasksInline() {
+        this.completedTasksLoading = true;
+        this.completedTasksError = "";
+        this.renderTaskList({ preserveSearch: true });
+        try {
+            await this.plugin.fetchCompletedTasks(this.completedTasksQuery);
+        } catch (error: any) {
+            this.completedTasksError = error?.message || "获取已完成任务失败";
+        } finally {
+            this.completedTasksLoading = false;
+            this.renderTaskList({ preserveSearch: true });
+        }
+    }
+
+    buildCompletedTaskQueryFromDateFilter(filter: "last7" | "last30" | "last90" = this.completedDateFilter) {
+        const end = new Date();
+        const start = new Date(end);
+        const days = filter === "last90" ? 89 : filter === "last30" ? 29 : 6;
+        start.setDate(end.getDate() - days);
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        return {
+            startDate: this.plugin.formatDidaDateTime(start),
+            endDate: this.plugin.formatDidaDateTime(end)
+        };
+    }
+
+    renderTaskFilterBar(container: HTMLElement) {
+        const filterBar = container.createDiv("dida-task-filter-bar");
+        const statusBtn = filterBar.createEl("button", {
+            text: this.taskStatusFilter === "completed" ? "已完成" : "未完成",
+            cls: this.taskStatusFilter === "completed" ? "dida-task-status-toggle is-completed" : "dida-task-status-toggle"
+        });
+        statusBtn.title = this.taskStatusFilter === "completed" ? "点击查看未完成任务" : "点击查看已完成任务";
+        statusBtn.onclick = () => {
+            const nextStatus = this.taskStatusFilter === "completed" ? "active" : "completed";
+            this.taskStatusFilter = nextStatus;
+            if (nextStatus === "completed") {
+                this.completedTasksQuery = this.buildCompletedTaskQueryFromDateFilter();
+                this.renderTaskList({ preserveSearch: true });
+                void this.refreshCompletedTasksInline();
+                return;
+            }
+            this.renderTaskList({ preserveSearch: true });
+        };
+
+        const searchContainer = filterBar.createDiv("dida-task-list-search");
+        const searchInputWrap = searchContainer.createDiv("dida-search-input-wrap");
+        const searchInput = searchInputWrap.createEl("input", {
+            type: "text",
+            cls: "dida-search-input",
+            placeholder: this.taskStatusFilter === "completed" ? "搜索已完成..." : "搜索任务..."
+        });
+        searchInput.value = this.searchQuery;
+
+        const clearBtn = searchInputWrap.createEl("button", {
+            cls: "dida-search-clear-btn"
+        });
+        setIconElement(clearBtn, "x");
+        clearBtn.setCssStyles({ display: this.searchQuery ? "flex" : "none" });
+
+        searchInput.addEventListener("compositionstart", () => {
+            this.isComposing = true;
+        });
+        searchInput.addEventListener("compositionend", (e: any) => {
+            this.isComposing = false;
+            const val = e.target.value;
+            clearBtn.setCssStyles({ display: val ? "flex" : "none" });
+            this.debouncedSearch(val);
+        });
+        searchInput.addEventListener("input", (e: any) => {
+            const val = e.target.value;
+            clearBtn.setCssStyles({ display: val ? "flex" : "none" });
+            if (!this.isComposing) this.debouncedSearch(val);
+        });
+        clearBtn.addEventListener("click", () => {
+            this.searchQuery = "";
+            searchInput.value = "";
+            clearBtn.setCssStyles({ display: "none" });
+            this.renderTaskList({ preserveSearch: true });
+        });
+
+        const dateSelect = filterBar.createEl("select", { cls: "dida-task-date-filter-select" });
+        const dateOptions = this.taskStatusFilter === "completed"
+            ? [
+                { label: "近 7 天", value: "last7" },
+                { label: "近 30 天", value: "last30" },
+                { label: "近 90 天", value: "last90" }
+            ]
+            : [
+                { label: "全部日期", value: "" },
+                { label: "已逾期", value: "overdue" },
+                { label: "今天", value: "today" },
+                { label: "近 3 天", value: "next3days" },
+                { label: "近 7 天", value: "next7days" }
+            ];
+        dateOptions.forEach((option) => {
+            const optionEl = dateSelect.createEl("option", { text: option.label });
+            optionEl.value = option.value;
+        });
+        dateSelect.value = this.taskStatusFilter === "completed" ? this.completedDateFilter : (this.dateFilter || "");
+        dateSelect.onchange = () => {
+            if (this.taskStatusFilter === "completed") {
+                this.completedDateFilter = dateSelect.value === "last90" || dateSelect.value === "last30" ? dateSelect.value : "last7";
+                this.completedTasksQuery = this.buildCompletedTaskQueryFromDateFilter();
+                this.renderTaskList({ preserveSearch: true });
+                void this.refreshCompletedTasksInline();
+                return;
+            }
+            this.dateFilter = dateSelect.value || null;
+            this.renderTaskList({ preserveSearch: true });
+        };
+    }
+
+    renderCompletedTasksInline(container: HTMLElement) {
+        if (this.completedTasksError) {
+            container.createEl("p", { text: `已完成任务刷新失败：${this.completedTasksError}`, cls: "dida-empty-state" });
+        }
+        if (this.completedTasksLoading) {
+            container.createEl("p", { text: "正在刷新已完成任务...", cls: "dida-empty-state" });
+            return;
+        }
+
+        let tasks = this.plugin.getCompletedTasksFromCache(this.completedTasksQuery) as DidaTask[];
+        if (this.searchQuery && this.searchQuery.trim()) {
+            const query = this.searchQuery.toLowerCase().trim();
+            tasks = tasks.filter((task) => {
+                const title = (task.title || "").toLowerCase();
+                const content = (task.content || task.desc || "").toLowerCase();
+                const projectName = (task.projectName || "").toLowerCase();
+                return title.includes(query) || content.includes(query) || projectName.includes(query);
+            });
+        }
+
+        if (tasks.length === 0) {
+            container.createEl("p", { text: "当前范围内没有已完成任务", cls: "dida-empty-state" });
+            return;
+        }
+
+        const list = container.createDiv("dida-completed-inline-list");
+        tasks.forEach((task) => {
+            const item = list.createDiv("dida-completed-item");
+            const header = item.createDiv("dida-completed-item-header");
+            const checkbox = header.createDiv("dida-completed-checkbox checked");
+            setIconElement(checkbox, "check");
+            checkbox.title = "恢复为未完成";
+            checkbox.onclick = async () => {
+                checkbox.classList.add("is-dimmed");
+                try {
+                    await this.plugin.restoreCompletedTask(task);
+                    this.renderTaskList({ preserveSearch: true });
+                } catch (error: any) {
+                    checkbox.classList.remove("is-dimmed");
+                    new Notice(error?.message || "恢复任务失败");
+                }
+            };
+            header.createDiv({ cls: "dida-completed-item-title", text: task.title || "无标题任务" });
+            const meta = item.createDiv("dida-completed-item-meta");
+            const parts = [
+                task.completedTime ? `完成于 ${this.extractDateValue(String(task.completedTime))}` : "",
+                task.dueDate ? `原计划 ${this.extractDateValue(String(task.dueDate))}` : "",
+                task.projectName || ""
+            ].filter(Boolean);
+            meta.textContent = parts.join(" · ");
+        });
+    }
+
     resolveVisibleRootTask(task: DidaTask, taskByKey: Map<string, DidaTask>) {
         let current = task;
         const seen = new Set<string>();
@@ -1466,6 +1683,10 @@ export class TaskView extends ItemView {
             this.viewMode = "task";
         }
 
+        if (this.isPomodoroVisible && (Platform.isMobile || this.plugin.settings.showPomodoroEntry === false)) {
+            await this.exitPomodoroPanel();
+        }
+
         if (this.isPomodoroVisible && options && options.preserveSearch) {
             options = {};
         }
@@ -1512,47 +1733,6 @@ export class TaskView extends ItemView {
                 }
             };
 
-            // Timeline view button
-            const timelineBtn = headerControls.createEl("button", {
-                cls: "dida-timeline-btn"
-            });
-            setIconElement(timelineBtn, "calendar-check");
-            timelineBtn.onclick = async () => {
-                if (this.isPomodoroVisible) {
-                    await this.exitPomodoroPanel();
-                } else {
-                    this.plugin.showTimelineView();
-                }
-            };
-
-            const pomodoroToggleBtn = headerControls.createEl("button", {
-                cls: "dida-timeline-btn dida-pomodoro-toggle-btn"
-            });
-            setIconElement(pomodoroToggleBtn, "circle-star");
-            pomodoroToggleBtn.title = this.isPomodoroVisible ? "番茄钟模式中，请点时间线按钮返回任务列表" : "显示番茄钟";
-            pomodoroToggleBtn.disabled = this.isPomodoroVisible;
-            if (this.isPomodoroVisible) {
-                pomodoroToggleBtn.classList.add("is-locked");
-            } else {
-                pomodoroToggleBtn.addEventListener("click", async () => {
-                    await this.togglePomodoroPanel();
-                });
-            }
-            this.pomodoroToggleBtn = pomodoroToggleBtn;
-
-            // Sync button
-            const syncBtn = headerControls.createEl("button", {
-                cls: "dida-sync-btn"
-            });
-            setIconElement(syncBtn, "refresh-cw");
-            syncBtn.onclick = async () => {
-                if (this.plugin.isPluginActivated) {
-                    this.plugin.safeManualSync();
-                } else {
-                    await this.checkPluginStatusAndNotify();
-                }
-            };
-
             if (this.plugin.settings.enableDidaNoteSync) {
                 const noteSyncBtn = headerControls.createEl("button", {
                     cls: "dida-sync-btn dida-note-sync-btn"
@@ -1569,6 +1749,57 @@ export class TaskView extends ItemView {
                 };
             }
 
+            // Sync button
+            const syncBtn = headerControls.createEl("button", {
+                cls: "dida-sync-btn"
+            });
+            setIconElement(syncBtn, "refresh-cw");
+            const syncing = this.plugin.isManualSyncing || this.plugin.syncManager?.isSyncing === true;
+            syncBtn.classList.toggle("is-syncing", syncing);
+            syncBtn.disabled = syncing;
+            syncBtn.title = syncing ? "正在同步" : "手动同步";
+            syncBtn.onclick = async () => {
+                if (this.plugin.isPluginActivated) {
+                    await this.plugin.safeManualSync();
+                } else {
+                    await this.checkPluginStatusAndNotify();
+                }
+            };
+
+            if (!Platform.isMobile && this.plugin.settings.showTimelineEntry !== false) {
+                const timelineBtn = headerControls.createEl("button", {
+                    cls: "dida-timeline-btn"
+                });
+                setIconElement(timelineBtn, "calendar-check");
+                timelineBtn.title = "打开时间线视图";
+                timelineBtn.onclick = async () => {
+                    if (this.isPomodoroVisible) {
+                        await this.exitPomodoroPanel();
+                    } else {
+                        this.plugin.showTimelineView();
+                    }
+                };
+            }
+
+            if (!Platform.isMobile && this.plugin.settings.showPomodoroEntry !== false) {
+                const pomodoroToggleBtn = headerControls.createEl("button", {
+                    cls: "dida-timeline-btn dida-pomodoro-toggle-btn"
+                });
+                setIconElement(pomodoroToggleBtn, "circle-star");
+                pomodoroToggleBtn.title = this.isPomodoroVisible ? "番茄钟模式中，请点击视图切换按钮返回任务列表" : "显示番茄钟";
+                pomodoroToggleBtn.disabled = this.isPomodoroVisible;
+                if (this.isPomodoroVisible) {
+                    pomodoroToggleBtn.classList.add("is-locked");
+                } else {
+                    pomodoroToggleBtn.addEventListener("click", async () => {
+                        await this.togglePomodoroPanel();
+                    });
+                }
+                this.pomodoroToggleBtn = pomodoroToggleBtn;
+            } else {
+                this.pomodoroToggleBtn = null;
+            }
+
             this.pomodoroHostEl = container.createDiv("dida-pomodoro-host");
             this.renderPomodoroPanel();
             if (this.pomodoroToggleBtn) {
@@ -1579,170 +1810,6 @@ export class TaskView extends ItemView {
                 return;
             }
 
-            {
-                const searchContainer = headerControls.createDiv("dida-search-container");
-                const searchInputWrap = searchContainer.createDiv("dida-search-input-wrap");
-                const searchInput = searchInputWrap.createEl("input", {
-                    type: "text",
-                    cls: "dida-search-input",
-                    placeholder: "搜索任务..."
-                });
-                searchInput.value = this.searchQuery;
-
-                const clearBtn = searchInputWrap.createEl("button", {
-                    cls: "dida-search-clear-btn"
-                });
-                setIconElement(clearBtn, "x");
-                clearBtn.setCssStyles({ display: this.searchQuery ? "flex" : "none" });
-
-                const dateFilterClearBtn = searchInputWrap.createEl("button", {
-                    cls: "dida-date-clear-btn"
-                });
-                setIconElement(dateFilterClearBtn, "x");
-                dateFilterClearBtn.setCssStyles({ display: this.dateFilter ? "flex" : "none" });
-
-                const dateFilterDropdown = searchInputWrap.createDiv("dida-date-filter-dropdown");
-                dateFilterDropdown.setCssStyles({
-                    position: "absolute",
-                    top: "100%",
-                    left: "0",
-                    width: "100%",
-                    background: "var(--background-primary)",
-                    border: "1px solid var(--background-modifier-border)",
-                    borderRadius: "4px",
-                    marginTop: "4px",
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-                    zIndex: "1000",
-                    display: "none"
-                });
-
-                const filterOptions = [
-                    { label: "已逾期", value: "overdue" },
-                    { label: "今天", value: "today" },
-                    { label: "近 3 天", value: "next3days" },
-                    { label: "近 7 天", value: "next7days" }
-                ];
-
-                filterOptions.forEach(opt => {
-                    const option = dateFilterDropdown.createDiv("dida-date-filter-option");
-                    option.textContent = opt.label;
-                    option.setCssStyles({
-                        padding: "8px 12px",
-                        cursor: "pointer",
-                        transition: "background 0.2s"
-                    });
-                    option.addEventListener("mouseenter", () => {
-                        option.setCssStyles({ background: "var(--background-modifier-hover)" });
-                    });
-                    option.addEventListener("mouseleave", () => {
-                        option.setCssStyles({ background: "" });
-                    });
-                    option.addEventListener("click", () => {
-                        this.dateFilter = opt.value;
-                        searchInput.placeholder = "筛选：" + opt.label;
-                        dateFilterDropdown.setCssStyles({ display: "none" });
-                        dateFilterClearBtn.setCssStyles({ display: "flex" });
-                        this.renderTaskList({ preserveSearch: true });
-                    });
-                });
-
-                const completedOption = dateFilterDropdown.createDiv("dida-date-filter-option");
-                completedOption.textContent = "已完成";
-                completedOption.setCssStyles({
-                    padding: "8px 12px",
-                    cursor: "pointer",
-                    borderTop: "1px solid var(--background-modifier-border)",
-                    transition: "background 0.2s"
-                });
-                completedOption.addEventListener("mouseenter", () => {
-                    completedOption.setCssStyles({ background: "var(--background-modifier-hover)" });
-                });
-                completedOption.addEventListener("mouseleave", () => {
-                    completedOption.setCssStyles({ background: "" });
-                });
-                completedOption.addEventListener("click", () => {
-                    dateFilterDropdown.setCssStyles({ display: "none" });
-                    this.plugin.showCompletedTasksModal();
-                });
-
-                const clearOption = dateFilterDropdown.createDiv("dida-date-filter-option");
-                clearOption.textContent = "清除筛选";
-                clearOption.setCssStyles({
-                    padding: "8px 12px",
-                    cursor: "pointer",
-                    borderTop: "1px solid var(--background-modifier-border)",
-                    color: "var(--text-muted)"
-                });
-                clearOption.addEventListener("mouseenter", () => {
-                    clearOption.setCssStyles({ background: "var(--background-modifier-hover)" });
-                });
-                clearOption.addEventListener("mouseleave", () => {
-                    clearOption.setCssStyles({ background: "" });
-                });
-                clearOption.addEventListener("click", () => {
-                    this.dateFilter = null;
-                    searchInput.placeholder = "搜索任务...";
-                    dateFilterDropdown.setCssStyles({ display: "none" });
-                    dateFilterClearBtn.setCssStyles({ display: "none" });
-                    this.renderTaskList({ preserveSearch: true });
-                });
-
-                const handleClickOutside = (e: MouseEvent) => {
-                    if (!searchInputWrap.contains(e.target as Node)) {
-                        dateFilterDropdown.setCssStyles({ display: "none" });
-                    }
-                };
-
-                searchInput.addEventListener("focus", () => {
-                    dateFilterDropdown.setCssStyles({ display: "block" });
-                });
-
-                setTimeout(() => {
-                    document.addEventListener("click", handleClickOutside);
-                }, 100);
-
-                if (!this.eventCleanupHandlers) this.eventCleanupHandlers = [];
-                this.eventCleanupHandlers.push(() => {
-                    document.removeEventListener("click", handleClickOutside);
-                });
-
-                searchInput.addEventListener("compositionstart", () => {
-                    this.isComposing = true;
-                });
-
-                searchInput.addEventListener("compositionend", (e: any) => {
-                    this.isComposing = false;
-                    const val = e.target.value;
-                    clearBtn.setCssStyles({ display: val ? "flex" : "none" });
-                    this.debouncedSearch(val);
-                });
-
-                searchInput.addEventListener("input", (e: any) => {
-                    const val = e.target.value;
-                    clearBtn.setCssStyles({ display: val ? "flex" : "none" });
-                    if (!this.isComposing) {
-                        dateFilterDropdown.setCssStyles({ display: "none" });
-                        this.debouncedSearch(val);
-                    }
-                });
-
-                clearBtn.addEventListener("click", () => {
-                    searchInput.value = "";
-                    this.searchQuery = "";
-                    clearBtn.setCssStyles({ display: "none" });
-                    this.renderTaskList({ preserveSearch: true });
-                });
-
-                dateFilterClearBtn.addEventListener("click", () => {
-                    this.dateFilter = null;
-                    searchInput.placeholder = "搜索任务...";
-                    dateFilterDropdown.setCssStyles({ display: "none" });
-                    dateFilterClearBtn.setCssStyles({ display: "none" });
-                    this.renderTaskList({ preserveSearch: true });
-                });
-
-            }
-
             taskListContainer = container.createDiv("dida-task-list");
         }
 
@@ -1751,6 +1818,12 @@ export class TaskView extends ItemView {
         } else if (this.viewMode === "timeblock") {
             this.renderTimeBlockView(taskListContainer);
         } else {
+            this.renderTaskFilterBar(taskListContainer);
+            if (this.taskStatusFilter === "completed") {
+                this.renderCompletedTasksInline(taskListContainer);
+                return;
+            }
+
             // Task List View implementation
             try {
                 if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
@@ -2064,7 +2137,7 @@ export class TaskView extends ItemView {
 
         if (records.length === 0) {
             taskListContainer.createEl("p", {
-                text: "暂无已同步笔记，点击底部同步按钮拉取。",
+                text: "暂无已同步笔记，点击顶部同步按钮拉取。",
                 cls: "dida-empty-state"
             });
             renderFooter();
@@ -2089,6 +2162,20 @@ export class TaskView extends ItemView {
             const titleEl = projectHeader.createEl("h4", { cls: "dida-project-title" });
             titleEl.createEl("span", { text: `${group.projectName} (${group.records.length})` });
             const list = taskListContainer.createDiv("dida-project-tasks");
+            const collapseKey = `note:${group.projectId || group.projectName}`;
+            const collapsed = this.plugin.settings.projectCollapsedStates?.[collapseKey] === true;
+            projectHeader.classList.toggle("collapsed", collapsed);
+            list.classList.toggle("collapsed", collapsed);
+            titleEl.onclick = async () => {
+                const nextCollapsed = !list.classList.contains("collapsed");
+                list.classList.toggle("collapsed", nextCollapsed);
+                projectHeader.classList.toggle("collapsed", nextCollapsed);
+                this.plugin.settings.projectCollapsedStates = {
+                    ...(this.plugin.settings.projectCollapsedStates || {}),
+                    [collapseKey]: nextCollapsed
+                };
+                await this.plugin.saveSettings();
+            };
 
             group.records.forEach((record) => {
                 const file = this.plugin.app.vault.getAbstractFileByPath(record.path);

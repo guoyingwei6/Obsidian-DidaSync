@@ -75,6 +75,8 @@ export default class DidaSyncPlugin extends Plugin {
     autoSyncTimeout: number | null = null;
     debouncedEditorChange: (editor: Editor, info: any) => void;
     statusBarItem: HTMLElement | null = null;
+    timelineRibbonIconEl: HTMLElement | null = null;
+    isManualSyncing: boolean = false;
     _cachedTaskLeaf: any = null;
     _handleOnlineForAutoSync: (() => void) | null = null;
     _handleOfflineForAutoSync: (() => void) | null = null;
@@ -115,9 +117,10 @@ export default class DidaSyncPlugin extends Plugin {
         this.addRibbonIcon('check-square', 'Didasync', () => {
             this.openTaskViewWithCache();
         });
-        this.addRibbonIcon("calendar-check", "滴答时间线视图", () => {
+        this.timelineRibbonIconEl = this.addRibbonIcon("calendar-check", "滴答时间线视图", () => {
             this.showTimelineView();
         });
+        this.updateOptionalEntryVisibility();
         this.addRibbonIcon("list-plus", "同步任务到笔记", () => {
             this.showTaskNoteSyncModal();
         });
@@ -175,7 +178,7 @@ export default class DidaSyncPlugin extends Plugin {
             id: 'fetch-completed-dida-tasks',
             name: '查看已完成任务',
             callback: () => {
-                this.showCompletedTasksModal();
+                this.showCompletedTasksInline();
             }
         });
 
@@ -234,9 +237,24 @@ export default class DidaSyncPlugin extends Plugin {
         delete legacySettings.dailySyncTargetBlockHeader;
         delete legacySettings.taskNoteSyncFileNamePattern;
         if (!this.settings.tasks) this.settings.tasks = [];
-        this.settings.tasks = this.settings.tasks.filter((task) => task?.kind !== "NOTE");
+        if (!Array.isArray(this.settings.didaNoteSyncProjectIds)) this.settings.didaNoteSyncProjectIds = [];
+        const migratedNoteTaskLocalIds = new Set<string>();
+        const migratedNoteTaskDidaIds = new Set<string>();
+        this.settings.tasks.forEach((task) => {
+            if (!this.isNoteSyncTaskLike(task)) return;
+            if (task.id) migratedNoteTaskLocalIds.add(task.id);
+            if (task.didaId) migratedNoteTaskDidaIds.add(task.didaId);
+        });
+        this.settings.tasks = this.settings.tasks.filter((task) => !this.isNoteSyncTaskLike(task));
         if (!Array.isArray(this.settings.completedTasks)) this.settings.completedTasks = [];
         if (!Array.isArray(this.settings.pendingSyncOperations)) this.settings.pendingSyncOperations = [];
+        this.settings.pendingSyncOperations = this.settings.pendingSyncOperations.filter((operation) => {
+            if (!operation) return false;
+            if (migratedNoteTaskLocalIds.has(operation.localTaskId)) return false;
+            if (operation.didaId && migratedNoteTaskDidaIds.has(operation.didaId)) return false;
+            if (operation.projectId && this.isDidaNoteSyncProjectId(operation.projectId)) return false;
+            return true;
+        });
         this.settings.completedTaskCacheSegments = normalizeCompletedTaskCacheSegments(this.settings.completedTaskCacheSegments);
         const legacyCompletedStart = this.settings.completedTasksQuery?.startDate ? new Date(this.settings.completedTasksQuery.startDate) : null;
         const legacyCompletedEnd = this.settings.completedTasksQuery?.endDate ? new Date(this.settings.completedTasksQuery.endDate) : null;
@@ -267,6 +285,8 @@ export default class DidaSyncPlugin extends Plugin {
         }
         if (!this.settings.projectIcons || typeof this.settings.projectIcons !== "object") this.settings.projectIcons = {};
         if (!Array.isArray(this.settings.hiddenProjectKeys)) this.settings.hiddenProjectKeys = [];
+        if (this.settings.showTimelineEntry === undefined) this.settings.showTimelineEntry = true;
+        if (this.settings.showPomodoroEntry === undefined) this.settings.showPomodoroEntry = true;
         if (!["all", "visible", "custom"].includes(this.settings.taskNoteSyncProjectScope)) this.settings.taskNoteSyncProjectScope = "all";
         if (!Array.isArray(this.settings.taskNoteSyncProjectKeys)) this.settings.taskNoteSyncProjectKeys = [];
         if (this.settings.enableDidaNoteSync === undefined) this.settings.enableDidaNoteSync = false;
@@ -457,9 +477,14 @@ export default class DidaSyncPlugin extends Plugin {
 
     normalizeProjectCatalogEntry(entry: any): ProjectCatalogEntry | null {
         if (!entry || typeof entry !== "object") return null;
+        if (this.isNoteProjectLike(entry)) return null;
         const name = typeof entry.name === "string" ? entry.name.trim() : "";
         if (!name) return null;
         const id = typeof entry.id === "string" ? entry.id.trim() : "";
+        const cachedProject = id && Array.isArray(this.settings.projects)
+            ? this.settings.projects.find((project) => project?.id === id)
+            : null;
+        if (cachedProject && this.isNoteProjectLike(cachedProject)) return null;
         return {
             id,
             name,
@@ -484,6 +509,29 @@ export default class DidaSyncPlugin extends Plugin {
         return normalized;
     }
 
+    isNoteProjectLike(project: any) {
+        const kind = typeof project?.kind === "string" ? project.kind.trim().toUpperCase() : "";
+        const viewMode = typeof project?.viewMode === "string" ? project.viewMode.trim().toLowerCase() : "";
+        return kind === "NOTE" || viewMode === "note";
+    }
+
+    isDidaNoteSyncProjectId(projectId: unknown) {
+        const id = typeof projectId === "string" ? projectId.trim() : "";
+        if (!id) return false;
+        if ((this.settings.didaNoteSyncProjectIds || []).includes(id)) return true;
+        const cachedProject = Array.isArray(this.settings.projects)
+            ? this.settings.projects.find((project) => project?.id === id)
+            : null;
+        return !!cachedProject && this.isNoteProjectLike(cachedProject);
+    }
+
+    isNoteSyncTaskLike(task: any) {
+        if (!task || typeof task !== "object") return false;
+        if (task.kind === "NOTE" || task.projectKind === "NOTE") return true;
+        if (typeof task.projectViewMode === "string" && task.projectViewMode.trim().toLowerCase() === "note") return true;
+        return this.isDidaNoteSyncProjectId(task.projectId);
+    }
+
     getProjectCatalog(): ProjectCatalogEntry[] {
         return this.normalizeProjectCatalog(this.settings.projectCatalog || []);
     }
@@ -498,6 +546,7 @@ export default class DidaSyncPlugin extends Plugin {
         });
         (Array.isArray(this.settings.tasks) ? this.settings.tasks : []).forEach((task) => {
             if (!task || task.parentId) return;
+            if (task.projectKind === "NOTE" || task.kind === "NOTE") return;
             let name = task.projectName || "";
             let id = task.projectId || "";
             if (!name && id) {
@@ -936,7 +985,9 @@ export default class DidaSyncPlugin extends Plugin {
                     id: value?.id || "",
                     name: value?.name || "",
                     isArchived: value?.closed === true,
-                    isLocalOnly: false
+                    isLocalOnly: false,
+                    viewMode: value?.viewMode,
+                    kind: value?.kind
                 });
                 if (!entry) return;
                 const key = entry.id ? `id:${entry.id.toLowerCase()}` : `name:${entry.name.trim().toLowerCase()}`;
@@ -1143,6 +1194,7 @@ export default class DidaSyncPlugin extends Plugin {
         const map = new Map<string, ProjectCatalogEntry>();
         [...this.getProjectCatalog(), ...this.getTaskDerivedProjects()].forEach((entry) => {
             if (!entry || !entry.name) return;
+            if (this.isNoteProjectLike(entry)) return;
             const isInbox = this.isInboxProject(entry.id, entry.name);
             const key = isInbox ? this.getProjectIconConfigKey("inbox", "收集箱") : this.getProjectIconConfigKey(entry.id, entry.name);
             if (!map.has(key)) {
@@ -1335,6 +1387,18 @@ export default class DidaSyncPlugin extends Plugin {
 
     showCompletedTasksModal() {
         new CompletedTasksModal(this.app, this).open();
+    }
+
+    async showCompletedTasksInline() {
+        await this.openTaskViewWithCache();
+        const leaves = this.app.workspace.getLeavesOfType(TASK_VIEW_TYPE);
+        const leaf = this._cachedTaskLeaf && leaves.includes(this._cachedTaskLeaf) ? this._cachedTaskLeaf : leaves[0];
+        const view = leaf?.view;
+        if (view instanceof TaskView) {
+            view.viewMode = "task";
+            view.taskStatusFilter = "completed";
+            view.renderTaskList();
+        }
     }
 
     async syncDidaNotes(options: { silent?: boolean; source?: DidaNoteSyncRunSource } = {}) {
@@ -1954,6 +2018,7 @@ export default class DidaSyncPlugin extends Plugin {
             try {
                 await this.noteSyncManager.syncNow({
                     silent: options.silentNotes === true,
+                    suppressNoopNotice: options.silentNotes !== true,
                     source: options.noteSyncSource || "manual"
                 });
             } catch (error: any) {
@@ -1971,8 +2036,15 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     async safeManualSync() {
-        if (await this.checkPluginStatusAndNotify()) {
-            return this.runIntegratedSync({ silentNotes: false, noteSyncSource: "manual" });
+        if (!(await this.checkPluginStatusAndNotify())) return;
+        if (this.isManualSyncing || this.syncManager?.isSyncing) return;
+        this.isManualSyncing = true;
+        this.refreshTaskView();
+        try {
+            return await this.runIntegratedSync({ silentNotes: false, noteSyncSource: "manual" });
+        } finally {
+            this.isManualSyncing = false;
+            this.refreshTaskView();
         }
     }
 
@@ -2071,6 +2143,12 @@ export default class DidaSyncPlugin extends Plugin {
         });
 
         // Also refresh timeline view if open (it's a modal, handled internally or via re-render)
+    }
+
+    updateOptionalEntryVisibility() {
+        if (this.timelineRibbonIconEl) {
+            this.timelineRibbonIconEl.style.display = (!Platform.isMobile && this.settings.showTimelineEntry !== false) ? "" : "none";
+        }
     }
 
     showTimelineView() {

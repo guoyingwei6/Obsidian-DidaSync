@@ -29,6 +29,8 @@ export const DEFAULT_SETTINGS = {
     defaultViewMode: "task",
     defaultCalendarMode: "day",
     defaultShowCompletedInCalendar: false,
+    showTimelineEntry: true,
+    showPomodoroEntry: true,
     timeBlockHourHeight: 80,
     timeBlockStartHour: 0,
     pomodoroSettings: {

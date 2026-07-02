@@ -241,6 +241,8 @@ export interface DidaSyncSettings {
     defaultViewMode: "task" | "timeblock";
     defaultCalendarMode?: "day" | "month" | "year";
     defaultShowCompletedInCalendar?: boolean;
+    showTimelineEntry?: boolean;
+    showPomodoroEntry?: boolean;
     timeBlockHourHeight: number;
     timeBlockStartHour: number;
 
@@ -320,6 +322,8 @@ export const DEFAULT_SETTINGS: DidaSyncSettings = {
     defaultViewMode: "task",
     defaultCalendarMode: "day",
     defaultShowCompletedInCalendar: false,
+    showTimelineEntry: true,
+    showPomodoroEntry: true,
     timeBlockHourHeight: 80,
     timeBlockStartHour: 0,
     pomodoroSettings: {

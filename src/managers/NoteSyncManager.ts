@@ -9,6 +9,7 @@ interface ParsedNoteFile {
 
 interface NoteSyncOptions {
     silent?: boolean;
+    suppressNoopNotice?: boolean;
     source?: DidaNoteSyncRunSource;
 }
 
@@ -37,13 +38,13 @@ export class NoteSyncManager {
             if (!this.plugin.settings.enableDidaNoteSync) {
                 summary.outcome = "skipped";
                 summary.summaryText = "笔记同步未启用";
-                return await this.persistSummary(summary, source, startedAt, options.silent === true);
+                return await this.persistSummary(summary, source, startedAt, this.shouldSilenceSummaryNotice(summary, options));
             }
             if (!this.plugin.settings.accessToken) throw new Error("请先完成 OAuth 认证");
             if ((this.plugin.settings.didaNoteSyncProjectIds || []).filter(Boolean).length === 0) {
                 summary.outcome = "skipped";
                 summary.summaryText = "请先选择笔记清单";
-                return await this.persistSummary(summary, source, startedAt, options.silent === true);
+                return await this.persistSummary(summary, source, startedAt, this.shouldSilenceSummaryNotice(summary, options));
             }
 
             const remoteNotes = await this.fetchRemoteNotes();
@@ -63,7 +64,7 @@ export class NoteSyncManager {
 
             summary.outcome = this.resolveSummaryOutcome(summary);
             summary.summaryText = this.formatSyncNotice(summary);
-            return await this.persistSummary(summary, source, startedAt, options.silent === true);
+            return await this.persistSummary(summary, source, startedAt, this.shouldSilenceSummaryNotice(summary, options));
         } catch (error: any) {
             const message = this.normalizeErrorMessage(error, "同步笔记失败");
             summary.outcome = "failed";
@@ -202,6 +203,13 @@ export class NoteSyncManager {
             new Notice(summary.summaryText);
         }
         return summary;
+    }
+
+    private shouldSilenceSummaryNotice(summary: DidaNoteSyncSummary, options: NoteSyncOptions) {
+        if (options.silent === true) return true;
+        if (options.suppressNoopNotice !== true) return false;
+        const hasChanges = summary.synced > 0 || summary.pushed > 0 || summary.conflicts > 0 || summary.missing > 0 || summary.errors.length > 0;
+        return !hasChanges;
     }
 
     private async persistManualActionSummary(partial: {

@@ -516,6 +516,7 @@ export class SyncManager {
                         projectListSucceeded = true;
                         const previousRemoteInboxProjectId = this.plugin.settings.remoteInboxProjectId || "";
                         list.forEach(p => {
+                            if (this.plugin.isNoteProjectLike(p)) return;
                             const localProjectId = this.normalizeRemoteProjectId(p.id);
                             expectedProjects.add(localProjectId);
                             projectMap.set(localProjectId, {
@@ -546,6 +547,7 @@ export class SyncManager {
                             await this.plugin.saveSettings();
                         }
                         for (const project of list) {
+                            if (this.plugin.isNoteProjectLike(project)) continue;
                             let projectFetched = false;
                             for (const url of [
                                 `https://api.dida365.com/open/v1/project/${project.id}/task`,
@@ -849,7 +851,7 @@ export class SyncManager {
 
     async syncDeletedTasks(tasks: any[]) {
         const remoteIds = new Set(tasks.map(t => t.id));
-        const toDelete = this.plugin.settings.tasks.filter(t => t.didaId && !this.hasPendingOperation(t)).filter(t => {
+        const toDelete = this.plugin.settings.tasks.filter(t => t.didaId && !this.hasPendingOperation(t) && !this.plugin.isNoteSyncTaskLike(t)).filter(t => {
             if (remoteIds.has(t.didaId as string)) return false;
             if (t.status === 2) {
                 if (t.items && Array.isArray(t.items) && t.items.length > 0) return false;
@@ -879,7 +881,7 @@ export class SyncManager {
 
     async markExtraTasksAsCompleted(tasks: any[]) {
         const remoteIds = new Set(tasks.map(t => t.id));
-        const extra = this.plugin.settings.tasks.filter(t => t.didaId && !this.hasPendingOperation(t)).filter(t => !remoteIds.has(t.didaId as string) && t.status !== 2);
+        const extra = this.plugin.settings.tasks.filter(t => t.didaId && !this.hasPendingOperation(t) && !this.plugin.isNoteSyncTaskLike(t)).filter(t => !remoteIds.has(t.didaId as string) && t.status !== 2);
         if (extra.length === 0) return 0;
         let count = 0;
         const verifyBudget = { value: REVERSE_COMPLETION_MAX_VERIFY_PER_SYNC };
@@ -903,12 +905,18 @@ export class SyncManager {
     async markCompletedNativeTasksWithLinks(tasks: any[]) {
         if (!Array.isArray(tasks) || tasks.length === 0) return 0;
         const remoteIds = new Set(tasks.map(t => t.id));
+        const noteSyncDidaIds = new Set(
+            this.plugin.settings.tasks
+                .filter((task) => this.plugin.isNoteSyncTaskLike(task))
+                .map((task) => task.didaId)
+                .filter((id): id is string => typeof id === "string" && id.length > 0)
+        );
         let count = 0;
         try {
             for (const file of this.plugin.app.vault.getMarkdownFiles()) {
                 try {
                     const content = await this.plugin.app.vault.read(file);
-                    const nativeTasks = this.plugin.nativeTaskSyncManager.detectNativeTasks(content, file.path).filter(t => t.hasLink && t.didaId && !t.isCompleted && !remoteIds.has(t.didaId));
+                    const nativeTasks = this.plugin.nativeTaskSyncManager.detectNativeTasks(content, file.path).filter(t => t.hasLink && t.didaId && !t.isCompleted && !remoteIds.has(t.didaId) && !noteSyncDidaIds.has(t.didaId));
                     if (nativeTasks.length > 0) {
                         const lines = content.split("\n");
                         for (const nativeTask of nativeTasks) {
