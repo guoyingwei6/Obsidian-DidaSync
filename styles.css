@@ -262,26 +262,26 @@
     min-width: 0;
 }
 
+.dida-task-filter-bar .dida-task-date-filter-select,
 .dida-task-status-toggle {
     flex: 0 0 auto;
-    height: 26px;
-    min-width: 58px;
-    padding: 0 10px;
+    height: 28px;
     border: 1px solid var(--background-modifier-border);
     border-radius: 6px;
     background: var(--background-primary);
     color: var(--text-muted);
-    font-size: 12px;
-    line-height: 26px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
-    transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12) !important;
+    transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 }
 
+.dida-task-filter-bar .dida-task-date-filter-select:hover,
+.dida-task-filter-bar .dida-task-date-filter-select:focus,
 .dida-task-status-toggle:hover,
 .dida-task-status-toggle.is-completed {
     border-color: var(--background-modifier-border-hover);
     color: var(--text-normal);
     background: var(--background-secondary);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.14) !important;
 }
 
 .dida-task-list-search {
@@ -317,25 +317,28 @@
 .dida-task-date-filter-select {
     flex: 0 0 auto;
     width: auto;
-    max-width: 96px;
-    height: 26px;
-    min-width: 74px;
-    padding: 0 22px 0 8px;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background-color: transparent;
+    max-width: 98px;
+    min-width: 76px;
+    padding: 0 24px 0 10px;
     color: var(--text-muted);
-    font-size: 11px;
-    box-shadow: none;
-    opacity: 0.86;
+    font-size: 12px;
+    opacity: 1;
 }
 
-.dida-task-date-filter-select:hover,
-.dida-task-date-filter-select:focus {
-    border-color: var(--background-modifier-border);
-    background-color: var(--background-secondary);
-    color: var(--text-normal);
-    opacity: 1;
+.dida-task-status-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    min-width: 28px;
+    padding: 0;
+    margin-left: auto;
+    border-radius: 999px;
+}
+
+.dida-task-status-toggle svg {
+    width: 14px;
+    height: 14px;
 }
 
 @media (max-width: 420px) {
@@ -344,9 +347,8 @@
     }
 
     .dida-task-status-toggle {
-        padding: 0 6px;
-        font-size: 10.5px;
-        min-width: 50px;
+        width: 26px;
+        min-width: 26px;
     }
 
     .dida-task-list-search {
@@ -1086,6 +1088,50 @@
 .dida-completed-results {
     scrollbar-width: none;
     -ms-overflow-style: none;
+}
+
+.dida-completed-inline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dida-completed-task-item {
+    padding: 2px 0;
+}
+
+.dida-completed-task-item .dida-task-left-content {
+    gap: 6px;
+}
+
+.dida-completed-task-item .dida-task-title-clickable {
+    width: 100%;
+}
+
+.dida-completed-task-details {
+    margin-top: 4px;
+    padding: 10px 12px;
+}
+
+.dida-completed-task-detail-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 4px 0;
+}
+
+.dida-completed-task-detail-label {
+    color: var(--text-muted);
+    font-size: 12px;
+    flex: 0 0 auto;
+}
+
+.dida-completed-task-detail-value {
+    color: var(--text-normal);
+    font-size: 12px;
+    text-align: right;
+    word-break: break-word;
 }
 
 .dida-completed-item {

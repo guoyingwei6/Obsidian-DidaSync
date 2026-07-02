@@ -1283,25 +1283,58 @@ export class TaskView extends ItemView {
         };
     }
 
+    hasCompletedTasksCache(query: CompletedTasksQuery = this.completedTasksQuery) {
+        return this.plugin.hasCompletedTasksCache(query);
+    }
+
+    toggleCompletedTaskDetails(taskItem: HTMLElement, task: DidaTask) {
+        document.querySelectorAll(".dida-task-details").forEach((el) => {
+            if (!taskItem.contains(el)) el.remove();
+        });
+
+        const existing = taskItem.querySelector(".dida-task-details");
+        if (existing) {
+            existing.remove();
+            if (this.lastOpenTaskItem === taskItem) this.lastOpenTaskItem = null;
+            return;
+        }
+
+        if (this.lastOpenTaskItem && this.lastOpenTaskItem !== taskItem && this.lastOpenTaskItem.hasAttribute("draggable")) {
+            this.lastOpenTaskItem.setAttribute("draggable", "true");
+        }
+        this.lastOpenTaskItem = taskItem;
+
+        const details = taskItem.createDiv("dida-task-details dida-completed-task-details");
+        const fields = [
+            {
+                label: "完成时间",
+                value: task.completedTime ? this.extractDateValue(String(task.completedTime)) : "未记录"
+            },
+            {
+                label: "原计划时间",
+                value: task.dueDate ? this.extractDateValue(String(task.dueDate)) : "未设置"
+            },
+            {
+                label: "所属项目",
+                value: task.projectName || (task.projectId ? String(task.projectId) : "未记录")
+            }
+        ];
+
+        fields.forEach((field) => {
+            const row = details.createDiv("dida-completed-task-detail-row");
+            row.createEl("span", {
+                cls: "dida-completed-task-detail-label",
+                text: field.label
+            });
+            row.createEl("span", {
+                cls: "dida-completed-task-detail-value",
+                text: field.value
+            });
+        });
+    }
+
     renderTaskFilterBar(container: HTMLElement) {
         const filterBar = container.createDiv("dida-task-filter-bar");
-        const statusBtn = filterBar.createEl("button", {
-            text: this.taskStatusFilter === "completed" ? "已完成" : "未完成",
-            cls: this.taskStatusFilter === "completed" ? "dida-task-status-toggle is-completed" : "dida-task-status-toggle"
-        });
-        statusBtn.title = this.taskStatusFilter === "completed" ? "点击查看未完成任务" : "点击查看已完成任务";
-        statusBtn.onclick = () => {
-            const nextStatus = this.taskStatusFilter === "completed" ? "active" : "completed";
-            this.taskStatusFilter = nextStatus;
-            if (nextStatus === "completed") {
-                this.completedTasksQuery = this.buildCompletedTaskQueryFromDateFilter();
-                this.renderTaskList({ preserveSearch: true });
-                void this.refreshCompletedTasksInline();
-                return;
-            }
-            this.renderTaskList({ preserveSearch: true });
-        };
-
         const searchContainer = filterBar.createDiv("dida-task-list-search");
         const searchInputWrap = searchContainer.createDiv("dida-search-input-wrap");
         const searchInput = searchInputWrap.createEl("input", {
@@ -1368,6 +1401,28 @@ export class TaskView extends ItemView {
             this.dateFilter = dateSelect.value || null;
             this.renderTaskList({ preserveSearch: true });
         };
+
+        const statusBtn = filterBar.createEl("button", {
+            cls: this.taskStatusFilter === "completed" ? "dida-task-status-toggle is-completed" : "dida-task-status-toggle"
+        });
+        statusBtn.type = "button";
+        statusBtn.title = this.taskStatusFilter === "completed" ? "点击查看未完成任务" : "点击查看已完成任务";
+        setIconElement(statusBtn, this.taskStatusFilter === "completed" ? "check-check" : "circle");
+        statusBtn.onclick = () => {
+            const nextStatus = this.taskStatusFilter === "completed" ? "active" : "completed";
+            this.taskStatusFilter = nextStatus;
+            if (nextStatus === "completed") {
+                if (!this.completedTasksQuery.startDate || !this.completedTasksQuery.endDate) {
+                    this.completedTasksQuery = this.buildCompletedTaskQueryFromDateFilter();
+                }
+                this.renderTaskList({ preserveSearch: true });
+                if (!this.hasCompletedTasksCache(this.completedTasksQuery)) {
+                    void this.refreshCompletedTasksInline();
+                }
+                return;
+            }
+            this.renderTaskList({ preserveSearch: true });
+        };
     }
 
     renderCompletedTasksInline(container: HTMLElement) {
@@ -1380,6 +1435,13 @@ export class TaskView extends ItemView {
         }
 
         let tasks = this.plugin.getCompletedTasksFromCache(this.completedTasksQuery) as DidaTask[];
+        tasks = tasks
+            .slice()
+            .sort((a, b) => {
+                const left = new Date(a.completedTime || a.updatedAt || a.createdAt || 0 as any).getTime();
+                const right = new Date(b.completedTime || b.updatedAt || b.createdAt || 0 as any).getTime();
+                return right - left;
+            });
         if (this.searchQuery && this.searchQuery.trim()) {
             const query = this.searchQuery.toLowerCase().trim();
             tasks = tasks.filter((task) => {
@@ -1397,29 +1459,29 @@ export class TaskView extends ItemView {
 
         const list = container.createDiv("dida-completed-inline-list");
         tasks.forEach((task) => {
-            const item = list.createDiv("dida-completed-item");
-            const header = item.createDiv("dida-completed-item-header");
-            const checkbox = header.createDiv("dida-completed-checkbox checked");
-            setIconElement(checkbox, "check");
+            const item = list.createDiv("dida-task-item dida-completed-task-item");
+            const mainRow = item.createDiv("dida-task-main-row");
+            const leftContent = mainRow.createDiv("dida-task-left-content");
+            const checkbox = leftContent.createEl("input", { type: "checkbox" });
+            checkbox.checked = true;
             checkbox.title = "恢复为未完成";
-            checkbox.onclick = async () => {
-                checkbox.classList.add("is-dimmed");
+            checkbox.onchange = async () => {
+                checkbox.disabled = true;
                 try {
                     await this.plugin.restoreCompletedTask(task);
                     this.renderTaskList({ preserveSearch: true });
                 } catch (error: any) {
-                    checkbox.classList.remove("is-dimmed");
+                    checkbox.checked = true;
+                    checkbox.disabled = false;
                     new Notice(error?.message || "恢复任务失败");
                 }
             };
-            header.createDiv({ cls: "dida-completed-item-title", text: task.title || "无标题任务" });
-            const meta = item.createDiv("dida-completed-item-meta");
-            const parts = [
-                task.completedTime ? `完成于 ${this.extractDateValue(String(task.completedTime))}` : "",
-                task.dueDate ? `原计划 ${this.extractDateValue(String(task.dueDate))}` : "",
-                task.projectName || ""
-            ].filter(Boolean);
-            meta.textContent = parts.join(" · ");
+
+            const titleEl = leftContent.createEl("span", {
+                cls: "dida-task-completed dida-task-title-clickable"
+            });
+            this.renderTaskTitleContent(titleEl, task.title || "无标题任务");
+            titleEl.onclick = () => this.toggleCompletedTaskDetails(item, task);
         });
     }
 
@@ -3749,7 +3811,7 @@ export class TaskView extends ItemView {
 
         const details = taskItem.createDiv("dida-task-details");
         // 禁用当前任务项拖拽，并恢复上一个任务项的拖拽
-        if (this.lastOpenTaskItem && this.lastOpenTaskItem !== taskItem) {
+        if (this.lastOpenTaskItem && this.lastOpenTaskItem !== taskItem && this.lastOpenTaskItem.hasAttribute("draggable")) {
             this.lastOpenTaskItem.setAttribute("draggable", "true");
         }
         taskItem.setAttribute("draggable", "false");

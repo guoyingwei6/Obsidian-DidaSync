@@ -1272,6 +1272,49 @@ export default class DidaSyncPlugin extends Plugin {
             .sort((a, b) => new Date(b.completedTime || b.updatedAt || b.createdAt || 0 as any).getTime() - new Date(a.completedTime || a.updatedAt || a.createdAt || 0 as any).getTime());
     }
 
+    private getCompletedTaskCacheKey(task: Partial<DidaTask>) {
+        const didaId = String(task.didaId || "").trim();
+        if (didaId) return `dida:${didaId}`;
+        const id = String(task.id || "").trim();
+        if (id) return `local:${id}`;
+        return "";
+    }
+
+    upsertCompletedTaskCache(task: DidaTask) {
+        const cacheKey = this.getCompletedTaskCacheKey(task);
+        if (!cacheKey) return;
+        const nextTask: DidaTask = {
+            ...task,
+            completed: true,
+            status: 2,
+            completedTime: task.completedTime || new Date().toISOString()
+        };
+        const remaining = (this.settings.completedTasks || []).filter((item) => this.getCompletedTaskCacheKey(item) !== cacheKey);
+        this.settings.completedTasks = mergeCompletedTasks(remaining, [nextTask]);
+    }
+
+    removeCompletedTaskCache(task: Partial<DidaTask>) {
+        const cacheKey = this.getCompletedTaskCacheKey(task);
+        if (!cacheKey) return;
+        this.settings.completedTasks = (this.settings.completedTasks || []).filter((item) => this.getCompletedTaskCacheKey(item) !== cacheKey);
+    }
+
+    hasCompletedTasksCache(query: CompletedTasksQuery = {}) {
+        const finalQuery = {
+            ...this.buildDefaultCompletedTaskQuery(),
+            ...(query || {})
+        };
+        const startDate = finalQuery.startDate ? new Date(finalQuery.startDate) : null;
+        const endDate = finalQuery.endDate ? new Date(finalQuery.endDate) : null;
+        if (!startDate || !endDate || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+            return false;
+        }
+        return isCompletedTaskRangeCovered({
+            startDate,
+            endDate
+        }, this.settings.completedTaskCacheSegments, finalQuery.projectIds);
+    }
+
     async fetchCompletedTaskRange(range: { startDate: Date; endDate: Date }, projectIds?: string[]) {
         const fetchedAt = new Date().toISOString();
         const result = await fetchCompletedTasksByRange(
@@ -1367,11 +1410,18 @@ export default class DidaSyncPlugin extends Plugin {
             throw new Error("已完成任务查询缺少有效的时间范围");
         }
 
+        this.settings.completedTasksQuery = finalQuery;
+        if (this.hasCompletedTasksCache(finalQuery)) {
+            const cachedTasks = this.getCompletedTasksFromCache(finalQuery);
+            await this.saveSettings();
+            this.refreshTaskView();
+            return cachedTasks;
+        }
+
         const { truncatedSegments } = await this.ensureCompletedTasksRangeCached({
             startDate,
             endDate
-        }, finalQuery.projectIds, true);
-        this.settings.completedTasksQuery = finalQuery;
+        }, finalQuery.projectIds);
         const filteredTasks = this.getCompletedTasksFromCache(finalQuery);
         await this.saveSettings();
         this.refreshTaskView();
@@ -1504,7 +1554,7 @@ export default class DidaSyncPlugin extends Plugin {
             this.settings.tasks.push(restoredTask);
         }
 
-        this.settings.completedTasks = this.settings.completedTasks.filter((item) => item.didaId !== didaId);
+        this.removeCompletedTaskCache(task);
         await this.saveSettings();
         this.refreshTaskView();
         new Notice("任务已恢复为未完成");
@@ -2254,10 +2304,12 @@ export default class DidaSyncPlugin extends Plugin {
                 task.status = 0;
                 task.completedTime = null;
                 task.completed = false;
+                this.removeCompletedTaskCache(task);
             } else {
                 task.status = 2;
                 ensureTaskCompletedTime(task);
                 task.completed = true;
+                this.upsertCompletedTaskCache(task);
 
             }
 
@@ -2269,7 +2321,9 @@ export default class DidaSyncPlugin extends Plugin {
                     if (sub.status !== 2) {
                         sub.status = 2;
                         ensureTaskCompletedTime(sub);
+                        sub.completed = true;
                         sub.updatedAt = new Date().toISOString();
+                        this.upsertCompletedTaskCache(sub);
                         if (this.settings.accessToken && sub.didaId) {
                             setTimeout(() => {
                                 this.toggleTaskInDidaList(sub).catch(() => { });
@@ -3470,9 +3524,11 @@ export default class DidaSyncPlugin extends Plugin {
         if (status === 2) {
             task.completed = true;
             ensureTaskCompletedTime(task);
+            this.upsertCompletedTaskCache(task);
         } else {
             task.completed = false;
             task.completedTime = null;
+            this.removeCompletedTaskCache(task);
         }
         task.updatedAt = new Date().toISOString();
     }
