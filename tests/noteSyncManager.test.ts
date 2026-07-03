@@ -69,7 +69,11 @@ function makePlugin(app: any) {
             didaNoteSyncFolder: "DidaNotes",
             didaNoteSyncProjectIds: ["p1"],
             didaNoteSyncRecords: [],
-            didaNoteSyncLastRun: null
+            didaNoteSyncLastRun: null,
+            tasks: [],
+            projectCatalog: [
+                { id: "p1", name: "Notes Project", isArchived: false, isLocalOnly: false, kind: "NOTE", viewMode: "note" }
+            ]
         },
         apiClient: {
             filterTasks: async (filter: any) => {
@@ -104,6 +108,23 @@ function makePlugin(app: any) {
         },
         resolveTaskProjectInfo(task: any) {
             return { id: task.projectId, name: task.projectName || task.projectId };
+        },
+        normalizeProjectDisplayId(projectId: any) {
+            const id = typeof projectId === "string" && projectId.trim() ? projectId.trim() : "inbox";
+            return id.toLowerCase().startsWith("inbox") ? "inbox" : id;
+        },
+        getProjectDisplayInfo(projectId: string, fallbackName?: string) {
+            const id = this.normalizeProjectDisplayId(projectId);
+            const project = this.settings.projectCatalog.find((entry: any) => entry.id === id);
+            return {
+                id,
+                name: id === "inbox" ? "收集箱" : project?.name || fallbackName || id,
+                kind: project?.kind,
+                viewMode: project?.viewMode
+            };
+        },
+        getProjectCatalog() {
+            return this.settings.projectCatalog;
         },
         getUserTimeZone() { return "Asia/Shanghai"; },
         async saveSettings() { },
@@ -169,6 +190,11 @@ async function run() {
     assert.match(vaultData.get(record.path) || "", /didaNoteId: 'note-1'/);
     assert.match(vaultData.get(record.path) || "", /\n---\n## Test Note\n\nremote body\n?$/);
     assert.match(vaultData.get(record.path) || "", /remote body/);
+
+    const secondSummary = await manager.syncNow({ silent: true });
+    assert.equal(secondSummary.conflicts, 0, "freshly pulled note should not be detected as a local/cloud conflict");
+    assert.equal(plugin.settings.didaNoteSyncRecords[0].status, "synced");
+    assert.equal(updates.length, 0, "freshly pulled note should not be pushed back without local edits");
 
     const file = app.vault.getAbstractFileByPath(record.path);
     const localChanged = (vaultData.get(record.path) || "").replace("remote body", "local body");
@@ -251,6 +277,65 @@ async function run() {
     assert.match(plugin.settings.didaNoteSyncRecords[0].error || "", /多个本地 Markdown/);
     assert.equal(plugin.settings.didaNoteSyncLastRun.errors.length, 1);
     assert.match(plugin.settings.didaNoteSyncLastRun.summaryText, /失败 1 条/);
+
+    const fallbackEnv = makeApp();
+    const fallbackRuntime = makePlugin(fallbackEnv.app);
+    const fallbackManager = new NoteSyncManager(fallbackEnv.app as any, fallbackRuntime.plugin as any);
+    fallbackRuntime.setRemoteItems([
+        {
+            id: "note-a",
+            title: "Note A",
+            content: "A body",
+            kind: "NOTE",
+            status: 0,
+            etag: "a1",
+            modifiedTime: "a1"
+        },
+        {
+            id: "note-b",
+            title: "Note B",
+            content: "B body",
+            kind: "NOTE",
+            status: 0,
+            etag: "b1",
+            modifiedTime: "b1"
+        }
+    ]);
+    await fallbackManager.syncNow({ silent: true });
+    assert.equal(fallbackRuntime.plugin.settings.didaNoteSyncRecords.length, 2, "all pulled notes should stay visible as records");
+    assert.deepEqual(
+        fallbackRuntime.plugin.settings.didaNoteSyncRecords.map((item: any) => item.projectId),
+        ["p1", "p1"],
+        "single selected note project should be used when the NOTE payload omits projectId"
+    );
+    assert.equal(fallbackRuntime.plugin.settings.tasks.length, 2);
+    assert.deepEqual(
+        fallbackRuntime.plugin.settings.tasks.map((item: any) => [item.kind, item.projectId, item.projectKind, item.projectViewMode]),
+        [["NOTE", "p1", "NOTE", "note"], ["NOTE", "p1", "NOTE", "note"]]
+    );
+
+    const inboxEnv = makeApp();
+    const inboxRuntime = makePlugin(inboxEnv.app);
+    inboxRuntime.plugin.settings.didaNoteSyncProjectIds = ["inbox124125"];
+    inboxRuntime.plugin.settings.remoteInboxProjectId = "inbox124125";
+    inboxRuntime.setRemoteItems([
+        {
+            id: "inbox-note",
+            title: "Inbox Note",
+            content: "Inbox body",
+            kind: "NOTE",
+            status: 0,
+            etag: "i1",
+            modifiedTime: "i1"
+        }
+    ]);
+    const inboxManager = new NoteSyncManager(inboxEnv.app as any, inboxRuntime.plugin as any);
+    await inboxManager.syncNow({ silent: true });
+    assert.deepEqual(inboxRuntime.filters.at(-1), { kind: ["NOTE"], status: [0], projectIds: ["inbox124125"] });
+    assert.equal(inboxRuntime.plugin.settings.didaNoteSyncRecords[0].projectId, "inbox");
+    assert.equal(inboxRuntime.plugin.settings.didaNoteSyncRecords[0].projectName, "收集箱");
+    assert.equal(inboxRuntime.plugin.settings.tasks[0].projectId, "inbox");
+    assert.equal(inboxRuntime.plugin.settings.tasks[0].projectName, "收集箱");
 
     console.log("NoteSyncManager tests passed");
 }

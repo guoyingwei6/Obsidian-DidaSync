@@ -1379,7 +1379,7 @@ export class TaskView extends ItemView {
                 { label: "近 90 天", value: "last90" }
             ]
             : [
-                { label: "全部日期", value: "" },
+                { label: "全部", value: "" },
                 { label: "已逾期", value: "overdue" },
                 { label: "今天", value: "today" },
                 { label: "近 3 天", value: "next3days" },
@@ -2157,11 +2157,12 @@ export class TaskView extends ItemView {
 
         const records = this.plugin.settings.didaNoteSyncRecords || [];
         const recordByDidaId = new Map(records.map((record) => [record.didaId, record]));
-        const cachedNoteTasks = (this.plugin.settings.tasks || []).filter((task) => this.plugin.isNoteListItem(task, true));
-        const cachedNoteIds = new Set(cachedNoteTasks.map((task) => task.didaId || task.id).filter(Boolean));
+        const cachedNoteTasks = (this.plugin.settings.tasks || []).filter((task) => this.plugin.isNoteListItem(task));
+        const displayedCachedNoteIds = new Set<string>();
         const displayRecords = [
             ...cachedNoteTasks.map((task) => {
                 const didaId = task.didaId || task.id || "";
+                if (didaId) displayedCachedNoteIds.add(didaId);
                 const record = didaId ? recordByDidaId.get(didaId) : null;
                 return record || {
                     didaId,
@@ -2179,10 +2180,8 @@ export class TaskView extends ItemView {
                 };
             }),
             ...records.filter((record) => {
-                if (cachedNoteIds.has(record.didaId)) return false;
-                const cachedTask = (this.plugin.settings.tasks || []).find((task) => (task.didaId || task.id) === record.didaId);
-                if (cachedTask) return false;
-                return !record.projectId || this.plugin.isDidaNoteSyncProjectId(record.projectId);
+                if (displayedCachedNoteIds.has(record.didaId)) return false;
+                return true;
             })
         ];
         const lastRun = this.plugin.settings.didaNoteSyncLastRun;
@@ -2236,15 +2235,16 @@ export class TaskView extends ItemView {
             return;
         }
 
-        const projectCatalog = this.plugin.getProjectCatalog ? this.plugin.getProjectCatalog() : [];
         const groups = new Map<string, { projectId: string; projectName: string; records: typeof displayRecords }>();
         displayRecords
             .slice()
             .sort((a, b) => new Date(b.lastSyncedAt || 0).getTime() - new Date(a.lastSyncedAt || 0).getTime())
             .forEach((record) => {
-                const projectId = record.projectId || "unknown";
-                const catalogProject = projectCatalog.find((project: any) => project.id === projectId);
-                const projectName = record.projectName || catalogProject?.name || (projectId === "unknown" ? "未知清单" : projectId);
+                const display = this.plugin.getProjectDisplayInfo
+                    ? this.plugin.getProjectDisplayInfo(record.projectId || "", record.projectName)
+                    : { id: record.projectId || "unknown", name: record.projectName || record.projectId || "未知清单" };
+                const projectId = display.id || "unknown";
+                const projectName = display.name || (projectId === "unknown" ? "未知清单" : projectId);
                 if (!groups.has(projectId)) groups.set(projectId, { projectId, projectName, records: [] });
                 groups.get(projectId)!.records.push(record);
             });

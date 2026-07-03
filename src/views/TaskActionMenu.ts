@@ -508,7 +508,7 @@ export class TaskActionMenu {
         this.selectedIndex = 0;
         this.menuItems = [];
 
-        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "鍒版湡/鏃堕棿娈?";
+        this.menuElement.createEl("div", { cls: "task-action-menu-title" }).textContent = "到期/时间段";
         this.renderBackButton();
 
         const body = this.menuElement.createDiv("dida-task-action-schedule-body");
@@ -521,7 +521,7 @@ export class TaskActionMenu {
         });
         picker.render(body);
         picker.renderActions(body, {
-            primaryLabel: "纭",
+            primaryLabel: "确认",
             onCancel: () => {
                 this.renderMainMenu();
                 return false;
@@ -630,13 +630,14 @@ export class TaskActionMenu {
         const searchInput = searchContainer.createEl("input", {
             type: "text",
             cls: "dida-search-input",
-            attr: { placeholder: "搜索任务或输入新任务标题（Enter确认）..." }
+            attr: { placeholder: "搜索任务..." }
         });
         searchInput.focus();
 
         const resultsContainer = this.menuElement.createEl("div", { cls: "dida-suggestions-container" });
 
         const tasks = (this.plugin.settings.tasks || []).filter(t => {
+            if (this.plugin.isTaskListItem && !this.plugin.isTaskListItem(t)) return false;
             if (t.parentId) return false;
             const isCompleted = t.completed === true || t.completed === 2 || t.status === 2;
             const isArchived = t.projectClosed === true;

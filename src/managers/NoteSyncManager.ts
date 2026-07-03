@@ -80,14 +80,32 @@ export class NoteSyncManager {
         if (projectIds.length === 0) {
             return [];
         }
-        const remote = await this.plugin.apiClient.filterTasks({
-            kind: ["NOTE"],
-            status: [0],
-            projectIds
-        });
-        return Array.isArray(remote)
-            ? remote.map((task) => this.plugin.normalizeRemoteTask(task)).filter((task) => task.kind === "NOTE")
-            : [];
+        const seen = new Set<string>();
+        const notes: DidaTask[] = [];
+        for (const projectId of projectIds) {
+            const remote = await this.plugin.apiClient.filterTasks({
+                kind: ["NOTE"],
+                status: [0],
+                projectIds: [projectId]
+            });
+            if (!Array.isArray(remote)) continue;
+            const sourceProject = this.getProjectDisplayForSync(projectId);
+            remote.forEach((task) => {
+                const normalized = this.plugin.normalizeRemoteTask({
+                    ...task,
+                    projectId: task.projectId || sourceProject.id,
+                    projectName: task.projectName || sourceProject.name,
+                    projectKind: task.projectKind || sourceProject.kind,
+                    projectViewMode: task.projectViewMode || sourceProject.viewMode
+                }, sourceProject);
+                if (normalized.kind !== "NOTE") return;
+                const didaId = normalized.didaId || normalized.id;
+                if (didaId && seen.has(didaId)) return;
+                if (didaId) seen.add(didaId);
+                notes.push(normalized);
+            });
+        }
+        return notes;
     }
 
     async deleteLocalRecord(didaId: string): Promise<boolean> {
@@ -122,7 +140,7 @@ export class NoteSyncManager {
         }
 
         const body = this.buildLocalMarkdownBody(remote, this.getNoteBody(remote));
-        const hash = this.hash(body);
+        const hash = this.hashMarkdownBody(body);
         const path = record.path || await this.buildUniqueNotePath(remote, didaId);
         const file = await this.ensureNoteFile(path, remote);
         await this.writeSyncedFile(file, remote, body, hash, "synced");
@@ -160,7 +178,7 @@ export class NoteSyncManager {
             updatedAt: record.remoteModifiedTime || undefined
         };
         await this.pushLocalToRemote(note, body);
-        const hash = this.hash(body);
+        const hash = this.hashMarkdownBody(body);
         await this.writeSyncedFile(file, note, body, hash, "synced");
         this.upsertRecord(note, file.path, hash, "synced");
         await this.persistManualActionSummary({
@@ -274,7 +292,7 @@ export class NoteSyncManager {
         if (!didaId) return "skipped";
 
         const body = this.buildLocalMarkdownBody(note, this.getNoteBody(note));
-        const remoteHash = this.hash(body);
+        const remoteHash = this.hashMarkdownBody(body);
         const record = await this.ensureRecord(didaId, note);
         if (record && this.isDuplicateLocalFileError(record.error)) {
             throw new Error(record.error || DUPLICATE_LOCAL_FILE_ERROR);
@@ -290,7 +308,7 @@ export class NoteSyncManager {
         }
 
         const current = await this.readParsedFile(file);
-        const localHash = this.hash(current.body);
+        const localHash = this.hashMarkdownBody(current.body);
         const remoteChanged = this.remoteChanged(record, note, remoteHash);
         const localChanged = localHash !== record.lastSyncedContentHash;
 
@@ -302,7 +320,7 @@ export class NoteSyncManager {
 
         if (localChanged) {
             await this.pushLocalToRemote(note, current.body);
-            const pushedHash = this.hash(current.body);
+            const pushedHash = this.hashMarkdownBody(current.body);
             await this.writeSyncedFile(file, note, current.body, pushedHash, "synced");
             this.upsertRecord(note, file.path, pushedHash, "synced");
             return "pushed";
@@ -318,8 +336,7 @@ export class NoteSyncManager {
             note,
             file.path,
             record.lastSyncedContentHash,
-            record.status === "conflict" ? "conflict" : "synced",
-            record.status === "conflict" ? record.error : undefined
+            "synced"
         );
         return "skipped";
     }
@@ -332,7 +349,7 @@ export class NoteSyncManager {
         if (record && this.isDuplicateLocalFileError(record.error)) return;
 
         const path = record?.path || await this.buildUniqueNotePath(note, didaId);
-        const hash = record?.lastSyncedContentHash || this.hash(this.buildLocalMarkdownBody(note, this.getNoteBody(note)));
+        const hash = record?.lastSyncedContentHash || this.hashMarkdownBody(this.buildLocalMarkdownBody(note, this.getNoteBody(note)));
         this.upsertRecord(note, path, hash, "error", message);
     }
 
@@ -344,6 +361,10 @@ export class NoteSyncManager {
         const title = (note.title || "Untitled").trim() || "Untitled";
         const normalizedBody = String(body || "").replace(/\r\n/g, "\n").replace(/^\n+/, "").trimEnd();
         return normalizedBody ? `## ${title}\n\n${normalizedBody}` : `## ${title}`;
+    }
+
+    private hashMarkdownBody(body: string) {
+        return this.hash(String(body || "").replace(/\r\n/g, "\n").trimEnd());
     }
 
     private extractLocalNoteContent(markdownBody: string, fallbackTitle: string = "Untitled"): { title: string; content: string } {
@@ -431,7 +452,7 @@ export class NoteSyncManager {
             this.upsertRecord(
                 duplicateNote,
                 primary.file.path,
-                this.hash(primary.parsed.body),
+                this.hashMarkdownBody(primary.parsed.body),
                 "error",
                 DUPLICATE_LOCAL_FILE_ERROR
             );
@@ -457,7 +478,7 @@ export class NoteSyncManager {
             projectName: projectInfo?.name || note?.projectName || note?.projectId,
             etag: this.normalizeOptionalString(frontmatter.didaEtag ?? frontmatter.didaRemoteEtag),
             remoteModifiedTime: this.normalizeOptionalString(frontmatter.didaModifiedTime ?? frontmatter.didaRemoteModifiedTime),
-            lastSyncedContentHash: this.normalizeOptionalString(frontmatter.didaLastSyncedContentHash) || this.hash(parsed.body),
+            lastSyncedContentHash: this.normalizeOptionalString(frontmatter.didaLastSyncedContentHash) || this.hashMarkdownBody(parsed.body),
             lastSyncedAt: this.normalizeOptionalString(frontmatter.didaLastSyncedAt) || new Date().toISOString(),
             status: this.normalizeRecordStatus(frontmatter.didaNoteSyncStatus),
             remoteMissing: false,
@@ -552,7 +573,7 @@ export class NoteSyncManager {
         if (existing instanceof TFile) return existing;
         if (existing) throw new Error(`笔记路径已被目录占用：${normalized}`);
         const body = this.getNoteBody(note);
-        return await this.app.vault.create(normalized, this.renderFile(note, body, this.hash(body), "synced"));
+        return await this.app.vault.create(normalized, this.renderFile(note, body, this.hashMarkdownBody(body), "synced"));
     }
 
     private async buildUniqueNotePath(note: DidaTask, didaId: string): Promise<string> {
@@ -714,22 +735,23 @@ export class NoteSyncManager {
     private upsertRecord(note: DidaTask, path: string, hash: string, status: "synced" | "conflict" | "error", error?: string) {
         const didaId = note.didaId || note.id;
         if (!didaId) return;
-        this.upsertCachedNoteTask(note, didaId);
+        const noteWithProject = this.withSelectedNoteProjectFallback(note);
+        this.upsertCachedNoteTask(noteWithProject, didaId);
 
         const records = Array.isArray(this.plugin.settings.didaNoteSyncRecords)
             ? this.plugin.settings.didaNoteSyncRecords
             : [];
         const projectInfo = this.plugin.resolveTaskProjectInfo
-            ? this.plugin.resolveTaskProjectInfo(note)
-            : { id: note.projectId, name: note.projectName || note.projectId };
+            ? this.plugin.resolveTaskProjectInfo(noteWithProject)
+            : { id: noteWithProject.projectId, name: noteWithProject.projectName || noteWithProject.projectId };
         const next: DidaNoteSyncRecord = {
             didaId,
-            title: note.title || "Untitled",
+            title: noteWithProject.title || "Untitled",
             path,
-            projectId: projectInfo.id || note.projectId,
-            projectName: projectInfo.name || note.projectName || note.projectId,
-            etag: note.etag || null,
-            remoteModifiedTime: (note as any).updatedAt || null,
+            projectId: projectInfo.id || noteWithProject.projectId,
+            projectName: projectInfo.name || noteWithProject.projectName || noteWithProject.projectId,
+            etag: noteWithProject.etag || null,
+            remoteModifiedTime: (noteWithProject as any).updatedAt || null,
             lastSyncedContentHash: hash,
             lastSyncedAt: new Date().toISOString(),
             status,
@@ -742,11 +764,56 @@ export class NoteSyncManager {
         this.plugin.settings.didaNoteSyncRecords = records;
     }
 
+    private getSingleSelectedNoteProjectFallback() {
+        const ids = (this.plugin.settings.didaNoteSyncProjectIds || []).filter(Boolean);
+        if (ids.length !== 1) return null;
+        return this.getProjectDisplayForSync(ids[0]);
+    }
+
+    private getProjectDisplayForSync(projectId: string) {
+        if (typeof this.plugin.getProjectDisplayInfo === "function") {
+            const display = this.plugin.getProjectDisplayInfo(projectId);
+            return {
+                id: display.id || projectId,
+                name: display.name || projectId,
+                kind: display.kind || "NOTE",
+                viewMode: display.viewMode || "note"
+            };
+        }
+        const id = typeof this.plugin.normalizeProjectDisplayId === "function"
+            ? this.plugin.normalizeProjectDisplayId(projectId)
+            : projectId;
+        const catalog = typeof this.plugin.getProjectCatalog === "function"
+            ? this.plugin.getProjectCatalog()
+            : [];
+        const project = Array.isArray(catalog) ? catalog.find((entry: any) => entry?.id === id) : null;
+        return {
+            id,
+            name: id === "inbox" ? "收集箱" : project?.name || id,
+            kind: project?.kind || "NOTE",
+            viewMode: project?.viewMode || "note"
+        };
+    }
+
+    private withSelectedNoteProjectFallback(note: DidaTask): DidaTask {
+        if (note.projectId) return note;
+        const fallback = this.getSingleSelectedNoteProjectFallback();
+        if (!fallback) return note;
+        return {
+            ...note,
+            projectId: fallback.id,
+            projectName: note.projectName || fallback.name,
+            projectKind: note.projectKind || fallback.kind,
+            projectViewMode: note.projectViewMode || fallback.viewMode
+        };
+    }
+
     private upsertCachedNoteTask(note: DidaTask, didaId: string) {
         if (!Array.isArray(this.plugin.settings.tasks)) this.plugin.settings.tasks = [];
+        const noteWithProject = this.withSelectedNoteProjectFallback(note);
         const normalized = this.plugin.normalizeRemoteTask
-            ? this.plugin.normalizeRemoteTask({ ...note, id: didaId, kind: "NOTE" })
-            : { ...note, id: didaId, didaId, kind: "NOTE" };
+            ? this.plugin.normalizeRemoteTask({ ...noteWithProject, id: didaId, kind: "NOTE" })
+            : { ...noteWithProject, id: didaId, didaId, kind: "NOTE" };
         const index = this.plugin.settings.tasks.findIndex((task: DidaTask) => task.didaId === didaId || task.id === didaId);
         if (index === -1) {
             this.plugin.settings.tasks.push(normalized);

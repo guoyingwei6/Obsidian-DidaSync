@@ -501,10 +501,28 @@ export default class DidaSyncPlugin extends Plugin {
         return kind === "NOTE" || viewMode === "note";
     }
 
+    normalizeProjectDisplayId(projectId: unknown) {
+        const id = typeof projectId === "string" ? projectId.trim() : "";
+        if (!id) return "inbox";
+        return id.toLowerCase().startsWith("inbox") ? "inbox" : id;
+    }
+
+    areSameDidaProject(projectIdA: unknown, projectIdB: unknown) {
+        const a = this.normalizeProjectDisplayId(projectIdA);
+        const b = this.normalizeProjectDisplayId(projectIdB);
+        return a === b;
+    }
+
+    isSelectedDidaNoteSyncProjectId(projectId: unknown) {
+        const id = typeof projectId === "string" ? projectId.trim() : "";
+        if (!id) return false;
+        return (this.settings.didaNoteSyncProjectIds || []).some((selectedId) => this.areSameDidaProject(selectedId, id));
+    }
+
     isDidaNoteSyncProjectId(projectId: unknown) {
         const id = typeof projectId === "string" ? projectId.trim() : "";
         if (!id) return false;
-        if ((this.settings.didaNoteSyncProjectIds || []).includes(id)) return true;
+        if (this.isSelectedDidaNoteSyncProjectId(id)) return true;
         const cachedProject = Array.isArray(this.settings.projects)
             ? this.settings.projects.find((project) => project?.id === id)
             : null;
@@ -1231,13 +1249,13 @@ export default class DidaSyncPlugin extends Plugin {
     }
 
     getProjectDisplayInfo(projectId: string, fallbackName?: string) {
-        const normalizedId = typeof projectId === "string" && projectId.trim() ? projectId.trim() : "inbox";
+        const normalizedId = this.normalizeProjectDisplayId(projectId);
         const project = this.getProjectCatalog().find((entry) => entry?.id === normalizedId) || this.findProjectById(normalizedId);
-        const cached = (this.settings.projects || []).find((item) => item.id === normalizedId);
+        const cached = (this.settings.projects || []).find((item) => this.areSameDidaProject(item.id, normalizedId));
         const name = project?.name || cached?.name || fallbackName || (normalizedId === "inbox" ? "收集箱" : normalizedId);
         return {
             id: normalizedId,
-            name,
+            name: normalizedId === "inbox" ? "收集箱" : name,
             color: cached?.color,
             closed: cached?.closed,
             viewMode: cached?.viewMode,

@@ -85,6 +85,14 @@ async function run() {
     assert.equal(plugin.getProjectDeleteState({ id: "inbox", name: "收集箱", isArchived: false, isLocalOnly: false }).disabled, true);
     assert.equal(plugin.getProjectDeleteState({ id: "p1", name: "项目甲", isArchived: false, isLocalOnly: false }).disabled, true);
     assert.equal(plugin.getProjectDeleteState({ id: "empty", name: "空项目", isArchived: false, isLocalOnly: true }).disabled, false);
+    plugin.settings.didaNoteSyncProjectIds = ["inbox124125"];
+    assert.equal(plugin.normalizeProjectDisplayId("inbox124125"), "inbox");
+    assert.equal(plugin.areSameDidaProject("inbox124125", "inbox"), true);
+    assert.equal(plugin.isSelectedDidaNoteSyncProjectId("inbox"), true);
+    assert.deepEqual(
+        plugin.getProjectDisplayInfo("inbox124125"),
+        { id: "inbox", name: "收集箱", color: undefined, closed: undefined, viewMode: undefined, kind: undefined, permission: undefined, isLocalOnly: false }
+    );
 
     plugin.sanitizeHiddenProjectKeys();
     assert.equal(plugin.settings.hiddenProjectKeys.includes("id:inbox"), false);
