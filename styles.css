@@ -4630,10 +4630,42 @@ label+.dida-project-select {
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
-    z-index: 1 !important;
+    z-index: 1000 !important;
     animation: fadeInScale 0.15s ease-out;
     backdrop-filter: blur(8px);
     margin: 5px;
+}
+
+.task-action-menu-inline.task-action-menu-with-search {
+    width: min(420px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+}
+
+.task-action-menu-inline.task-action-menu-with-search .dida-search-container {
+    display: block;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    margin: 10px 12px;
+    flex: none;
+}
+
+.task-action-menu-inline.task-action-menu-with-search .dida-search-input {
+    width: 100%;
+    height: 32px !important;
+    padding: 0 10px;
+    font-size: 13px !important;
+}
+
+.task-action-menu-inline.task-action-menu-with-search .dida-suggestions-container {
+    max-height: min(320px, calc(100vh - 220px));
+    overflow-y: auto;
+    padding: 0 6px 8px;
+    overscroll-behavior: contain;
+}
+
+.task-action-menu-inline.task-action-menu-with-search .dida-suggestion-item {
+    padding: 7px 10px;
 }
 
 .task-action-menu-title {
@@ -4693,8 +4725,18 @@ label+.dida-project-select {
 
 /* 任务操作菜单 · 到期日期简易日历 */
 .task-action-menu-inline.task-action-menu-with-calendar {
-    min-width: 252px;
-    max-width: 280px;
+    width: min(360px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+}
+
+.dida-task-action-schedule-body {
+    padding: 8px 12px 12px;
+}
+
+.task-action-menu-inline.task-action-menu-with-calendar .dida-task-schedule-actions {
+    justify-content: flex-end;
 }
 
 .task-action-cal-today-hint {
