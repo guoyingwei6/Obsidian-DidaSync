@@ -78,8 +78,11 @@ export class TaskView extends ItemView {
         this.calendarCompletedLoading = false;
         this.calendarCompletedMonthKey = "";
         this.calendarCompletedError = "";
+        const defaultCompletedTasksQuery = typeof (this.plugin as any).buildDefaultCompletedTaskQuery === "function"
+            ? this.plugin.buildDefaultCompletedTaskQuery()
+            : DEFAULT_SETTINGS.completedTasksQuery;
         this.completedTasksQuery = {
-            ...this.plugin.buildDefaultCompletedTaskQuery(),
+            ...defaultCompletedTasksQuery,
             ...(this.plugin.settings.completedTasksQuery || {})
         };
         this.completedTasksLoading = false;
@@ -103,6 +106,10 @@ export class TaskView extends ItemView {
             task,
             typeof task.originalIndex === "number" ? task.originalIndex : undefined
         );
+    }
+
+    private isTaskListItem(task: DidaTask): boolean {
+        return !(this.plugin as any).isTaskListItem || (this.plugin as any).isTaskListItem(task);
     }
 
     private getTaskChildTasks(task: DidaTask): DidaTask[] {
@@ -1900,7 +1907,7 @@ export class TaskView extends ItemView {
 
             const tasks = (this.plugin.settings.tasks || [])
                 .map((task, index) => task ? { ...task, originalIndex: index } : task)
-                .filter((task) => task && this.plugin.isTaskListItem(task) && task.status !== 2);
+                .filter((task) => task && this.isTaskListItem(task) && task.status !== 2);
             if (tasks.length === 0 && this.plugin.getProjectCatalog().length === 0) {
                 taskListContainer.createEl("p", {
                     text: "暂无任务，请先添加一些任务",
@@ -1941,7 +1948,7 @@ export class TaskView extends ItemView {
 
                 const matchedTasks: DidaTask[] = [];
                 const canIncludeTaskInFilteredTree = (task: DidaTask) => {
-                    if (!this.plugin.isTaskListItem(task)) return false;
+                    if (!this.isTaskListItem(task)) return false;
                     const projectInfo = this.plugin.resolveTaskProjectInfo(task);
                     if (!this.plugin.settings.showArchivedProjects && projectInfo.isArchived) return false;
                     if (!this.plugin.isProjectVisible(projectInfo.id, projectInfo.name)) return false;
@@ -2685,7 +2692,7 @@ export class TaskView extends ItemView {
     getTasksForTimeBlockDate(date: Date): any[] {
         const tasks = this.plugin.settings.tasks || [];
         const startHour = this.plugin.settings.timeBlockStartHour || 0;
-        return tasks.filter(task => this.plugin.isTaskListItem(task) && taskBelongsToTimeGridDate(task, date, startHour));
+        return tasks.filter(task => this.isTaskListItem(task) && taskBelongsToTimeGridDate(task, date, startHour));
     }
 
     getCalendarTasksForRange(range = getCalendarMonthRange(this.calendarDisplayDate)) {
@@ -2693,7 +2700,7 @@ export class TaskView extends ItemView {
             .map((task, index) => task ? { ...task, originalIndex: index } : task)
             .filter((task) => {
                 if (!task) return false;
-                if (!this.plugin.isTaskListItem(task)) return false;
+                if (!this.isTaskListItem(task)) return false;
                 if (!this.showCompletedInCalendar && task.status === 2) return false;
                 const projectInfo = this.plugin.resolveTaskProjectInfo(task);
                 if (!this.plugin.settings.showArchivedProjects && projectInfo.isArchived) return false;
