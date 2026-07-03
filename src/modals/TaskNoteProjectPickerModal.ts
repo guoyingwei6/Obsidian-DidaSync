@@ -8,6 +8,7 @@ export interface TaskNoteProjectPickerOptions {
     emptyText?: string;
     requireSelection?: boolean;
     getProjectKey?: (project: ProjectCatalogEntry) => string;
+    getProjects?: () => ProjectCatalogEntry[];
     saveSelection?: (keys: string[]) => Promise<void> | void;
 }
 
@@ -15,8 +16,9 @@ export class TaskNoteProjectPickerModal extends Modal {
     plugin: DidaSyncPlugin;
     selectedProjectKeys: string[];
     onSelectionChange: (keys: string[]) => void;
-    options: Required<Omit<TaskNoteProjectPickerOptions, "saveSelection" | "getProjectKey">> & {
+    options: Required<Omit<TaskNoteProjectPickerOptions, "saveSelection" | "getProjectKey" | "getProjects">> & {
         getProjectKey: (project: ProjectCatalogEntry) => string;
+        getProjects?: () => ProjectCatalogEntry[];
         saveSelection?: (keys: string[]) => Promise<void> | void;
     };
 
@@ -37,6 +39,7 @@ export class TaskNoteProjectPickerModal extends Modal {
             emptyText: options.emptyText || "暂无可选清单，请先同步任务。",
             requireSelection: options.requireSelection !== false,
             getProjectKey: options.getProjectKey || ((project) => this.plugin.getProjectFilterKey(project.id, project.name)),
+            getProjects: options.getProjects,
             saveSelection: options.saveSelection
         };
     }
@@ -88,7 +91,8 @@ export class TaskNoteProjectPickerModal extends Modal {
     }
 
     getProjectOptions(): ProjectCatalogEntry[] {
-        return this.plugin.getAvailableProjectConfigs()
+        const projects = this.options.getProjects ? this.options.getProjects() : this.plugin.getAvailableProjectConfigs();
+        return projects
             .filter((project) => this.plugin.settings.showArchivedProjects || !project.isArchived);
     }
 

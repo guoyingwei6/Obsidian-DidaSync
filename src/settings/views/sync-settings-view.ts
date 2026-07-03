@@ -138,6 +138,7 @@ export class SyncSettingsView extends AbstractSettingsView {
                             title: "选择滴答笔记同步清单",
                             selectionLabel: "笔记同步清单",
                             getProjectKey: (project) => project.id || "",
+                            getProjects: () => this.plugin.getNoteSyncProjectConfigs(),
                             saveSelection: async (keys) => {
                                 this.plugin.settings.didaNoteSyncProjectIds = keys.filter(Boolean);
                                 await this.plugin.saveSettings();

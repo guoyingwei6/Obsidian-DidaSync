@@ -123,6 +123,8 @@ export interface ProjectCatalogEntry {
     name: string;
     isArchived: boolean;
     isLocalOnly: boolean;
+    kind?: string;
+    viewMode?: string;
 }
 
 export interface PomodoroSettings {

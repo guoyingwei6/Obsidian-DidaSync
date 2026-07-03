@@ -714,6 +714,7 @@ export class NoteSyncManager {
     private upsertRecord(note: DidaTask, path: string, hash: string, status: "synced" | "conflict" | "error", error?: string) {
         const didaId = note.didaId || note.id;
         if (!didaId) return;
+        this.upsertCachedNoteTask(note, didaId);
 
         const records = Array.isArray(this.plugin.settings.didaNoteSyncRecords)
             ? this.plugin.settings.didaNoteSyncRecords
@@ -739,6 +740,25 @@ export class NoteSyncManager {
         if (index === -1) records.push(next);
         else records[index] = next;
         this.plugin.settings.didaNoteSyncRecords = records;
+    }
+
+    private upsertCachedNoteTask(note: DidaTask, didaId: string) {
+        if (!Array.isArray(this.plugin.settings.tasks)) this.plugin.settings.tasks = [];
+        const normalized = this.plugin.normalizeRemoteTask
+            ? this.plugin.normalizeRemoteTask({ ...note, id: didaId, kind: "NOTE" })
+            : { ...note, id: didaId, didaId, kind: "NOTE" };
+        const index = this.plugin.settings.tasks.findIndex((task: DidaTask) => task.didaId === didaId || task.id === didaId);
+        if (index === -1) {
+            this.plugin.settings.tasks.push(normalized);
+            return;
+        }
+        this.plugin.settings.tasks[index] = {
+            ...this.plugin.settings.tasks[index],
+            ...normalized,
+            id: this.plugin.settings.tasks[index].id || normalized.id,
+            didaId,
+            kind: "NOTE"
+        };
     }
 
     private countRecordsByStatus(status: DidaNoteSyncStatus): number {

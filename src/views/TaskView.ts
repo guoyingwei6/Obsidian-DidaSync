@@ -1900,7 +1900,7 @@ export class TaskView extends ItemView {
 
             const tasks = (this.plugin.settings.tasks || [])
                 .map((task, index) => task ? { ...task, originalIndex: index } : task)
-                .filter((task) => task && task.status !== 2);
+                .filter((task) => task && this.plugin.isTaskListItem(task) && task.status !== 2);
             if (tasks.length === 0 && this.plugin.getProjectCatalog().length === 0) {
                 taskListContainer.createEl("p", {
                     text: "暂无任务，请先添加一些任务",
@@ -1941,6 +1941,7 @@ export class TaskView extends ItemView {
 
                 const matchedTasks: DidaTask[] = [];
                 const canIncludeTaskInFilteredTree = (task: DidaTask) => {
+                    if (!this.plugin.isTaskListItem(task)) return false;
                     const projectInfo = this.plugin.resolveTaskProjectInfo(task);
                     if (!this.plugin.settings.showArchivedProjects && projectInfo.isArchived) return false;
                     if (!this.plugin.isProjectVisible(projectInfo.id, projectInfo.name)) return false;
@@ -2155,15 +2156,44 @@ export class TaskView extends ItemView {
         taskListContainer.addClass("dida-note-list-view");
 
         const records = this.plugin.settings.didaNoteSyncRecords || [];
+        const recordByDidaId = new Map(records.map((record) => [record.didaId, record]));
+        const cachedNoteTasks = (this.plugin.settings.tasks || []).filter((task) => this.plugin.isNoteListItem(task, true));
+        const cachedNoteIds = new Set(cachedNoteTasks.map((task) => task.didaId || task.id).filter(Boolean));
+        const displayRecords = [
+            ...cachedNoteTasks.map((task) => {
+                const didaId = task.didaId || task.id || "";
+                const record = didaId ? recordByDidaId.get(didaId) : null;
+                return record || {
+                    didaId,
+                    title: task.title || "Untitled",
+                    path: "",
+                    projectId: task.projectId,
+                    projectName: task.projectName,
+                    etag: task.etag || null,
+                    remoteModifiedTime: task.updatedAt || null,
+                    lastSyncedContentHash: "",
+                    lastSyncedAt: task.updatedAt || new Date().toISOString(),
+                    status: "missing" as const,
+                    remoteMissing: false,
+                    error: "尚未同步为 Markdown"
+                };
+            }),
+            ...records.filter((record) => {
+                if (cachedNoteIds.has(record.didaId)) return false;
+                const cachedTask = (this.plugin.settings.tasks || []).find((task) => (task.didaId || task.id) === record.didaId);
+                if (cachedTask) return false;
+                return !record.projectId || this.plugin.isDidaNoteSyncProjectId(record.projectId);
+            })
+        ];
         const lastRun = this.plugin.settings.didaNoteSyncLastRun;
-        const conflicts = records.filter((record) => record.status === "conflict").length;
-        const errors = records.filter((record) => record.status === "error").length;
-        const missing = records.filter((record) => record.status === "missing" || record.remoteMissing).length;
+        const conflicts = displayRecords.filter((record) => record.status === "conflict").length;
+        const errors = displayRecords.filter((record) => record.status === "error").length;
+        const missing = displayRecords.filter((record) => record.status === "missing" || record.remoteMissing).length;
         const issueCount = conflicts + errors + missing;
         const renderFooter = () => {
             const footer = taskListContainer.createDiv("dida-note-sync-footer");
             const summary = footer.createDiv("dida-note-sync-footer-summary");
-            summary.createEl("span", { text: `已同步笔记 ${records.length}` });
+            summary.createEl("span", { text: `已同步笔记 ${displayRecords.length}` });
             if (lastRun) {
                 const updatedCount = this.getNoteSyncRunUpdatedCount(lastRun);
                 const currentIssueCount = this.getNoteSyncRunIssueCount(lastRun);
@@ -2186,7 +2216,7 @@ export class TaskView extends ItemView {
         }
 
         if ((this.plugin.settings.didaNoteSyncProjectIds || []).length === 0) {
-            const emptyText = records.length === 0
+            const emptyText = displayRecords.length === 0
                 ? "尚未选择笔记同步清单，请先在设置中选择清单。"
                 : "尚未选择笔记同步清单，下方仅显示已有本地同步记录。";
             taskListContainer.createEl("p", {
@@ -2194,10 +2224,10 @@ export class TaskView extends ItemView {
                 cls: "dida-empty-state"
             });
             renderFooter();
-            if (records.length === 0) return;
+            if (displayRecords.length === 0) return;
         }
 
-        if (records.length === 0) {
+        if (displayRecords.length === 0) {
             taskListContainer.createEl("p", {
                 text: "暂无已同步笔记，点击顶部同步按钮拉取。",
                 cls: "dida-empty-state"
@@ -2207,8 +2237,8 @@ export class TaskView extends ItemView {
         }
 
         const projectCatalog = this.plugin.getProjectCatalog ? this.plugin.getProjectCatalog() : [];
-        const groups = new Map<string, { projectId: string; projectName: string; records: typeof records }>();
-        records
+        const groups = new Map<string, { projectId: string; projectName: string; records: typeof displayRecords }>();
+        displayRecords
             .slice()
             .sort((a, b) => new Date(b.lastSyncedAt || 0).getTime() - new Date(a.lastSyncedAt || 0).getTime())
             .forEach((record) => {
@@ -2240,7 +2270,7 @@ export class TaskView extends ItemView {
             };
 
             group.records.forEach((record) => {
-                const file = this.plugin.app.vault.getAbstractFileByPath(record.path);
+                const file = record.path ? this.plugin.app.vault.getAbstractFileByPath(record.path) : null;
                 const fileMissing = !file;
                 const status = fileMissing ? "missing" : record.status;
                 const item = list.createDiv("dida-task-item dida-note-sync-record");
@@ -2275,7 +2305,7 @@ export class TaskView extends ItemView {
                 setIconElement(syncStatusSpan, status === "synced" ? "cloud-check" : "cloud-alert");
 
                 item.onclick = async () => {
-                    const currentFile = this.plugin.app.vault.getAbstractFileByPath(record.path);
+                    const currentFile = record.path ? this.plugin.app.vault.getAbstractFileByPath(record.path) : null;
                     if (currentFile) {
                         await this.plugin.app.workspace.getLeaf(false).openFile(currentFile as any);
                     } else {
@@ -2293,7 +2323,7 @@ export class TaskView extends ItemView {
     }
 
     openNoteContextMenu(record: DidaNoteSyncRecord, event: MouseEvent) {
-        const file = this.plugin.app.vault.getAbstractFileByPath(record.path);
+        const file = record.path ? this.plugin.app.vault.getAbstractFileByPath(record.path) : null;
         const hasDuplicateLocalFiles = this.isDuplicateLocalFileRecord(record);
         const menu = new Menu();
         menu.setUseNativeMenu(false);
@@ -2302,7 +2332,7 @@ export class TaskView extends ItemView {
                 .setIcon("file-text")
                 .setDisabled(!file)
                 .onClick(async () => {
-                    const currentFile = this.plugin.app.vault.getAbstractFileByPath(record.path);
+                    const currentFile = record.path ? this.plugin.app.vault.getAbstractFileByPath(record.path) : null;
                     if (!currentFile) {
                         new Notice("文件不存在");
                         return;
@@ -2655,7 +2685,7 @@ export class TaskView extends ItemView {
     getTasksForTimeBlockDate(date: Date): any[] {
         const tasks = this.plugin.settings.tasks || [];
         const startHour = this.plugin.settings.timeBlockStartHour || 0;
-        return tasks.filter(task => taskBelongsToTimeGridDate(task, date, startHour));
+        return tasks.filter(task => this.plugin.isTaskListItem(task) && taskBelongsToTimeGridDate(task, date, startHour));
     }
 
     getCalendarTasksForRange(range = getCalendarMonthRange(this.calendarDisplayDate)) {
@@ -2663,6 +2693,7 @@ export class TaskView extends ItemView {
             .map((task, index) => task ? { ...task, originalIndex: index } : task)
             .filter((task) => {
                 if (!task) return false;
+                if (!this.plugin.isTaskListItem(task)) return false;
                 if (!this.showCompletedInCalendar && task.status === 2) return false;
                 const projectInfo = this.plugin.resolveTaskProjectInfo(task);
                 if (!this.plugin.settings.showArchivedProjects && projectInfo.isArchived) return false;

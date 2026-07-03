@@ -238,21 +238,10 @@ export default class DidaSyncPlugin extends Plugin {
         delete legacySettings.taskNoteSyncFileNamePattern;
         if (!this.settings.tasks) this.settings.tasks = [];
         if (!Array.isArray(this.settings.didaNoteSyncProjectIds)) this.settings.didaNoteSyncProjectIds = [];
-        const migratedNoteTaskLocalIds = new Set<string>();
-        const migratedNoteTaskDidaIds = new Set<string>();
-        this.settings.tasks.forEach((task) => {
-            if (!this.isNoteSyncTaskLike(task)) return;
-            if (task.id) migratedNoteTaskLocalIds.add(task.id);
-            if (task.didaId) migratedNoteTaskDidaIds.add(task.didaId);
-        });
-        this.settings.tasks = this.settings.tasks.filter((task) => !this.isNoteSyncTaskLike(task));
         if (!Array.isArray(this.settings.completedTasks)) this.settings.completedTasks = [];
         if (!Array.isArray(this.settings.pendingSyncOperations)) this.settings.pendingSyncOperations = [];
         this.settings.pendingSyncOperations = this.settings.pendingSyncOperations.filter((operation) => {
             if (!operation) return false;
-            if (migratedNoteTaskLocalIds.has(operation.localTaskId)) return false;
-            if (operation.didaId && migratedNoteTaskDidaIds.has(operation.didaId)) return false;
-            if (operation.projectId && this.isDidaNoteSyncProjectId(operation.projectId)) return false;
             return true;
         });
         this.settings.completedTaskCacheSegments = normalizeCompletedTaskCacheSegments(this.settings.completedTaskCacheSegments);
@@ -477,19 +466,16 @@ export default class DidaSyncPlugin extends Plugin {
 
     normalizeProjectCatalogEntry(entry: any): ProjectCatalogEntry | null {
         if (!entry || typeof entry !== "object") return null;
-        if (this.isNoteProjectLike(entry)) return null;
         const name = typeof entry.name === "string" ? entry.name.trim() : "";
         if (!name) return null;
         const id = typeof entry.id === "string" ? entry.id.trim() : "";
-        const cachedProject = id && Array.isArray(this.settings.projects)
-            ? this.settings.projects.find((project) => project?.id === id)
-            : null;
-        if (cachedProject && this.isNoteProjectLike(cachedProject)) return null;
         return {
             id,
             name,
             isArchived: entry.isArchived === true,
-            isLocalOnly: entry.isLocalOnly === true || (!id && entry.isLocalOnly !== false)
+            isLocalOnly: entry.isLocalOnly === true || (!id && entry.isLocalOnly !== false),
+            kind: typeof entry.kind === "string" ? entry.kind : undefined,
+            viewMode: typeof entry.viewMode === "string" ? entry.viewMode : undefined
         };
     }
 
@@ -529,6 +515,18 @@ export default class DidaSyncPlugin extends Plugin {
         if (!task || typeof task !== "object") return false;
         if (task.kind === "NOTE" || task.projectKind === "NOTE") return true;
         if (typeof task.projectViewMode === "string" && task.projectViewMode.trim().toLowerCase() === "note") return true;
+        return false;
+    }
+
+    isTaskListItem(task: any) {
+        return !!task && !this.isNoteSyncTaskLike(task);
+    }
+
+    isNoteListItem(task: any, requireSelectedProject = false) {
+        if (!task || typeof task !== "object") return false;
+        const kind = typeof task.kind === "string" ? task.kind.trim().toUpperCase() : "";
+        if (kind !== "NOTE") return false;
+        if (!requireSelectedProject) return true;
         return this.isDidaNoteSyncProjectId(task.projectId);
     }
 
@@ -546,7 +544,7 @@ export default class DidaSyncPlugin extends Plugin {
         });
         (Array.isArray(this.settings.tasks) ? this.settings.tasks : []).forEach((task) => {
             if (!task || task.parentId) return;
-            if (task.projectKind === "NOTE" || task.kind === "NOTE") return;
+            if (!this.isTaskListItem(task)) return;
             let name = task.projectName || "";
             let id = task.projectId || "";
             if (!name && id) {
@@ -618,6 +616,7 @@ export default class DidaSyncPlugin extends Plugin {
         const hasId = !!id;
         return (Array.isArray(this.settings.tasks) ? this.settings.tasks : []).filter((task) => {
             if (!task) return false;
+            if (!this.isTaskListItem(task)) return false;
             const byId = hasId && task.projectId === id;
             const byName = task.projectName === name;
             return byId || byName;
@@ -1202,9 +1201,23 @@ export default class DidaSyncPlugin extends Plugin {
                     id: isInbox ? "inbox" : entry.id || "",
                     name: isInbox ? "收集箱" : entry.name,
                     isArchived: entry.isArchived === true,
-                    isLocalOnly: entry.isLocalOnly === true
+                    isLocalOnly: entry.isLocalOnly === true,
+                    kind: entry.kind,
+                    viewMode: entry.viewMode
                 });
             }
+        });
+        return Array.from(map.values()).sort((a, b) =>
+            a.name === "收集箱" ? -1 : b.name === "收集箱" ? 1 : a.name.localeCompare(b.name)
+        );
+    }
+
+    getNoteSyncProjectConfigs() {
+        const map = new Map<string, ProjectCatalogEntry>();
+        this.getProjectCatalog().forEach((entry) => {
+            if (!entry || !entry.name || !entry.id) return;
+            const key = this.getProjectIconConfigKey(entry.id, entry.name);
+            if (!map.has(key)) map.set(key, entry);
         });
         return Array.from(map.values()).sort((a, b) =>
             a.name === "收集箱" ? -1 : b.name === "收集箱" ? 1 : a.name.localeCompare(b.name)
@@ -1219,7 +1232,7 @@ export default class DidaSyncPlugin extends Plugin {
 
     getProjectDisplayInfo(projectId: string, fallbackName?: string) {
         const normalizedId = typeof projectId === "string" && projectId.trim() ? projectId.trim() : "inbox";
-        const project = this.findProjectById(normalizedId);
+        const project = this.getProjectCatalog().find((entry) => entry?.id === normalizedId) || this.findProjectById(normalizedId);
         const cached = (this.settings.projects || []).find((item) => item.id === normalizedId);
         const name = project?.name || cached?.name || fallbackName || (normalizedId === "inbox" ? "收集箱" : normalizedId);
         return {
